@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "calypso"
+version = "0.1.0"
+description = "PCIe Gen6 Atlas3 Host Card configuration and monitoring tool"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "pydantic>=2.0",
+    "click>=8.1",
+    "structlog>=23.1",
+    "nicegui>=2.0",
+    "pyserial>=3.5",
+    "serialcables-atlas3>=0.1.5",
+    "httpx>=0.24",
+    "websockets>=11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+]
+workloads = ["pynvme>=2.0; sys_platform == 'linux'"]
+
+[project.scripts]
+calypso = "calypso.cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/calypso"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
