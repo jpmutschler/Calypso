@@ -1,0 +1,10 @@
+fastapi>=0.100
+uvicorn[standard]>=0.23
+pydantic>=2.0
+click>=8.1
+structlog>=23.1
+nicegui>=2.0
+pyserial>=3.5
+serialcables-atlas3>=0.1.5
+httpx>=0.24
+websockets>=11.0
