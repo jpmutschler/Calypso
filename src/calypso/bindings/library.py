@@ -14,6 +14,9 @@ logger = get_logger(__name__)
 
 _lib_instance: ctypes.CDLL | None = None
 
+# Windows DLLs use __stdcall (WinDLL); Linux shared objects use __cdecl (CDLL).
+_load_func = ctypes.WinDLL if sys.platform == "win32" else ctypes.CDLL
+
 
 def _find_library_paths() -> list[Path]:
     """Build a list of candidate paths for the PLX SDK shared library.
@@ -70,7 +73,7 @@ def load_library(path: str | Path | None = None) -> ctypes.CDLL:
         if not lib_path.exists():
             raise LibraryLoadError(f"Library not found at: {lib_path}")
         try:
-            _lib_instance = ctypes.CDLL(str(lib_path))
+            _lib_instance = _load_func(str(lib_path))
             logger.info("plx_library_loaded", path=str(lib_path))
             return _lib_instance
         except OSError as exc:
@@ -83,7 +86,7 @@ def load_library(path: str | Path | None = None) -> ctypes.CDLL:
     for candidate in candidates:
         if candidate.exists():
             try:
-                _lib_instance = ctypes.CDLL(str(candidate))
+                _lib_instance = _load_func(str(candidate))
                 logger.info("plx_library_loaded", path=str(candidate))
                 return _lib_instance
             except OSError as exc:
@@ -92,7 +95,7 @@ def load_library(path: str | Path | None = None) -> ctypes.CDLL:
     # Try loading by name as last resort (relies on system PATH/LD_LIBRARY_PATH)
     lib_name = "PlxApi.dll" if sys.platform == "win32" else "libPlxApi.so"
     try:
-        _lib_instance = ctypes.CDLL(lib_name)
+        _lib_instance = _load_func(lib_name)
         logger.info("plx_library_loaded", path=lib_name)
         return _lib_instance
     except OSError as exc:
