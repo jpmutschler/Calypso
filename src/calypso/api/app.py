@@ -72,7 +72,8 @@ def create_app(enable_ui: bool = True) -> FastAPI:
 
     # Register API routes
     from calypso.api.routes import (
-        configuration, devices, eeprom, mcu, performance, phy, ports, registers, topology,
+        configuration, devices, eeprom, ltssm, mcu, performance, phy, ports, registers,
+        topology,
     )
     app.include_router(devices.router, prefix="/api")
     app.include_router(ports.router, prefix="/api")
@@ -82,6 +83,7 @@ def create_app(enable_ui: bool = True) -> FastAPI:
     app.include_router(registers.router, prefix="/api")
     app.include_router(eeprom.router, prefix="/api")
     app.include_router(phy.router, prefix="/api")
+    app.include_router(ltssm.router, prefix="/api")
     app.include_router(mcu.router)
 
     # Always register workloads routes -- endpoints handle missing backends gracefully

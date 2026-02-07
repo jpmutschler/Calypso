@@ -236,6 +236,7 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear` | PCIe config space |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `GET /{id}/phy/lane-margining`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer |
+| LTSSM | `GET /{id}/ltssm/snapshot`, `POST /{id}/ltssm/retrain`, `GET /{id}/ltssm/retrain/progress`, `GET /{id}/ltssm/retrain/result`, `POST /{id}/ltssm/clear-counters`, `POST /{id}/ltssm/ptrace/configure`, `POST /{id}/ltssm/ptrace/start`, `POST /{id}/ltssm/ptrace/stop`, `GET /{id}/ltssm/ptrace/status`, `GET /{id}/ltssm/ptrace/buffer` | LTSSM state trace + Ptrace capture |
 | MCU | `GET /mcu/discover`, `POST /mcu/connect`, `GET /mcu/health`, `GET /mcu/ports`, `GET /mcu/errors`, `GET /mcu/config/*`, `POST /mcu/bist` | MCU serial |
 | Workloads | `GET /workloads/backends`, `POST /workloads/start`, `POST /workloads/{id}/stop`, `GET /workloads/{id}`, `GET /workloads`, `GET /workloads/{id}/combined/{device_id}`, `WS /workloads/{id}/stream` | NVMe workload generation + live progress |
 
@@ -260,6 +261,8 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Registers | `/switch/{id}/registers` | Config space browser, capabilities, AER, link control, device control |
 | EEPROM | `/switch/{id}/eeprom` | Hex viewer, write with confirmation, CRC management |
 | PHY Monitor | `/switch/{id}/phy` | Equalization, SerDes, UTP testing, lane margining |
+| Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |
+| LTSSM Trace | `/switch/{id}/ltssm` | LTSSM state polling, retrain-and-watch with state transition chart, Ptrace capture |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 
 ### MCU Pages (Serial)
