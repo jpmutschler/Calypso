@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpeedsVector
+from calypso.models.phy_api import (
+    EyeSweepResult,
+    LaneMarginCapabilitiesResponse,
+    SweepProgress,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["phy"])
 
@@ -361,3 +371,121 @@ async def prepare_utp_test(
     monitor = _get_phy_monitor(device_id, port_number)
     monitor.prepare_utp_test(pattern=pattern, rate=rate, port_select=body.port_select)
     return {"status": "prepared", "pattern": body.preset, "rate": rate.name}
+
+
+# --- Lane Margining Sweep (Eye Diagram) ---
+
+
+def _get_margining_engine(device_id: str, port_number: int):
+    from calypso.core.lane_margining import LaneMarginingEngine
+    sw = _get_switch(device_id)
+    return LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
+
+
+@router.get(
+    "/devices/{device_id}/phy/margining/capabilities",
+    response_model=LaneMarginCapabilitiesResponse,
+)
+async def get_margining_capabilities(
+    device_id: str,
+    port_number: int = Query(0, ge=0, le=143),
+) -> LaneMarginCapabilitiesResponse:
+    """Read lane margining capabilities for a port."""
+    try:
+        engine = _get_margining_engine(device_id, port_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    caps = engine.get_capabilities()
+    return LaneMarginCapabilitiesResponse(
+        max_timing_offset=caps.max_timing_offset,
+        max_voltage_offset=caps.max_voltage_offset,
+        num_timing_steps=caps.num_timing_steps,
+        num_voltage_steps=caps.num_voltage_steps,
+        ind_up_down_voltage=caps.ind_up_down_voltage,
+        ind_left_right_timing=caps.ind_left_right_timing,
+    )
+
+
+class SweepRequest(BaseModel):
+    lane: int = Field(ge=0, le=15)
+    port_number: int = Field(0, ge=0, le=143)
+    receiver: int = Field(0, ge=0, le=3, description="0=broadcast, 1=A, 2=B, 3=C")
+
+
+@router.post("/devices/{device_id}/phy/margining/sweep")
+async def start_margining_sweep(
+    device_id: str,
+    body: SweepRequest,
+) -> dict[str, str]:
+    """Start a background lane margining sweep for eye diagram data."""
+    from calypso.core.lane_margining import get_sweep_progress
+    from calypso.models.phy import MarginingReceiverNumber
+
+    progress = get_sweep_progress(device_id, body.lane)
+    if progress.status == "running":
+        raise HTTPException(status_code=409, detail="Sweep already running on this lane")
+
+    try:
+        engine = _get_margining_engine(device_id, body.port_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    receiver = MarginingReceiverNumber(body.receiver)
+
+    def _run_sweep():
+        try:
+            engine.sweep_lane(body.lane, device_id, receiver)
+        except Exception:
+            logger.exception("Background sweep failed for lane %d", body.lane)
+
+    asyncio.get_event_loop().run_in_executor(None, _run_sweep)
+
+    return {"status": "started", "lane": str(body.lane)}
+
+
+@router.get(
+    "/devices/{device_id}/phy/margining/progress",
+    response_model=SweepProgress,
+)
+async def get_margining_progress(
+    device_id: str,
+    lane: int = Query(0, ge=0, le=15),
+) -> SweepProgress:
+    """Poll the progress of a running margining sweep."""
+    from calypso.core.lane_margining import get_sweep_progress
+    return get_sweep_progress(device_id, lane)
+
+
+@router.get(
+    "/devices/{device_id}/phy/margining/result",
+    response_model=EyeSweepResult,
+)
+async def get_margining_result(
+    device_id: str,
+    lane: int = Query(0, ge=0, le=15),
+) -> EyeSweepResult:
+    """Get the completed sweep result for a lane."""
+    from calypso.core.lane_margining import get_sweep_result
+    result = get_sweep_result(device_id, lane)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No sweep result available for this lane")
+    return result
+
+
+class ResetRequest(BaseModel):
+    lane: int = Field(ge=0, le=15)
+    port_number: int = Field(0, ge=0, le=143)
+
+
+@router.post("/devices/{device_id}/phy/margining/reset")
+async def reset_margining(
+    device_id: str,
+    body: ResetRequest,
+) -> dict[str, str]:
+    """Send GO_TO_NORMAL_SETTINGS to reset a lane after margining."""
+    try:
+        engine = _get_margining_engine(device_id, body.port_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    engine.reset_lane(body.lane)
+    return {"status": "reset", "lane": str(body.lane)}

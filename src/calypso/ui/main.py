@@ -62,6 +62,11 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.phy_monitor import phy_monitor_page
         phy_monitor_page(device_id)
 
+    @ui.page("/switch/{device_id}/eye")
+    def eye_diagram(device_id: str):
+        from calypso.ui.pages.eye_diagram import eye_diagram_page
+        eye_diagram_page(device_id)
+
     @ui.page("/switch/{device_id}/workloads")
     def workloads_ui(device_id: str):
         from calypso.ui.pages.workloads import workloads_page

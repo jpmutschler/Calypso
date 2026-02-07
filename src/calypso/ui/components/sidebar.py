@@ -49,6 +49,8 @@ def sidebar_nav(
                        active=(current_path == f"{base}/eeprom"), indent=True)
             _nav_item("PHY Monitor", "cable", f"{base}/phy",
                        active=(current_path == f"{base}/phy"), indent=True)
+            _nav_item("Eye Diagram", "visibility", f"{base}/eye",
+                       active=(current_path == f"{base}/eye"), indent=True)
 
             try:
                 from calypso.workloads import is_any_backend_available
