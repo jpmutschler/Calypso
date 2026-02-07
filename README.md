@@ -232,7 +232,8 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Ports | `GET /{id}/ports`, `GET /{id}/ports/{n}` | Port status |
 | Performance | `POST /{id}/perf/start`, `POST /{id}/perf/stop`, `GET /{id}/perf/snapshot`, `WS /{id}/perf/stream` | Perf monitoring + live WebSocket |
 | Config | `GET /{id}/config` | Switch configuration |
-| Topology | `GET /{id}/topology` | Fabric topology with connector mapping |
+| Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
+| Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear` | PCIe config space |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `GET /{id}/phy/lane-margining`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer |
@@ -257,7 +258,8 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Ports | `/switch/{id}/ports` | Port grid with link status |
 | Performance | `/switch/{id}/perf` | Live WebSocket streaming, bandwidth + utilization charts |
 | Configuration | `/switch/{id}/config` | Virtual switch and multi-host config |
-| Topology | `/switch/{id}/topology` | Fabric topology with connector health, hardware reference |
+| Topology | `/switch/{id}/topology` | Fabric topology with connector health, hardware reference, downstream device identification |
+| Error Overview | `/switch/{id}/errors` | Combined AER, MCU, and LTSSM error view with per-port breakdown |
 | Registers | `/switch/{id}/registers` | Config space browser, capabilities, AER, link control, device control |
 | EEPROM | `/switch/{id}/eeprom` | Hex viewer, write with confirmation, CRC management |
 | PHY Monitor | `/switch/{id}/phy` | Equalization, SerDes, UTP testing, lane margining |

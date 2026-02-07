@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_DEVICE_KEY
 from calypso.hardware.atlas3 import get_board_profile
+from calypso.hardware.pcie_registers import PCIeConfigSpace
 from calypso.models.port import PortRole, PortStatus, LINK_SPEED_VALUE_MAP, LinkSpeed
-from calypso.models.topology import TopologyMap, TopologyPort, TopologyStation
+from calypso.models.topology import (
+    ConnectedDevice,
+    TopologyMap,
+    TopologyPort,
+    TopologyStation,
+    device_type_name,
+)
 from calypso.sdk import device as sdk_device
+from calypso.sdk.registers import read_pci_register, read_pci_register_fast
 from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -47,6 +55,9 @@ class TopologyMapper:
         except Exception:
             logger.warning("topology_port_query_failed")
 
+        # Build a BDF lookup for DSP device probing
+        dsp_key_map = self._build_dsp_key_map()
+
         stations: list[TopologyStation] = []
         upstream_ports: list[int] = []
         downstream_ports: list[int] = []
@@ -75,6 +86,13 @@ class TopologyMapper:
                             upstream_ports.append(port_num)
                         elif ps.role == PortRole.DOWNSTREAM:
                             downstream_ports.append(port_num)
+                            # Probe for connected device on link-up DSPs
+                            if ps.is_link_up:
+                                connected = self._probe_downstream_device(
+                                    port_num, dsp_key_map,
+                                )
+                                if connected is not None:
+                                    port.connected_device = connected
 
                     stn_ports.append(port)
                     total_ports += 1
@@ -103,3 +121,79 @@ class TopologyMapper:
             upstream_ports=upstream_ports,
             downstream_ports=downstream_ports,
         )
+
+    def _build_dsp_key_map(self) -> dict[int, PLX_DEVICE_KEY]:
+        """Build a mapping of PlxPort -> device key for DSP enumeration.
+
+        Enumerates all devices visible through the SDK and returns keys
+        indexed by their PLX port number.
+        """
+        key_map: dict[int, PLX_DEVICE_KEY] = {}
+        try:
+            all_keys = sdk_device.find_devices()
+            for k in all_keys:
+                key_map[k.PlxPort] = k
+        except Exception:
+            logger.warning("dsp_key_map_build_failed")
+        return key_map
+
+    def _probe_downstream_device(
+        self,
+        port_number: int,
+        dsp_key_map: dict[int, PLX_DEVICE_KEY],
+    ) -> ConnectedDevice | None:
+        """Probe for a device behind a downstream port.
+
+        Reads the DSP's secondary bus number from bridge config (offset 0x18),
+        then probes slot 0, function 0 on that bus for a connected device.
+        """
+        dsp_key = dsp_key_map.get(port_number)
+        if dsp_key is None:
+            return None
+
+        dsp_device = None
+        try:
+            dsp_device = sdk_device.open_device(dsp_key)
+
+            # Read Type 1 header offset 0x18: primary/secondary/subordinate bus
+            bus_reg = read_pci_register_fast(dsp_device, PCIeConfigSpace.PRIMARY_BUS)
+            secondary_bus = (bus_reg >> 8) & 0xFF
+
+            if secondary_bus == 0 or secondary_bus == 0xFF:
+                return None
+
+            # Probe slot 0, function 0 on the secondary bus
+            id_reg = read_pci_register(secondary_bus, 0, 0, PCIeConfigSpace.VENDOR_ID)
+            vendor_id = id_reg & 0xFFFF
+            dev_id = (id_reg >> 16) & 0xFFFF
+
+            if vendor_id == 0xFFFF or vendor_id == 0:
+                return None
+
+            # Read class code register (offset 0x08)
+            class_reg = read_pci_register(secondary_bus, 0, 0, PCIeConfigSpace.REVISION_ID)
+            revision = class_reg & 0xFF
+            subclass = (class_reg >> 16) & 0xFF
+            class_code = (class_reg >> 24) & 0xFF
+
+            domain = getattr(dsp_key, "domain", 0)
+            bdf = f"{domain:04X}:{secondary_bus:02X}:00.0"
+
+            return ConnectedDevice(
+                bdf=bdf,
+                vendor_id=vendor_id,
+                device_id=dev_id,
+                class_code=class_code,
+                subclass=subclass,
+                revision=revision,
+                device_type=device_type_name(class_code, subclass),
+            )
+        except Exception:
+            logger.debug("probe_downstream_failed", port=port_number)
+            return None
+        finally:
+            if dsp_device is not None:
+                try:
+                    sdk_device.close_device(dsp_device)
+                except Exception:
+                    pass

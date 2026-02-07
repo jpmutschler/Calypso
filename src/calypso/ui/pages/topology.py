@@ -485,6 +485,22 @@ def _render_port_grid(ports: list[dict]) -> None:
                         f"color: {status_color}; font-size: 11px"
                     )
 
+                # Show connected device info on DSP ports
+                connected = port.get("connected_device")
+                if connected:
+                    dev_type = connected.get("device_type", "")
+                    vid = connected.get("vendor_id", 0)
+                    did = connected.get("device_id", 0)
+                    if dev_type:
+                        ui.badge(dev_type).props("outline").style(
+                            f"color: {COLORS.cyan}; border-color: {COLORS.cyan}; "
+                            f"font-size: 9px"
+                        )
+                    if vid:
+                        ui.label(f"{vid:04x}:{did:04x}").style(
+                            f"color: {COLORS.text_muted}; font-size: 9px"
+                        )
+
 
 def _port_is_up(port: dict) -> bool:
     """Check if a port is link-up from its status dict."""
