@@ -1,12 +1,15 @@
 """Hardware-specific layout definitions."""
 
 from calypso.hardware.atlas3 import (
+    BoardProfile,
     CONNECTOR_MAP,
-    CON_TO_CN,
     ConnectorInfo,
+    PROFILE_80,
+    PROFILE_144,
     STATION_MAP,
     StationInfo,
     connector_for_port,
+    get_board_profile,
     port_register_base,
     station_for_port,
 )
@@ -25,9 +28,11 @@ from calypso.hardware.atlas3_phy import (
 )
 
 __all__ = [
+    "BoardProfile",
     "CONNECTOR_MAP",
-    "CON_TO_CN",
     "ConnectorInfo",
+    "PROFILE_80",
+    "PROFILE_144",
     "PhyCmdStatusBits",
     "PhyCmdStatusRegister",
     "PortControlRegister",
@@ -40,6 +45,7 @@ __all__ = [
     "UserTestPattern",
     "VendorPhyRegs",
     "connector_for_port",
+    "get_board_profile",
     "get_quad_diag_offset",
     "get_utp_preset",
     "port_register_base",

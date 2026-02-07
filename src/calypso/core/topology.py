@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_DEVICE_KEY
-from calypso.hardware.atlas3 import STATION_MAP, station_for_port
+from calypso.hardware.atlas3 import get_board_profile
 from calypso.models.port import PortRole, PortStatus, LINK_SPEED_VALUE_MAP, LinkSpeed
 from calypso.models.topology import TopologyMap, TopologyPort, TopologyStation
 from calypso.sdk import device as sdk_device
@@ -27,6 +27,8 @@ class TopologyMapper:
         """
         chip_type, revision = sdk_device.get_chip_type(self._device)
         feat = sdk_device.get_chip_port_mask(chip_type, revision)
+
+        profile = get_board_profile(chip_type)
 
         from calypso.bindings.constants import PlxChipFamily
         family_name = "unknown"
@@ -78,8 +80,8 @@ class TopologyMapper:
                     total_ports += 1
 
             if stn_ports:
-                # Add hardware mapping metadata from Atlas3 layout
-                hw_stn = STATION_MAP.get(stn_idx)
+                # Add hardware mapping metadata from board profile
+                hw_stn = profile.station_map.get(stn_idx)
                 connector_name = hw_stn.connector if hw_stn else None
                 label = hw_stn.label if hw_stn else None
                 lane_range = hw_stn.port_range if hw_stn else None

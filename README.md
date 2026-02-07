@@ -4,16 +4,37 @@ PCIe Gen6 Atlas3 Host Card (PEX90144/PEX90080) configuration and monitoring tool
 
 ## Hardware
 
-Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables Atlas3 Host Card (Rev 1.1).
+Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables Atlas3 Host Card (Rev 1.1). Both variants share 5 physical connectors (CN0-CN4) but map them to different stations.
+
+### PCI6-AD-X16HI-BG6-144 (PEX90144) -- 144 lanes, 6 stations
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|
-| STN0 | 0-15 | -- | Atlas root complex |
+| STN0 | 0-15 | -- | Root Complex |
 | STN1 | 16-31 | -- | Reserved |
-| STN2 | 32-47 | Golden finger | Host PCIe x16 upstream |
-| STN5 | 80-95 | CN1 (Straddle) | PCIe straddle connector |
-| STN7 | 112-127 | CN2/CN3 (Ext MCIO) | External MCIO |
-| STN8 | 128-143 | CN4/CN5 (Int MCIO) | Internal MCIO |
+| STN2 | 32-47 | Golden Finger | Host PCIe x16 upstream |
+| STN5 | 80-95 | CN4 (Straddle) | PCIe straddle connector |
+| STN7 | 112-127 | CN0/CN1 (Ext MCIO) | External MCIO |
+| STN8 | 128-143 | CN2/CN3 (Int MCIO) | Internal MCIO |
+
+### PCI6-AD-X16HI-BG6-80 (PEX90080) -- 80 lanes, 4 stations
+
+| Station | Port Range | Connector | Purpose |
+|---------|-----------|-----------|---------|
+| STN0 | 0-15 | CN2/CN3 (Int MCIO) | Internal MCIO |
+| STN1 | 16-31 | Golden Finger | Host PCIe x16 upstream |
+| STN2 | 32-47 | CN0/CN1 (Ext MCIO) | External MCIO |
+| STN6 | 96-111 | CN4 (Straddle) | PCIe straddle connector |
+
+### Connector Pinout (CN0-CN4)
+
+| Connector | PEX90144 Lanes (Station) | PEX90080 Lanes (Station) | Type |
+|-----------|-------------------------|-------------------------|------|
+| CN0 | 120-127 (STN7) | 40-47 (STN2) | Ext MCIO |
+| CN1 | 112-119 (STN7) | 32-39 (STN2) | Ext MCIO |
+| CN2 | 136-143 (STN8) | 8-15 (STN0) | Int MCIO |
+| CN3 | 128-135 (STN8) | 0-7 (STN0) | Int MCIO |
+| CN4 | 80-95 (STN5) | 96-111 (STN6) | Straddle |
 
 ## Requirements
 

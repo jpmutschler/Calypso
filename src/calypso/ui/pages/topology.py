@@ -4,40 +4,32 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from calypso.hardware.atlas3 import CONNECTOR_MAP, CON_TO_CN, STATION_MAP
+from calypso.hardware.atlas3 import (
+    BoardProfile,
+    PROFILE_144,
+    get_board_profile,
+)
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
 
-# Connector type labels (not stored in atlas3.py dataclasses)
-_CONNECTOR_TYPES: dict[str, str] = {
-    "CN1": "Straddle",
-    "CN2": "Ext MCIO",
-    "CN3": "Ext MCIO",
-    "CN4": "Int MCIO",
-    "CN5": "Int MCIO",
-}
 
-# Reverse CON_TO_CN for lookup: cn_name -> "CONn"
-_CN_TO_CON: dict[str, str] = {cn: f"CON{con_id}" for con_id, cn in CON_TO_CN.items()}
-
-
-def _build_connector_ref() -> list[dict]:
-    """Build connector reference table rows from atlas3 hardware data."""
+def _build_connector_ref(profile: BoardProfile) -> list[dict]:
+    """Build connector reference table rows from a board profile."""
     return [
         {
             "name": cn_name,
-            "type": _CONNECTOR_TYPES.get(cn_name, "Unknown"),
+            "type": info.connector_type or "Unknown",
             "station": info.station,
             "lanes": f"{info.lanes[0]}-{info.lanes[1]}",
             "width": f"x{info.lanes[1] - info.lanes[0] + 1}",
-            "con": _CN_TO_CON.get(cn_name, ""),
+            "con_id": info.con_id,
         }
-        for cn_name, info in sorted(CONNECTOR_MAP.items())
+        for cn_name, info in sorted(profile.connector_map.items())
     ]
 
 
-def _build_station_ref() -> list[dict]:
-    """Build station reference table rows from atlas3 hardware data."""
+def _build_station_ref(profile: BoardProfile) -> list[dict]:
+    """Build station reference table rows from a board profile."""
     return [
         {
             "stn": stn_id,
@@ -45,12 +37,35 @@ def _build_station_ref() -> list[dict]:
             "ports": f"{stn.port_range[0]}-{stn.port_range[1]}",
             "connector": stn.connector,
         }
-        for stn_id, stn in sorted(STATION_MAP.items())
+        for stn_id, stn in sorted(profile.station_map.items())
     ]
 
 
-_CONNECTOR_REF = _build_connector_ref()
-_STATION_REF = _build_station_ref()
+def _build_block_diagram(profile: BoardProfile) -> str:
+    """Build an ASCII block diagram for the given board profile."""
+    if profile.chip_name == "PEX90080":
+        return (
+            "  [Host CPU] &lt;--x16--&gt; [Golden Finger / STN1]\n"
+            "                               |\n"
+            "                      [Atlas3 PEX90080 Switch]\n"
+            "                        /      |       \\\n"
+            "                  STN0(Int MCIO)  STN2(Ext MCIO)  STN6(Straddle)\n"
+            "                  CN2[8:15]x8     CN0[40:47]x8     CN4[96:111]x16\n"
+            "                  CN3[0:7]x8      CN1[32:39]x8"
+        )
+    # Default: PEX90144
+    return (
+        "  [Host CPU] &lt;--x16--&gt; [Golden Finger / STN2]\n"
+        "                               |\n"
+        "                      [Atlas3 PEX90144 Switch]\n"
+        "                        /      |       \\\n"
+        "                  STN0(RC)   STN1(Rsvd)  STN5(Straddle/CN4)\n"
+        "                                          x16\n"
+        "                        /               \\\n"
+        "           STN7(Ext MCIO)            STN8(Int MCIO)\n"
+        "           CN1[112:119]x8            CN3[128:135]x8\n"
+        "           CN0[120:127]x8            CN2[136:143]x8"
+    )
 
 
 def topology_page(device_id: str) -> None:
@@ -58,6 +73,7 @@ def topology_page(device_id: str) -> None:
 
     def content():
         topo_data: dict = {}
+        active_profile: list[BoardProfile] = [PROFILE_144]
 
         async def load_topology():
             try:
@@ -66,6 +82,13 @@ def topology_page(device_id: str) -> None:
                 )
                 topo_data.clear()
                 topo_data.update(resp)
+
+                chip_id = topo_data.get("chip_id", 0)
+                detected = get_board_profile(chip_id)
+                if detected.chip_name != active_profile[0].chip_name:
+                    active_profile[0] = detected
+                    refresh_hw_reference()
+
                 refresh_topology()
             except Exception as e:
                 ui.notify(f"Error: {e}", type="negative")
@@ -73,8 +96,16 @@ def topology_page(device_id: str) -> None:
         with ui.row().classes("items-center gap-4"):
             ui.button("Load Topology", on_click=load_topology).props("flat color=primary")
 
-        # Hardware reference (always visible)
-        _render_hardware_reference()
+        # Hardware reference (refreshable -- updates when live data reveals board variant)
+        ref_container = ui.column().classes("w-full")
+
+        @ui.refreshable
+        def refresh_hw_reference():
+            ref_container.clear()
+            with ref_container:
+                _render_hardware_reference(active_profile[0])
+
+        refresh_hw_reference()
 
         # Live topology data
         topo_container = ui.column().classes("w-full gap-4")
@@ -92,19 +123,23 @@ def topology_page(device_id: str) -> None:
                         )
                     return
 
-                _render_fabric_summary(topo_data)
-                _render_connector_health(topo_data)
-                _render_station_cards(topo_data)
+                profile = active_profile[0]
+                _render_fabric_summary(topo_data, profile)
+                _render_connector_health(topo_data, profile)
+                _render_station_cards(topo_data, profile)
 
         refresh_topology()
 
     page_layout("Switch Topology", content, device_id=device_id)
 
 
-def _render_hardware_reference() -> None:
+def _render_hardware_reference(profile: BoardProfile) -> None:
     """Render the static Atlas3 hardware reference cards."""
+    connector_ref = _build_connector_ref(profile)
+    station_ref = _build_station_ref(profile)
+
     with ui.expansion(
-        "Atlas3 Host Card Reference",
+        f"Atlas3 Host Card Reference ({profile.chip_name})",
         icon="developer_board",
     ).classes("w-full").style(
         f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}; "
@@ -122,10 +157,10 @@ def _render_hardware_reference() -> None:
                     {"name": "station", "label": "Station", "field": "station", "align": "center"},
                     {"name": "lanes", "label": "Lanes", "field": "lanes", "align": "center"},
                     {"name": "width", "label": "Width", "field": "width", "align": "center"},
-                    {"name": "con", "label": "CON ID", "field": "con", "align": "center"},
+                    {"name": "con_id", "label": "CON ID", "field": "con_id", "align": "center"},
                 ]
                 ui.table(
-                    columns=columns, rows=_CONNECTOR_REF, row_key="name"
+                    columns=columns, rows=connector_ref, row_key="name"
                 ).classes("w-full")
 
             # Station reference table
@@ -140,7 +175,7 @@ def _render_hardware_reference() -> None:
                         "ports": s["ports"],
                         "connector": s["connector"] or "-",
                     }
-                    for s in _STATION_REF
+                    for s in station_ref
                 ]
                 columns = [
                     {"name": "stn", "label": "Station", "field": "stn", "align": "left"},
@@ -160,21 +195,10 @@ def _render_hardware_reference() -> None:
                 f"font-size: 12px; background: {COLORS.bg_primary}; "
                 f"padding: 12px; border-radius: 4px; line-height: 1.4"
             ):
-                ui.html(
-                    "  [Host CPU] &lt;--x16--&gt; [Golden Finger / STN2]\n"
-                    "                               |\n"
-                    "                      [Atlas3 PEX90144 Switch]\n"
-                    "                        /      |       \\\n"
-                    "                  STN0(RC)   STN1(Rsvd)  STN5(Straddle/CN1)\n"
-                    "                                          x16\n"
-                    "                        /               \\\n"
-                    "           STN7(Ext MCIO)            STN8(Int MCIO)\n"
-                    "           CN3[112:119]x8            CN5[128:135]x8\n"
-                    "           CN2[120:127]x8            CN4[136:143]x8"
-                )
+                ui.html(_build_block_diagram(profile))
 
 
-def _render_fabric_summary(topo_data: dict) -> None:
+def _render_fabric_summary(topo_data: dict, profile: BoardProfile) -> None:
     """Render the fabric summary card with chip info and port counts."""
     with ui.card().classes("w-full p-4").style(
         f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
@@ -190,8 +214,9 @@ def _render_fabric_summary(topo_data: dict) -> None:
         ports_up = sum(1 for p in all_ports if _port_is_up(p))
         ports_down = len(all_ports) - ports_up
 
-        with ui.grid(columns=6).classes("gap-4"):
+        with ui.grid(columns=7).classes("gap-4"):
             _stat_chip("Chip", f"0x{topo_data.get('chip_id', 0):04X}")
+            _stat_chip("Board", profile.chip_name)
             _stat_chip("Family", topo_data.get("chip_family", "unknown"))
             _stat_chip("Stations", str(topo_data.get("station_count", 0)))
             _stat_chip("Total Ports", str(topo_data.get("total_ports", 0)))
@@ -218,14 +243,14 @@ def _render_fabric_summary(topo_data: dict) -> None:
             ).style(f"color: {COLORS.green}")
 
 
-def _render_connector_health(topo_data: dict) -> None:
+def _render_connector_health(topo_data: dict, profile: BoardProfile) -> None:
     """Render per-connector health summary showing link status at a glance."""
     stations = topo_data.get("stations", [])
     if not stations:
         return
 
-    # Build connector-level summaries from live topology data
-    connector_stats = _build_connector_stats(stations)
+    connector_ref = _build_connector_ref(profile)
+    connector_stats = _build_connector_stats(stations, connector_ref)
     if not connector_stats:
         return
 
@@ -240,19 +265,20 @@ def _render_connector_health(topo_data: dict) -> None:
                 _render_connector_health_chip(cs)
 
 
-def _build_connector_stats(stations: list[dict]) -> list[dict]:
+def _build_connector_stats(
+    stations: list[dict],
+    connector_ref: list[dict],
+) -> list[dict]:
     """Build per-connector statistics from live station/port data."""
-    # Map station index -> station data
     stn_map = {s.get("station_index", -1): s for s in stations}
 
     stats = []
-    for ref in _CONNECTOR_REF:
+    for ref in connector_ref:
         stn_data = stn_map.get(ref["station"])
         if not stn_data:
             continue
         ports = stn_data.get("ports", [])
         lane_lo, lane_hi = (int(x) for x in ref["lanes"].split("-"))
-        # Filter ports that belong to this specific connector
         connector_ports = [
             p for p in ports
             if lane_lo <= p.get("port_number", -1) <= lane_hi
@@ -260,7 +286,6 @@ def _build_connector_stats(stations: list[dict]) -> list[dict]:
         up = sum(1 for p in connector_ports if _port_is_up(p))
         down = len(connector_ports) - up
 
-        # Find active link speed from first link-up port
         active_speed = "none"
         for p in connector_ports:
             st = p.get("status")
@@ -320,7 +345,7 @@ def _render_connector_health_chip(cs: dict) -> None:
             )
 
 
-def _render_station_cards(topo_data: dict) -> None:
+def _render_station_cards(topo_data: dict, profile: BoardProfile) -> None:
     """Render per-station detail cards with connector grouping."""
     for station in topo_data.get("stations", []):
         stn_idx = station.get("station_index", 0)
@@ -329,7 +354,6 @@ def _render_station_cards(topo_data: dict) -> None:
         lane_range = station.get("lane_range")
         ports = station.get("ports", [])
 
-        # Calculate station-level stats
         total = len(ports)
         up = sum(1 for p in ports if _port_is_up(p))
 
@@ -349,7 +373,6 @@ def _render_station_cards(topo_data: dict) -> None:
                     ui.label(
                         f"Ports {lane_range[0]}-{lane_range[1]}"
                     ).style(f"color: {COLORS.text_muted}")
-                # Port count summary
                 up_color = COLORS.green if up > 0 else COLORS.text_muted
                 ui.label(f"{up}/{total} up").style(
                     f"color: {up_color}; font-size: 12px"
@@ -361,11 +384,10 @@ def _render_station_cards(topo_data: dict) -> None:
                 )
                 continue
 
-            # For stations with multiple connectors (STN7, STN8), group ports
-            connector_groups = _group_ports_by_connector(stn_idx, ports)
+            # Group ports by sub-connector within the station
+            connector_groups = _group_ports_by_connector(stn_idx, ports, profile)
 
             if len(connector_groups) > 1:
-                # Multiple sub-connectors: show grouped
                 for group_name, group_ports in connector_groups.items():
                     group_up = sum(1 for p in group_ports if _port_is_up(p))
                     with ui.column().classes("w-full mb-2"):
@@ -378,21 +400,27 @@ def _render_station_cards(topo_data: dict) -> None:
                             )
                         _render_port_grid(group_ports)
             else:
-                # Single connector or ungrouped
                 _render_port_grid(ports)
 
 
-def _group_ports_by_connector(stn_idx: int, ports: list[dict]) -> dict[str, list[dict]]:
-    """Group ports by their physical connector within a station."""
-    # Station 7: CN3 [112:119], CN2 [120:127]
-    # Station 8: CN5 [128:135], CN4 [136:143]
-    connector_ranges: dict[int, list[tuple[str, int, int]]] = {
-        7: [("CN3 [112:119]", 112, 119), ("CN2 [120:127]", 120, 127)],
-        8: [("CN5 [128:135]", 128, 135), ("CN4 [136:143]", 136, 143)],
-    }
+def _group_ports_by_connector(
+    stn_idx: int,
+    ports: list[dict],
+    profile: BoardProfile,
+) -> dict[str, list[dict]]:
+    """Group ports by their physical connector within a station.
 
-    ranges = connector_ranges.get(stn_idx)
-    if not ranges:
+    Derives connector ranges from the profile's connector_map instead
+    of using hardcoded station/lane ranges.
+    """
+    # Find all connectors that belong to this station
+    stn_connectors = [
+        (cn_name, info)
+        for cn_name, info in sorted(profile.connector_map.items())
+        if info.station == stn_idx
+    ]
+
+    if len(stn_connectors) <= 1:
         return {"all": ports}
 
     groups: dict[str, list[dict]] = {}
@@ -400,9 +428,11 @@ def _group_ports_by_connector(stn_idx: int, ports: list[dict]) -> dict[str, list
     for port in ports:
         pn = port.get("port_number", -1)
         placed = False
-        for name, lo, hi in ranges:
+        for cn_name, info in stn_connectors:
+            lo, hi = info.lanes
             if lo <= pn <= hi:
-                groups.setdefault(name, []).append(port)
+                label = f"{cn_name} [{lo}:{hi}]"
+                groups.setdefault(label, []).append(port)
                 placed = True
                 break
         if not placed:
