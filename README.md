@@ -19,8 +19,9 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 
 - Python 3.10+
 - Broadcom PLX SDK (PlxApi shared library)
-- PLX kernel driver (`PlxSvc`) loaded (Linux) or Broadcom driver installed (Windows)
-- Serial connection to MCU (optional, for MCU features)
+- **Linux**: PLX kernel driver (`PlxSvc` module) loaded -- use `calypso driver build && calypso driver install`
+- **Windows**: Broadcom PlxSvc Windows service installed, `PlxApi.dll` accessible (loaded via `ctypes.WinDLL` for correct `__stdcall` calling convention)
+- Serial connection to MCU (optional, for MCU features -- requires `serialcables-atlas3` package)
 - SPDK `spdk_nvme_perf` on PATH (optional, for SPDK workload generation)
 - pynvme (optional, Linux only, for pynvme workload generation)
 
@@ -43,6 +44,25 @@ pip install -e ".[workloads]"
 ```
 
 For the SPDK backend, install `spdk_nvme_perf` as a system package and ensure it is on your PATH. See the [SPDK documentation](https://spdk.io/doc/getting_started.html) for build instructions.
+
+## PLX SDK Setup
+
+Calypso searches for the PLX SDK shared library in the following order:
+
+1. **Vendored SDK** -- `vendor/plxsdk/` in the project root (recommended for distribution)
+2. **`PLX_SDK_DIR` environment variable** -- explicit path to the SDK root
+3. **Legacy SDK directory** -- `Broadcom_PCIe_SDK_Linux_v23_2_44_0_Alpha_*/PlxSdk` in the project root
+4. **System paths** (Linux only) -- `/usr/local/lib`, `/usr/lib`, `/opt/plx/lib`
+5. **System PATH / LD_LIBRARY_PATH** -- fallback name-based load (`PlxApi.dll` or `libPlxApi.so`)
+
+On **Windows**, the library is loaded with `ctypes.WinDLL` (`__stdcall` calling convention). On **Linux**, `ctypes.CDLL` (`__cdecl`) is used.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PLX_SDK_DIR` | Path to Broadcom PLX SDK root directory | Auto-detected (vendor/plxsdk) |
+| `CALYPSO_STORAGE_SECRET` | Secret key for NiceGUI browser session storage | Random 32-byte hex per launch |
 
 ## Quick Start
 
@@ -204,11 +224,13 @@ All device endpoints prefixed with `/api/devices`. Workloads endpoints prefixed 
 
 The NiceGUI dashboard runs alongside the API server on the same port. Navigate to `http://localhost:8000/` in a browser.
 
+The dashboard uses a dark theme with consistent header, sidebar navigation, and Serial Cables branding across all pages. The discovery page auto-scans the PCIe bus on load (Windows and Linux) and displays any detected PLX devices immediately.
+
 ### Switch Pages (SDK)
 
 | Page | Route | Features |
 |------|-------|----------|
-| Discovery | `/` | Scan for devices, connect |
+| Discovery | `/` | Auto-scan PCIe bus, scan for devices via UART/SDB, MCU serial connection |
 | Dashboard | `/switch/{id}` | Device overview |
 | Ports | `/switch/{id}/ports` | Port grid with link status |
 | Performance | `/switch/{id}/perf` | Live WebSocket streaming, bandwidth + utilization charts |
@@ -233,9 +255,9 @@ The NiceGUI dashboard runs alongside the API server on the same port. Navigate t
 
 Calypso supports three transport modes for communicating with Atlas3 devices:
 
-- **PCIe** -- Direct PCIe bus access via PLX SDK and kernel driver. Primary transport for all switch operations.
-- **UART** -- Serial port communication for MCU-level operations (health, port status, error counters, BIST).
-- **SDB** -- Serial Debug Bus over USB. Alternative debug interface.
+- **PCIe** -- Direct PCIe bus access via PLX SDK. Primary transport for all switch operations. On Linux, requires the `PlxSvc` kernel module. On Windows, requires the Broadcom PlxSvc Windows service and `PlxApi.dll`.
+- **UART** -- Serial port communication via the Atlas3 MCU over USB. Used for health, port status, error counters, configuration, and BIST. Requires the `serialcables-atlas3` Python package.
+- **SDB** -- Serial Debug Bus over USB. Alternative debug interface using the PLX SDK's SDB mode.
 
 ## Development
 
