@@ -3,6 +3,22 @@
 from __future__ import annotations
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
+from calypso.hardware.pcie_registers import (
+    AERCapability,
+    CorrErrBits,
+    DevCapBits,
+    ExtCapabilityID,
+    LinkCapBits,
+    LinkCap2Bits,
+    LinkCtl2Bits,
+    LinkCtlBits,
+    LinkStsBits,
+    PCIeCapability,
+    PCIeCapabilityID,
+    PCIeLinkSpeed,
+    SPEED_STRINGS,
+    UncorrErrBits,
+)
 from calypso.models.pcie_config import (
     AerCorrectableErrors,
     AerStatus,
@@ -23,96 +39,113 @@ from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Standard capability IDs
-_CAP_ID_PCIE = 0x10
 
-# Extended capability IDs
-_EXT_CAP_AER = 0x0001
-_EXT_CAP_PHY_16GT = 0x0026
-_EXT_CAP_LANE_MARGIN = 0x0027
-_EXT_CAP_PHY_32GT = 0x002A
-
-# Standard capability name table
-_STD_CAP_NAMES: dict[int, str] = {
-    0x01: "PCI Power Management",
-    0x02: "AGP",
-    0x03: "VPD",
-    0x04: "Slot Identification",
-    0x05: "MSI",
-    0x06: "CompactPCI Hot Swap",
-    0x07: "PCI-X",
-    0x08: "HyperTransport",
-    0x09: "Vendor Specific",
-    0x0A: "Debug Port",
-    0x0B: "CompactPCI CRC",
-    0x0C: "PCI Hot Plug",
-    0x0D: "PCI Bridge Subsystem VID",
-    0x0E: "AGP 8x",
-    0x0F: "Secure Device",
-    0x10: "PCI Express",
-    0x11: "MSI-X",
-    0x12: "SATA Config",
-    0x13: "AF",
-    0x14: "Enhanced Allocation",
-    0x15: "Flattening Portal Bridge",
+# Human-readable display names for standard capabilities.
+# These preserve acronyms and conventional formatting from the PCI spec.
+_STD_CAP_DISPLAY: dict[PCIeCapabilityID, str] = {
+    PCIeCapabilityID.POWER_MANAGEMENT: "PCI Power Management",
+    PCIeCapabilityID.AGP: "AGP",
+    PCIeCapabilityID.VPD: "VPD",
+    PCIeCapabilityID.SLOT_ID: "Slot Identification",
+    PCIeCapabilityID.MSI: "MSI",
+    PCIeCapabilityID.HOT_SWAP: "CompactPCI Hot Swap",
+    PCIeCapabilityID.PCIX: "PCI-X",
+    PCIeCapabilityID.HYPERTRANSPORT: "HyperTransport",
+    PCIeCapabilityID.VENDOR_SPECIFIC: "Vendor Specific",
+    PCIeCapabilityID.DEBUG_PORT: "Debug Port",
+    PCIeCapabilityID.CPCI_CRC: "CompactPCI CRC",
+    PCIeCapabilityID.HOT_PLUG: "PCI Hot Plug",
+    PCIeCapabilityID.BRIDGE_SUBSYS_VENDOR: "PCI Bridge Subsystem VID",
+    PCIeCapabilityID.AGP_8X: "AGP 8x",
+    PCIeCapabilityID.SECURE_DEVICE: "Secure Device",
+    PCIeCapabilityID.PCIE: "PCI Express",
+    PCIeCapabilityID.MSIX: "MSI-X",
+    PCIeCapabilityID.SATA: "SATA Config",
+    PCIeCapabilityID.AF: "AF",
+    PCIeCapabilityID.EA: "Enhanced Allocation",
+    PCIeCapabilityID.FPB: "Flattening Portal Bridge",
 }
 
-# Extended capability name table
-_EXT_CAP_NAMES: dict[int, str] = {
-    0x0001: "AER",
-    0x0002: "VC",
-    0x0003: "Serial Number",
-    0x0004: "Power Budgeting",
-    0x0005: "Root Complex Link Declaration",
-    0x0006: "Root Complex Internal Link",
-    0x0007: "Root Complex Event Collector",
-    0x0008: "MFVC",
-    0x0009: "VC (MFVC)",
-    0x000A: "RCRB Header",
-    0x000B: "Vendor Specific",
-    0x000C: "Config Access Correlation",
-    0x000D: "ACS",
-    0x000E: "ARI",
-    0x000F: "ATS",
-    0x0010: "SR-IOV",
-    0x0011: "MR-IOV",
-    0x0012: "Multicast",
-    0x0013: "Page Request",
-    0x0015: "Resizable BAR",
-    0x0016: "Dynamic Power Allocation",
-    0x0017: "TPH",
-    0x0018: "LTR",
-    0x0019: "Secondary PCIe",
-    0x001A: "PMUX",
-    0x001B: "PASID",
-    0x001C: "LN Requester",
-    0x001D: "DPC",
-    0x001E: "L1 PM Substates",
-    0x001F: "Precision Time Measurement",
-    0x0020: "M-PCIe",
-    0x0021: "FRS Queueing",
-    0x0022: "Readiness Time Reporting",
-    0x0023: "Designated Vendor Specific",
-    0x0024: "VF Resizable BAR",
-    0x0025: "Data Link Feature",
-    0x0026: "Physical Layer 16.0 GT/s",
-    0x0027: "Lane Margining at Receiver",
-    0x0028: "Hierarchy ID",
-    0x0029: "NPEM",
-    0x002A: "Physical Layer 32.0 GT/s",
-    0x002B: "Alternate Protocol",
-    0x002C: "SFI",
+# Human-readable display names for extended capabilities.
+_EXT_CAP_DISPLAY: dict[ExtCapabilityID, str] = {
+    ExtCapabilityID.AER: "AER",
+    ExtCapabilityID.VC: "VC",
+    ExtCapabilityID.SERIAL_NUMBER: "Serial Number",
+    ExtCapabilityID.POWER_BUDGETING: "Power Budgeting",
+    ExtCapabilityID.ROOT_COMPLEX_LINK_DECL: "Root Complex Link Declaration",
+    ExtCapabilityID.ROOT_COMPLEX_INTERNAL_LINK: "Root Complex Internal Link",
+    ExtCapabilityID.ROOT_COMPLEX_EVENT_COLLECTOR: "Root Complex Event Collector",
+    ExtCapabilityID.MFVC: "MFVC",
+    ExtCapabilityID.VC_WITH_MFVC: "VC (MFVC)",
+    ExtCapabilityID.RCRB: "RCRB Header",
+    ExtCapabilityID.VENDOR_SPECIFIC: "Vendor Specific",
+    ExtCapabilityID.CAC: "Config Access Correlation",
+    ExtCapabilityID.ACS: "ACS",
+    ExtCapabilityID.ARI: "ARI",
+    ExtCapabilityID.ATS: "ATS",
+    ExtCapabilityID.SR_IOV: "SR-IOV",
+    ExtCapabilityID.MR_IOV: "MR-IOV",
+    ExtCapabilityID.MULTICAST: "Multicast",
+    ExtCapabilityID.PRI: "Page Request",
+    ExtCapabilityID.REBAR: "Resizable BAR",
+    ExtCapabilityID.DPA: "Dynamic Power Allocation",
+    ExtCapabilityID.TPH: "TPH",
+    ExtCapabilityID.LTR: "LTR",
+    ExtCapabilityID.SECONDARY_PCIE: "Secondary PCIe",
+    ExtCapabilityID.PMUX: "PMUX",
+    ExtCapabilityID.PASID: "PASID",
+    ExtCapabilityID.LNR: "LN Requester",
+    ExtCapabilityID.DPC: "DPC",
+    ExtCapabilityID.L1_PM_SUBSTATES: "L1 PM Substates",
+    ExtCapabilityID.PTM: "Precision Time Measurement",
+    ExtCapabilityID.MPCIE: "M-PCIe",
+    ExtCapabilityID.FRS_QUEUEING: "FRS Queueing",
+    ExtCapabilityID.RTR: "Readiness Time Reporting",
+    ExtCapabilityID.DVSEC: "Designated Vendor Specific",
+    ExtCapabilityID.VF_REBAR: "VF Resizable BAR",
+    ExtCapabilityID.DATA_LINK_FEATURE: "Data Link Feature",
+    ExtCapabilityID.PHYSICAL_LAYER_16GT: "Physical Layer 16.0 GT/s",
+    ExtCapabilityID.RECEIVER_LANE_MARGINING: "Lane Margining at Receiver",
+    ExtCapabilityID.HIERARCHY_ID: "Hierarchy ID",
+    ExtCapabilityID.NATIVE_PCIE_ENCLOSURE: "NPEM",
+    ExtCapabilityID.PHYSICAL_LAYER_32GT: "Physical Layer 32.0 GT/s",
+    ExtCapabilityID.ALTERNATE_PROTOCOL: "Alternate Protocol",
+    ExtCapabilityID.SFI: "SFI",
+    ExtCapabilityID.SHADOW_FUNCTIONS: "Shadow Functions",
+    ExtCapabilityID.DOE: "Data Object Exchange",
+    ExtCapabilityID.DEVICE_3: "Device 3",
+    ExtCapabilityID.IDE: "IDE",
+    ExtCapabilityID.PHYSICAL_LAYER_64GT: "Physical Layer 64.0 GT/s",
+    ExtCapabilityID.FLIT_LOGGING: "FLIT Logging",
+    ExtCapabilityID.FLIT_PERF_MEASUREMENT: "FLIT Performance Measurement",
+    ExtCapabilityID.FLIT_ERROR_INJECTION: "FLIT Error Injection",
 }
 
-# Link speed code to human-readable string
-_SPEED_MAP: dict[int, str] = {
-    1: "Gen1",
-    2: "Gen2",
-    3: "Gen3",
-    4: "Gen4",
-    5: "Gen5",
-    6: "Gen6",
-}
+
+def _std_cap_name(cap_id: int) -> str:
+    """Look up a human-readable standard capability name."""
+    try:
+        member = PCIeCapabilityID(cap_id)
+        return _STD_CAP_DISPLAY.get(member, member.name.replace("_", " ").title())
+    except ValueError:
+        return f"Unknown(0x{cap_id:02X})"
+
+
+def _ext_cap_name(cap_id: int) -> str:
+    """Look up a human-readable extended capability name."""
+    try:
+        member = ExtCapabilityID(cap_id)
+        return _EXT_CAP_DISPLAY.get(member, member.name.replace("_", " ").title())
+    except ValueError:
+        return f"ExtUnknown(0x{cap_id:04X})"
+
+
+def _speed_name(code: int) -> str:
+    """Convert a speed code to a human-readable generation string."""
+    try:
+        return SPEED_STRINGS[PCIeLinkSpeed(code)].split(" ")[0]  # "Gen4 (16.0 GT/s)" -> "Gen4"
+    except (ValueError, KeyError):
+        return f"Unknown({code})"
 
 # ASPM decode
 _ASPM_MAP: dict[int, str] = {
@@ -197,7 +230,7 @@ class PcieConfigReader:
             cap_id = cap_reg & 0xFF
             next_ptr = (cap_reg >> 8) & 0xFF
 
-            cap_name = _STD_CAP_NAMES.get(cap_id, f"Unknown(0x{cap_id:02X})")
+            cap_name = _std_cap_name(cap_id)
             caps.append(PcieCapabilityInfo(
                 cap_id=cap_id,
                 cap_name=cap_name,
@@ -235,7 +268,7 @@ class PcieConfigReader:
             version = (header >> 16) & 0xF
             next_offset = (header >> 20) & 0xFFC
 
-            cap_name = _EXT_CAP_NAMES.get(cap_id, f"ExtUnknown(0x{cap_id:04X})")
+            cap_name = _ext_cap_name(cap_id)
             caps.append(PcieCapabilityInfo(
                 cap_id=cap_id,
                 cap_name=cap_name,
@@ -271,28 +304,28 @@ class PcieConfigReader:
 
     def _require_pcie_cap(self) -> int:
         """Find the PCIe capability offset, raising if not found."""
-        offset = self.find_capability(_CAP_ID_PCIE)
+        offset = self.find_capability(PCIeCapabilityID.PCIE)
         if offset is None:
             raise ValueError("PCIe capability not found in config space")
         return offset
 
     def get_device_capabilities(self) -> DeviceCapabilities:
-        """Read Device Capabilities register (PCIe Cap + 0x04)."""
+        """Read Device Capabilities register."""
         pcie_cap = self._require_pcie_cap()
-        dev_cap = self.read_config_register(pcie_cap + 0x04)
+        dev_cap = self.read_config_register(pcie_cap + PCIeCapability.DEV_CAP)
 
-        mps_supported_code = dev_cap & 0x7
+        mps_supported_code = dev_cap & int(DevCapBits.MAX_PAYLOAD_MASK)
         return DeviceCapabilities(
             max_payload_supported=_decode_payload(mps_supported_code),
-            flr_capable=bool(dev_cap & (1 << 28)),
-            extended_tag_supported=bool(dev_cap & (1 << 5)),
-            role_based_error_reporting=bool(dev_cap & (1 << 15)),
+            flr_capable=bool(dev_cap & DevCapBits.FLR_CAPABLE),
+            extended_tag_supported=bool(dev_cap & DevCapBits.EXT_TAG_SUPPORTED),
+            role_based_error_reporting=bool(dev_cap & DevCapBits.ROLE_BASED_ERR_RPT),
         )
 
     def get_device_control(self) -> DeviceControlStatus:
-        """Read Device Control + Status registers (PCIe Cap + 0x08)."""
+        """Read Device Control + Status registers."""
         pcie_cap = self._require_pcie_cap()
-        dev_ctrl = self.read_config_register(pcie_cap + 0x08)
+        dev_ctrl = self.read_config_register(pcie_cap + PCIeCapability.DEV_CTL)
 
         ctrl_word = dev_ctrl & 0xFFFF
         return DeviceControlStatus(
@@ -320,7 +353,7 @@ class PcieConfigReader:
             Updated DeviceControlStatus after write.
         """
         pcie_cap = self._require_pcie_cap()
-        reg_offset = pcie_cap + 0x08
+        reg_offset = pcie_cap + PCIeCapability.DEV_CTL
         current = self.read_config_register(reg_offset)
 
         ctrl_word = current & 0xFFFF
@@ -339,58 +372,58 @@ class PcieConfigReader:
         return self.get_device_control()
 
     def get_link_capabilities(self) -> LinkCapabilities:
-        """Read Link Capabilities register (PCIe Cap + 0x0C)."""
+        """Read Link Capabilities register."""
         pcie_cap = self._require_pcie_cap()
-        link_cap = self.read_config_register(pcie_cap + 0x0C)
+        link_cap = self.read_config_register(pcie_cap + PCIeCapability.LINK_CAP)
 
-        max_speed_code = link_cap & 0xF
-        max_width = (link_cap >> 4) & 0x3F
+        max_speed_code = link_cap & int(LinkCapBits.MAX_LINK_SPEED_MASK)
+        max_width = (link_cap & int(LinkCapBits.MAX_LINK_WIDTH_MASK)) >> 4
         aspm_code = (link_cap >> 10) & 0x3
-        port_number = (link_cap >> 24) & 0xFF
+        port_number = (link_cap & int(LinkCapBits.PORT_NUMBER_MASK)) >> 24
 
         return LinkCapabilities(
-            max_link_speed=_SPEED_MAP.get(max_speed_code, f"Unknown({max_speed_code})"),
+            max_link_speed=_speed_name(max_speed_code),
             max_link_width=max_width,
             aspm_support=_ASPM_MAP.get(aspm_code, "unknown"),
             port_number=port_number,
-            dll_link_active_capable=bool(link_cap & (1 << 20)),
-            surprise_down_capable=bool(link_cap & (1 << 19)),
+            dll_link_active_capable=bool(link_cap & LinkCapBits.DL_ACTIVE_REPORTING),
+            surprise_down_capable=bool(link_cap & LinkCapBits.SURPRISE_DOWN_ERR),
         )
 
     def get_link_status(self) -> LinkControlStatus:
         """Read Link Control + Status + Link Control 2 registers."""
         pcie_cap = self._require_pcie_cap()
 
-        link_ctrl_status = self.read_config_register(pcie_cap + 0x10)
+        link_ctrl_status = self.read_config_register(pcie_cap + PCIeCapability.LINK_CTL)
         ctrl_word = link_ctrl_status & 0xFFFF
         status_word = (link_ctrl_status >> 16) & 0xFFFF
 
-        current_speed_code = status_word & 0xF
-        current_width = (status_word >> 4) & 0x3F
+        current_speed_code = status_word & int(LinkStsBits.CURRENT_LINK_SPEED_MASK)
+        current_width = (status_word & int(LinkStsBits.NEGOTIATED_WIDTH_MASK)) >> 4
 
-        link_ctrl2 = self.read_config_register(pcie_cap + 0x30)
-        target_speed_code = link_ctrl2 & 0xF
+        link_ctrl2 = self.read_config_register(pcie_cap + PCIeCapability.LINK_CTL2)
+        target_speed_code = link_ctrl2 & int(LinkCtl2Bits.TARGET_LINK_SPEED_MASK)
 
-        aspm_code = ctrl_word & 0x3
+        aspm_code = ctrl_word & int(LinkCtlBits.ASPM_MASK)
 
         return LinkControlStatus(
-            current_speed=_SPEED_MAP.get(current_speed_code, f"Unknown({current_speed_code})"),
+            current_speed=_speed_name(current_speed_code),
             current_width=current_width,
-            target_speed=_SPEED_MAP.get(target_speed_code, f"Unknown({target_speed_code})"),
+            target_speed=_speed_name(target_speed_code),
             aspm_control=_ASPM_MAP.get(aspm_code, "unknown"),
-            link_training=bool(status_word & (1 << 11)),
-            dll_link_active=bool(status_word & (1 << 13)),
-            retrain_link=bool(ctrl_word & (1 << 5)),
+            link_training=bool(status_word & LinkStsBits.LINK_TRAINING),
+            dll_link_active=bool(status_word & LinkStsBits.DL_LINK_ACTIVE),
+            retrain_link=bool(ctrl_word & LinkCtlBits.RETRAIN_LINK),
         )
 
     def retrain_link(self) -> None:
-        """Write bit 5 of Link Control to initiate link retraining."""
+        """Set the Retrain Link bit in Link Control to initiate retraining."""
         pcie_cap = self._require_pcie_cap()
-        reg_offset = pcie_cap + 0x10
+        reg_offset = pcie_cap + PCIeCapability.LINK_CTL
         current = self.read_config_register(reg_offset)
 
         ctrl_word = current & 0xFFFF
-        ctrl_word |= (1 << 5)
+        ctrl_word |= int(LinkCtlBits.RETRAIN_LINK)
         new_value = (current & 0xFFFF0000) | ctrl_word
         self.write_config_register(reg_offset, new_value)
 
@@ -404,10 +437,11 @@ class PcieConfigReader:
             raise ValueError(f"Invalid speed code {speed}, must be 1-6")
 
         pcie_cap = self._require_pcie_cap()
-        reg_offset = pcie_cap + 0x30
+        reg_offset = pcie_cap + PCIeCapability.LINK_CTL2
         current = self.read_config_register(reg_offset)
 
-        new_value = (current & ~0xF) | speed
+        mask = int(LinkCtl2Bits.TARGET_LINK_SPEED_MASK)
+        new_value = (current & ~mask) | speed
         self.write_config_register(reg_offset, new_value)
 
     def get_aer_status(self) -> AerStatus | None:
@@ -416,45 +450,45 @@ class PcieConfigReader:
         Returns:
             AerStatus with all error fields, or None if AER not present.
         """
-        aer_offset = self.find_extended_capability(_EXT_CAP_AER)
+        aer_offset = self.find_extended_capability(ExtCapabilityID.AER)
         if aer_offset is None:
             return None
 
-        uncorr_raw = self.read_config_register(aer_offset + 0x04)
-        corr_raw = self.read_config_register(aer_offset + 0x10)
-        cap_ctrl = self.read_config_register(aer_offset + 0x18)
+        uncorr_raw = self.read_config_register(aer_offset + AERCapability.UNCORR_ERR_STATUS)
+        corr_raw = self.read_config_register(aer_offset + AERCapability.CORR_ERR_STATUS)
+        cap_ctrl = self.read_config_register(aer_offset + AERCapability.ADV_ERR_CAP_CTL)
         first_error_pointer = cap_ctrl & 0x1F
 
         header_log = [
-            self.read_config_register(aer_offset + 0x1C),
-            self.read_config_register(aer_offset + 0x20),
-            self.read_config_register(aer_offset + 0x24),
-            self.read_config_register(aer_offset + 0x28),
+            self.read_config_register(aer_offset + AERCapability.HEADER_LOG_0),
+            self.read_config_register(aer_offset + AERCapability.HEADER_LOG_1),
+            self.read_config_register(aer_offset + AERCapability.HEADER_LOG_2),
+            self.read_config_register(aer_offset + AERCapability.HEADER_LOG_3),
         ]
 
         uncorrectable = AerUncorrectableErrors(
-            data_link_protocol=bool(uncorr_raw & (1 << 4)),
-            surprise_down=bool(uncorr_raw & (1 << 5)),
-            poisoned_tlp=bool(uncorr_raw & (1 << 12)),
-            flow_control_protocol=bool(uncorr_raw & (1 << 13)),
-            completion_timeout=bool(uncorr_raw & (1 << 14)),
-            completer_abort=bool(uncorr_raw & (1 << 15)),
-            unexpected_completion=bool(uncorr_raw & (1 << 16)),
-            receiver_overflow=bool(uncorr_raw & (1 << 17)),
-            malformed_tlp=bool(uncorr_raw & (1 << 18)),
-            ecrc_error=bool(uncorr_raw & (1 << 19)),
-            unsupported_request=bool(uncorr_raw & (1 << 20)),
-            acs_violation=bool(uncorr_raw & (1 << 21)),
+            data_link_protocol=bool(uncorr_raw & UncorrErrBits.DL_PROTOCOL_ERR),
+            surprise_down=bool(uncorr_raw & UncorrErrBits.SURPRISE_DOWN),
+            poisoned_tlp=bool(uncorr_raw & UncorrErrBits.POISONED_TLP),
+            flow_control_protocol=bool(uncorr_raw & UncorrErrBits.FC_PROTOCOL_ERR),
+            completion_timeout=bool(uncorr_raw & UncorrErrBits.COMPLETION_TIMEOUT),
+            completer_abort=bool(uncorr_raw & UncorrErrBits.COMPLETER_ABORT),
+            unexpected_completion=bool(uncorr_raw & UncorrErrBits.UNEXPECTED_COMPLETION),
+            receiver_overflow=bool(uncorr_raw & UncorrErrBits.RECEIVER_OVERFLOW),
+            malformed_tlp=bool(uncorr_raw & UncorrErrBits.MALFORMED_TLP),
+            ecrc_error=bool(uncorr_raw & UncorrErrBits.ECRC_ERR),
+            unsupported_request=bool(uncorr_raw & UncorrErrBits.UNSUPPORTED_REQ),
+            acs_violation=bool(uncorr_raw & UncorrErrBits.ACS_VIOLATION),
             raw_value=uncorr_raw,
         )
 
         correctable = AerCorrectableErrors(
-            receiver_error=bool(corr_raw & (1 << 0)),
-            bad_tlp=bool(corr_raw & (1 << 6)),
-            bad_dllp=bool(corr_raw & (1 << 7)),
-            replay_num_rollover=bool(corr_raw & (1 << 8)),
-            replay_timer_timeout=bool(corr_raw & (1 << 12)),
-            advisory_non_fatal=bool(corr_raw & (1 << 13)),
+            receiver_error=bool(corr_raw & CorrErrBits.RECEIVER_ERR),
+            bad_tlp=bool(corr_raw & CorrErrBits.BAD_TLP),
+            bad_dllp=bool(corr_raw & CorrErrBits.BAD_DLLP),
+            replay_num_rollover=bool(corr_raw & CorrErrBits.REPLAY_NUM_ROLLOVER),
+            replay_timer_timeout=bool(corr_raw & CorrErrBits.REPLAY_TIMER_TIMEOUT),
+            advisory_non_fatal=bool(corr_raw & CorrErrBits.ADVISORY_NONFATAL),
             raw_value=corr_raw,
         )
 
@@ -468,30 +502,26 @@ class PcieConfigReader:
 
     def clear_aer_errors(self) -> None:
         """Clear AER error status registers (write-1-to-clear)."""
-        aer_offset = self.find_extended_capability(_EXT_CAP_AER)
+        aer_offset = self.find_extended_capability(ExtCapabilityID.AER)
         if aer_offset is None:
             return
 
-        self.write_config_register(aer_offset + 0x04, 0xFFFFFFFF)
-        self.write_config_register(aer_offset + 0x10, 0xFFFFFFFF)
+        self.write_config_register(aer_offset + AERCapability.UNCORR_ERR_STATUS, 0xFFFFFFFF)
+        self.write_config_register(aer_offset + AERCapability.CORR_ERR_STATUS, 0xFFFFFFFF)
 
     def get_supported_speeds(self) -> SupportedSpeedsVector:
-        """Read Supported Link Speeds Vector from Link Capabilities 2.
-
-        Link Capabilities 2 is at PCIe Cap + 0x2C.
-        Bits [7:1] contain the supported link speeds vector.
-        """
+        """Read Supported Link Speeds Vector from Link Capabilities 2."""
         pcie_cap = self._require_pcie_cap()
-        link_cap2 = self.read_config_register(pcie_cap + 0x2C)
+        link_cap2 = self.read_config_register(pcie_cap + PCIeCapability.LINK_CAP2)
         vector = (link_cap2 >> 1) & 0x7F
 
         return SupportedSpeedsVector(
-            gen1=bool(vector & (1 << 0)),
-            gen2=bool(vector & (1 << 1)),
-            gen3=bool(vector & (1 << 2)),
-            gen4=bool(vector & (1 << 3)),
-            gen5=bool(vector & (1 << 4)),
-            gen6=bool(vector & (1 << 5)),
+            gen1=bool(link_cap2 & LinkCap2Bits.SPEED_2_5GT),
+            gen2=bool(link_cap2 & LinkCap2Bits.SPEED_5GT),
+            gen3=bool(link_cap2 & LinkCap2Bits.SPEED_8GT),
+            gen4=bool(link_cap2 & LinkCap2Bits.SPEED_16GT),
+            gen5=bool(link_cap2 & LinkCap2Bits.SPEED_32GT),
+            gen6=bool(link_cap2 & LinkCap2Bits.SPEED_64GT),
             raw_value=vector,
         )
 
@@ -501,7 +531,7 @@ class PcieConfigReader:
         Returns:
             EqStatus16GT with EQ phase status, or None if capability not present.
         """
-        offset = self.find_extended_capability(_EXT_CAP_PHY_16GT)
+        offset = self.find_extended_capability(ExtCapabilityID.PHYSICAL_LAYER_16GT)
         if offset is None:
             return None
 
@@ -521,7 +551,7 @@ class PcieConfigReader:
         Returns:
             EqStatus32GT with EQ phase status and capabilities, or None if not present.
         """
-        offset = self.find_extended_capability(_EXT_CAP_PHY_32GT)
+        offset = self.find_extended_capability(ExtCapabilityID.PHYSICAL_LAYER_32GT)
         if offset is None:
             return None
 
@@ -549,4 +579,4 @@ class PcieConfigReader:
         Returns:
             Offset of the capability, or None if not present.
         """
-        return self.find_extended_capability(_EXT_CAP_LANE_MARGIN)
+        return self.find_extended_capability(ExtCapabilityID.RECEIVER_LANE_MARGINING)

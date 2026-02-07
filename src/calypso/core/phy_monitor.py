@@ -13,7 +13,8 @@ register definitions from hardware.atlas3_phy for Atlas3 silicon.
 from __future__ import annotations
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
-from calypso.core.pcie_config import PcieConfigReader, _EXT_CAP_PHY_16GT
+from calypso.core.pcie_config import PcieConfigReader
+from calypso.hardware.pcie_registers import ExtCapabilityID
 from calypso.hardware.atlas3 import port_register_base
 from calypso.hardware.atlas3_phy import (
     PhyCmdStatusRegister,
@@ -100,7 +101,7 @@ class PhyMonitor:
         Returns:
             List of LaneEqualizationControl for each lane.
         """
-        offset = self._config.find_extended_capability(_EXT_CAP_PHY_16GT)
+        offset = self._config.find_extended_capability(ExtCapabilityID.PHYSICAL_LAYER_16GT)
         if offset is None:
             return []
 

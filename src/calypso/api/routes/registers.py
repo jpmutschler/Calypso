@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from calypso.hardware.pcie_registers import PCIeLinkSpeed, SPEED_STRINGS
 from calypso.models.pcie_config import (
     AerStatus,
     ConfigSpaceDump,
@@ -126,8 +127,9 @@ async def set_target_speed(device_id: str, body: TargetSpeedRequest) -> dict[str
         raise HTTPException(status_code=400, detail="Speed must be 1-6")
     reader = _get_config_reader(device_id)
     reader.set_target_link_speed(body.speed)
-    speed_names = {1: "Gen1", 2: "Gen2", 3: "Gen3", 4: "Gen4", 5: "Gen5", 6: "Gen6"}
-    return {"status": "set", "target_speed": speed_names[body.speed]}
+    full = SPEED_STRINGS[PCIeLinkSpeed(body.speed)]
+    gen_name = full.split(" ")[0]  # "Gen4 (16.0 GT/s)" -> "Gen4"
+    return {"status": "set", "target_speed": gen_name}
 
 
 # --- AER ---
