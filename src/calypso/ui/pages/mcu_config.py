@@ -53,7 +53,7 @@ def mcu_config_page() -> None:
                         ui.notify(f"Failed: {exc}", type="negative")
 
                 ui.button("Apply", icon="check", on_click=set_mode).style(
-                    f"background: {COLORS['accent_blue']}"
+                    f"background: {COLORS.blue}"
                 )
 
         # Clock Output
@@ -64,7 +64,7 @@ def mcu_config_page() -> None:
                 for name in ["Straddle", "Ext MCIO", "Int MCIO"]:
                     with ui.column().classes("items-center gap-1"):
                         ui.label(name).classes("text-caption").style(
-                            f"color: {COLORS['text_muted']}"
+                            f"color: {COLORS.text_muted}"
                         )
                         clock_labels[name] = ui.badge("--", color="grey")
 
@@ -73,7 +73,7 @@ def mcu_config_page() -> None:
             card_header("Spread Spectrum", "waves")
             with ui.row().classes("items-end gap-4"):
                 spread_status = ui.label("--").classes("text-body1").style(
-                    f"color: {COLORS['text_primary']}"
+                    f"color: {COLORS.text_primary}"
                 )
                 spread_select = ui.select(
                     ["off", "down_2500ppm", "down_5000ppm"],
@@ -95,7 +95,7 @@ def mcu_config_page() -> None:
                         ui.notify(f"Failed: {exc}", type="negative")
 
                 ui.button("Apply", icon="check", on_click=set_spread).style(
-                    f"background: {COLORS['accent_blue']}"
+                    f"background: {COLORS.blue}"
                 )
 
         # FLIT Mode
@@ -106,7 +106,7 @@ def mcu_config_page() -> None:
                 for station in ["Station 2", "Station 5", "Station 7", "Station 8"]:
                     with ui.column().classes("items-center gap-1"):
                         ui.label(station).classes("text-caption").style(
-                            f"color: {COLORS['text_muted']}"
+                            f"color: {COLORS.text_muted}"
                         )
                         flit_labels[station] = ui.badge("--", color="grey")
 
@@ -115,7 +115,7 @@ def mcu_config_page() -> None:
             card_header("SDB Target", "swap_horiz")
             with ui.row().classes("items-end gap-4"):
                 sdb_label = ui.label("--").classes("text-body1").style(
-                    f"color: {COLORS['text_primary']}"
+                    f"color: {COLORS.text_primary}"
                 )
                 sdb_select = ui.select(
                     ["usb", "mcu"],
@@ -137,7 +137,7 @@ def mcu_config_page() -> None:
                         ui.notify(f"Failed: {exc}", type="negative")
 
                 ui.button("Apply", icon="check", on_click=set_sdb).style(
-                    f"background: {COLORS['accent_blue']}"
+                    f"background: {COLORS.blue}"
                 )
 
         status = status_indicator()

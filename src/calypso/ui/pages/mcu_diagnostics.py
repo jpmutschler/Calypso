@@ -51,20 +51,20 @@ def mcu_diagnostics_page() -> None:
                         ]:
                             with ui.row().classes("gap-2"):
                                 ui.label(f"{label}:").classes("text-caption w-32").style(
-                                    f"color: {COLORS['text_muted']}"
+                                    f"color: {COLORS.text_muted}"
                                 )
                                 ui.label(value or "--").classes("text-body2").style(
-                                    f"color: {COLORS['text_primary']}"
+                                    f"color: {COLORS.text_primary}"
                                 )
                 except Exception as exc:
                     version_grid.clear()
                     with version_grid:
                         ui.label(f"Error: {str(exc)[:200]}").style(
-                            f"color: {COLORS['accent_red']}"
+                            f"color: {COLORS.red}"
                         )
 
             ui.button("Refresh", icon="refresh", on_click=load_version).classes("mt-2").style(
-                f"background: {COLORS['accent_blue']}"
+                f"background: {COLORS.blue}"
             )
 
         # BIST
@@ -74,7 +74,7 @@ def mcu_diagnostics_page() -> None:
 
             with bist_container:
                 ui.label("Click Run BIST to test all devices.").style(
-                    f"color: {COLORS['text_muted']}"
+                    f"color: {COLORS.text_muted}"
                 )
 
             async def run_bist():
@@ -84,7 +84,7 @@ def mcu_diagnostics_page() -> None:
                 bist_container.clear()
                 with bist_container:
                     ui.label("Running BIST...").style(
-                        f"color: {COLORS['accent_yellow']}"
+                        f"color: {COLORS.yellow}"
                     )
                 try:
                     result = await run.io_bound(
@@ -93,7 +93,7 @@ def mcu_diagnostics_page() -> None:
                     bist_container.clear()
                     with bist_container:
                         all_ok = result.all_passed
-                        summary_color = COLORS["accent_green"] if all_ok else COLORS["accent_red"]
+                        summary_color = COLORS.green if all_ok else COLORS.red
                         ui.label(
                             "All Passed" if all_ok else "Some Failures Detected"
                         ).classes("text-subtitle2").style(f"color: {summary_color}")
@@ -114,11 +114,11 @@ def mcu_diagnostics_page() -> None:
                     bist_container.clear()
                     with bist_container:
                         ui.label(f"BIST failed: {str(exc)[:200]}").style(
-                            f"color: {COLORS['accent_red']}"
+                            f"color: {COLORS.red}"
                         )
 
             ui.button("Run BIST", icon="play_arrow", on_click=run_bist).style(
-                f"background: {COLORS['accent_blue']}"
+                f"background: {COLORS.blue}"
             )
 
         # Register Read
@@ -143,7 +143,7 @@ def mcu_diagnostics_page() -> None:
                     if not (0 <= address <= 0xFFFFFFFF):
                         with reg_output:
                             ui.label("Address must be 0x0 - 0xFFFFFFFF").style(
-                                f"color: {COLORS['accent_yellow']}"
+                                f"color: {COLORS.yellow}"
                             )
                         return
 
@@ -151,7 +151,7 @@ def mcu_diagnostics_page() -> None:
                     if not (1 <= count <= 256):
                         with reg_output:
                             ui.label("Count must be 1 - 256").style(
-                                f"color: {COLORS['accent_yellow']}"
+                                f"color: {COLORS.yellow}"
                             )
                         return
 
@@ -161,21 +161,21 @@ def mcu_diagnostics_page() -> None:
                     with reg_output:
                         for addr, val in sorted(regs.items()):
                             ui.label(f"0x{addr:08X}: 0x{val:08X}").style(
-                                f"color: {COLORS['text_primary']}"
+                                f"color: {COLORS.text_primary}"
                             )
                 except ValueError:
                     with reg_output:
                         ui.label("Invalid address or count format").style(
-                            f"color: {COLORS['accent_yellow']}"
+                            f"color: {COLORS.yellow}"
                         )
                 except Exception as exc:
                     with reg_output:
                         ui.label(f"Error: {str(exc)[:200]}").style(
-                            f"color: {COLORS['accent_red']}"
+                            f"color: {COLORS.red}"
                         )
 
             ui.button("Read", icon="download", on_click=read_registers).classes("mt-2").style(
-                f"background: {COLORS['accent_blue']}"
+                f"background: {COLORS.blue}"
             )
 
         # Resets
@@ -184,7 +184,7 @@ def mcu_diagnostics_page() -> None:
             ui.label(
                 "Warning: Reset operations will interrupt active connections."
             ).classes("text-caption mb-3").style(
-                f"color: {COLORS['accent_yellow']}"
+                f"color: {COLORS.yellow}"
             )
             with ui.row().classes("gap-4"):
                 async def reset_mcu():

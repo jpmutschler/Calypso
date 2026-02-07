@@ -1,4 +1,9 @@
-"""Navigation sidebar component."""
+"""
+Navigation sidebar with device tree.
+
+Matches the Serial Cables Phoenix design system with section titles,
+active-state highlighting, and consistent nav item styling.
+"""
 
 from __future__ import annotations
 
@@ -7,57 +12,89 @@ from nicegui import ui
 from calypso.ui.theme import COLORS
 
 
-def sidebar_nav(device_id: str | None = None, mcu_port: str | None = None) -> None:
-    """Render the navigation sidebar content."""
-    ui.label("CALYPSO").classes("text-h6 text-bold mb-1").style(
-        f"color: {COLORS['accent_blue']}"
-    )
-    ui.label("Atlas3 Switch Manager").classes("text-caption mb-4").style(
-        f"color: {COLORS['text_muted']}"
-    )
+def sidebar_nav(
+    device_id: str | None = None,
+    mcu_port: str | None = None,
+    current_path: str | None = None,
+) -> None:
+    """Render the navigation sidebar content.
 
-    ui.separator().style(f"background: {COLORS['border']}")
+    Args:
+        device_id: Connected switch device ID for switch nav links.
+        mcu_port: Connected MCU serial port for MCU nav links.
+        current_path: Current page path for active link highlighting.
+    """
+    with ui.column().classes("w-full q-pa-sm q-gutter-sm"):
+        _nav_item("Device Discovery", "search", "/", active=(current_path == "/"))
 
-    with ui.column().classes("gap-1 w-full mt-2"):
-        _nav_link("Discovery", "/", "search")
+        ui.separator().style(f"background-color: {COLORS.border};")
 
         if device_id:
-            ui.separator().style(f"background: {COLORS['border']}")
-            ui.label("Switch (SDK)").classes("text-caption mt-1").style(
-                f"color: {COLORS['text_muted']}"
-            )
+            ui.label("SWITCH (SDK)").classes("section-title q-px-sm q-pt-sm")
+
             base = f"/switch/{device_id}"
-            _nav_link("Dashboard", base, "dashboard")
-            _nav_link("Ports", f"{base}/ports", "device_hub")
-            _nav_link("Performance", f"{base}/perf", "speed")
-            _nav_link("Configuration", f"{base}/config", "settings")
-            _nav_link("Topology", f"{base}/topology", "account_tree")
-            _nav_link("Registers", f"{base}/registers", "memory")
-            _nav_link("EEPROM", f"{base}/eeprom", "storage")
-            _nav_link("PHY Monitor", f"{base}/phy", "cable")
+            _nav_item("Dashboard", "dashboard", base,
+                       active=(current_path == base))
+            _nav_item("Ports", "device_hub", f"{base}/ports",
+                       active=(current_path == f"{base}/ports"), indent=True)
+            _nav_item("Performance", "speed", f"{base}/perf",
+                       active=(current_path == f"{base}/perf"), indent=True)
+            _nav_item("Configuration", "settings", f"{base}/config",
+                       active=(current_path == f"{base}/config"), indent=True)
+            _nav_item("Topology", "account_tree", f"{base}/topology",
+                       active=(current_path == f"{base}/topology"), indent=True)
+            _nav_item("Registers", "memory", f"{base}/registers",
+                       active=(current_path == f"{base}/registers"), indent=True)
+            _nav_item("EEPROM", "storage", f"{base}/eeprom",
+                       active=(current_path == f"{base}/eeprom"), indent=True)
+            _nav_item("PHY Monitor", "cable", f"{base}/phy",
+                       active=(current_path == f"{base}/phy"), indent=True)
 
             try:
                 from calypso.workloads import is_any_backend_available
                 if is_any_backend_available():
-                    _nav_link("Workloads", f"{base}/workloads", "rocket_launch")
+                    _nav_item("Workloads", "rocket_launch", f"{base}/workloads",
+                               active=(current_path == f"{base}/workloads"),
+                               indent=True)
             except ImportError:
                 pass
+        else:
+            ui.label("SWITCH (SDK)").classes("section-title q-px-sm q-pt-sm")
+            ui.label("No switch connected").classes(
+                "text-caption q-px-sm"
+            ).style(f"color: {COLORS.text_muted};")
 
         if mcu_port:
-            ui.separator().style(f"background: {COLORS['border']}")
-            ui.label("MCU").classes("text-caption mt-1").style(
-                f"color: {COLORS['text_muted']}"
-            )
-            _nav_link("Health", "/mcu/health", "thermostat")
-            _nav_link("Port Status", "/mcu/ports", "device_hub")
-            _nav_link("Error Counters", "/mcu/errors", "error_outline")
-            _nav_link("Configuration", "/mcu/config", "tune")
-            _nav_link("Diagnostics", "/mcu/diagnostics", "bug_report")
+            ui.separator().style(f"background-color: {COLORS.border};")
+            ui.label("MCU").classes("section-title q-px-sm q-pt-sm")
+
+            _nav_item("Health", "thermostat", "/mcu/health",
+                       active=(current_path == "/mcu/health"))
+            _nav_item("Port Status", "device_hub", "/mcu/ports",
+                       active=(current_path == "/mcu/ports"), indent=True)
+            _nav_item("Error Counters", "error_outline", "/mcu/errors",
+                       active=(current_path == "/mcu/errors"), indent=True)
+            _nav_item("Configuration", "tune", "/mcu/config",
+                       active=(current_path == "/mcu/config"), indent=True)
+            _nav_item("Diagnostics", "bug_report", "/mcu/diagnostics",
+                       active=(current_path == "/mcu/diagnostics"), indent=True)
 
 
-def _nav_link(label: str, href: str, icon: str) -> None:
-    """Create a navigation link with icon."""
-    with ui.link(target=href).classes("no-underline w-full"):
-        with ui.row().classes("items-center gap-2 px-2 py-1 rounded hover:bg-gray-800"):
-            ui.icon(icon).classes("text-sm").style(f"color: {COLORS['text_secondary']}")
-            ui.label(label).classes("text-sm").style(f"color: {COLORS['text_primary']}")
+def _nav_item(
+    label: str,
+    icon: str,
+    href: str,
+    active: bool = False,
+    indent: bool = False,
+) -> None:
+    """Render a single navigation item."""
+    bg = COLORS.bg_elevated if active else "transparent"
+    text_color = COLORS.cyan if active else COLORS.text_primary
+    pad = "q-pl-lg" if indent else ""
+
+    with ui.link(target=href).classes(f"no-decoration w-full {pad}"):
+        with ui.row().classes("items-center q-pa-sm q-gutter-sm rounded").style(
+            f"background-color: {bg}; width: 100%;"
+        ):
+            ui.icon(icon).style(f"color: {text_color}; font-size: 1.1rem;")
+            ui.label(label).style(f"color: {text_color}; font-size: 0.85rem;")

@@ -5,7 +5,8 @@ from __future__ import annotations
 from nicegui import ui
 
 from calypso.hardware.atlas3 import CONNECTOR_MAP, CON_TO_CN, STATION_MAP
-from calypso.ui.theme import COLORS, CSS
+from calypso.ui.layout import page_layout
+from calypso.ui.theme import COLORS
 
 # Connector type labels (not stored in atlas3.py dataclasses)
 _CONNECTOR_TYPES: dict[str, str] = {
@@ -54,26 +55,20 @@ _STATION_REF = _build_station_ref()
 
 def topology_page(device_id: str) -> None:
     """Render the switch topology page with hardware mapping details."""
-    ui.add_head_html(f"<style>{CSS}</style>")
 
-    topo_data: dict = {}
+    def content():
+        topo_data: dict = {}
 
-    async def load_topology():
-        try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/topology")).json()'
-            )
-            topo_data.clear()
-            topo_data.update(resp)
-            refresh_topology()
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    with ui.column().classes("w-full p-4 gap-4"):
-        ui.label("Switch Topology").classes("text-h5").style(
-            f"color: {COLORS['text_primary']}"
-        )
-        ui.label(f"Device: {device_id}").style(f"color: {COLORS['text_secondary']}")
+        async def load_topology():
+            try:
+                resp = await ui.run_javascript(
+                    f'return await (await fetch("/api/devices/{device_id}/topology")).json()'
+                )
+                topo_data.clear()
+                topo_data.update(resp)
+                refresh_topology()
+            except Exception as e:
+                ui.notify(f"Error: {e}", type="negative")
 
         with ui.row().classes("items-center gap-4"):
             ui.button("Load Topology", on_click=load_topology).props("flat color=primary")
@@ -90,10 +85,10 @@ def topology_page(device_id: str) -> None:
             with topo_container:
                 if not topo_data:
                     with ui.card().classes("w-full p-4").style(
-                        f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
+                        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
                     ):
                         ui.label("Click Load Topology to discover the switch fabric.").style(
-                            f"color: {COLORS['text_muted']}"
+                            f"color: {COLORS.text_muted}"
                         )
                     return
 
@@ -103,6 +98,8 @@ def topology_page(device_id: str) -> None:
 
         refresh_topology()
 
+    page_layout("Switch Topology", content, device_id=device_id)
+
 
 def _render_hardware_reference() -> None:
     """Render the static Atlas3 hardware reference cards."""
@@ -110,14 +107,14 @@ def _render_hardware_reference() -> None:
         "Atlas3 Host Card Reference",
         icon="developer_board",
     ).classes("w-full").style(
-        f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}; "
-        f"color: {COLORS['text_primary']}"
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}; "
+        f"color: {COLORS.text_primary}"
     ):
         with ui.row().classes("w-full gap-4"):
             # Connector reference table
             with ui.column().classes("flex-1"):
                 ui.label("Physical Connectors").style(
-                    f"color: {COLORS['text_primary']}; font-weight: bold"
+                    f"color: {COLORS.text_primary}; font-weight: bold"
                 )
                 columns = [
                     {"name": "name", "label": "Connector", "field": "name", "align": "left"},
@@ -134,7 +131,7 @@ def _render_hardware_reference() -> None:
             # Station reference table
             with ui.column().classes("flex-1"):
                 ui.label("Station Layout").style(
-                    f"color: {COLORS['text_primary']}; font-weight: bold"
+                    f"color: {COLORS.text_primary}; font-weight: bold"
                 )
                 rows = [
                     {
@@ -156,11 +153,11 @@ def _render_hardware_reference() -> None:
         # Board block diagram
         with ui.column().classes("w-full mt-3"):
             ui.label("Data Path").style(
-                f"color: {COLORS['text_primary']}; font-weight: bold"
+                f"color: {COLORS.text_primary}; font-weight: bold"
             )
             with ui.element("pre").classes("w-full overflow-x-auto").style(
-                f"color: {COLORS['text_secondary']}; font-family: 'JetBrains Mono', monospace; "
-                f"font-size: 12px; background: {COLORS['bg_primary']}; "
+                f"color: {COLORS.text_secondary}; font-family: 'JetBrains Mono', monospace; "
+                f"font-size: 12px; background: {COLORS.bg_primary}; "
                 f"padding: 12px; border-radius: 4px; line-height: 1.4"
             ):
                 ui.html(
@@ -180,10 +177,10 @@ def _render_hardware_reference() -> None:
 def _render_fabric_summary(topo_data: dict) -> None:
     """Render the fabric summary card with chip info and port counts."""
     with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
     ):
         ui.label("Fabric Summary").classes("text-h6 mb-2").style(
-            f"color: {COLORS['text_primary']}"
+            f"color: {COLORS.text_primary}"
         )
 
         stations = topo_data.get("stations", [])
@@ -201,12 +198,12 @@ def _render_fabric_summary(topo_data: dict) -> None:
             _stat_chip(
                 "Ports UP",
                 str(ports_up),
-                COLORS["accent_green"] if ports_up > 0 else COLORS["text_muted"],
+                COLORS.green if ports_up > 0 else COLORS.text_muted,
             )
             _stat_chip(
                 "Ports DOWN",
                 str(ports_down),
-                COLORS["accent_red"] if ports_down > 0 else COLORS["text_muted"],
+                COLORS.red if ports_down > 0 else COLORS.text_muted,
             )
 
         upstream = topo_data.get("upstream_ports", [])
@@ -214,11 +211,11 @@ def _render_fabric_summary(topo_data: dict) -> None:
         if upstream:
             ui.label(
                 f"Upstream Ports: {', '.join(str(p) for p in upstream)}"
-            ).classes("mt-2").style(f"color: {COLORS['accent_blue']}")
+            ).classes("mt-2").style(f"color: {COLORS.blue}")
         if downstream:
             ui.label(
                 f"Downstream Ports: {', '.join(str(p) for p in downstream)}"
-            ).style(f"color: {COLORS['accent_green']}")
+            ).style(f"color: {COLORS.green}")
 
 
 def _render_connector_health(topo_data: dict) -> None:
@@ -233,10 +230,10 @@ def _render_connector_health(topo_data: dict) -> None:
         return
 
     with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
     ):
         ui.label("Connector Health").classes("text-h6 mb-2").style(
-            f"color: {COLORS['text_primary']}"
+            f"color: {COLORS.text_primary}"
         )
         with ui.row().classes("flex-wrap gap-4"):
             for cs in connector_stats:
@@ -291,35 +288,35 @@ def _render_connector_health_chip(cs: dict) -> None:
     any_up = up > 0
 
     border = (
-        COLORS["accent_green"] if all_up
-        else COLORS["accent_yellow"] if any_up
-        else COLORS["border"]
+        COLORS.green if all_up
+        else COLORS.yellow if any_up
+        else COLORS.border
     )
 
     with ui.element("div").classes("p-3 rounded").style(
-        f"background: {COLORS['bg_tertiary']}; "
+        f"background: {COLORS.bg_card}; "
         f"border: 2px solid {border}; min-width: 140px"
     ):
         with ui.row().classes("items-center gap-2 mb-1"):
             icon = "check_circle" if all_up else "warning" if any_up else "cancel"
             icon_color = (
-                COLORS["accent_green"] if all_up
-                else COLORS["accent_yellow"] if any_up
-                else COLORS["accent_red"]
+                COLORS.green if all_up
+                else COLORS.yellow if any_up
+                else COLORS.red
             )
             ui.icon(icon).style(f"color: {icon_color}")
             ui.label(cs["name"]).style(
-                f"color: {COLORS['text_primary']}; font-weight: bold"
+                f"color: {COLORS.text_primary}; font-weight: bold"
             )
         ui.label(f"{cs['type']} ({cs['width']})").style(
-            f"color: {COLORS['text_secondary']}; font-size: 12px"
+            f"color: {COLORS.text_secondary}; font-size: 12px"
         )
         ui.label(f"{up}/{total} ports up").style(
-            f"color: {COLORS['text_secondary']}; font-size: 12px"
+            f"color: {COLORS.text_secondary}; font-size: 12px"
         )
         if cs["speed"] != "none":
             ui.label(cs["speed"]).style(
-                f"color: {COLORS['accent_blue']}; font-size: 12px"
+                f"color: {COLORS.blue}; font-size: 12px"
             )
 
 
@@ -337,30 +334,30 @@ def _render_station_cards(topo_data: dict) -> None:
         up = sum(1 for p in ports if _port_is_up(p))
 
         with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
         ):
             # Station header
             with ui.row().classes("items-center gap-4 mb-2"):
                 ui.label(f"STN{stn_idx}").classes("text-h6").style(
-                    f"color: {COLORS['accent_blue']}"
+                    f"color: {COLORS.blue}"
                 )
-                ui.label(label).style(f"color: {COLORS['text_primary']}")
+                ui.label(label).style(f"color: {COLORS.text_primary}")
                 ui.badge(connector).props("outline").style(
-                    f"color: {COLORS['accent_purple']}"
+                    f"color: {COLORS.purple}"
                 )
                 if lane_range:
                     ui.label(
                         f"Ports {lane_range[0]}-{lane_range[1]}"
-                    ).style(f"color: {COLORS['text_muted']}")
+                    ).style(f"color: {COLORS.text_muted}")
                 # Port count summary
-                up_color = COLORS["accent_green"] if up > 0 else COLORS["text_muted"]
+                up_color = COLORS.green if up > 0 else COLORS.text_muted
                 ui.label(f"{up}/{total} up").style(
                     f"color: {up_color}; font-size: 12px"
                 )
 
             if not ports:
                 ui.label("No active ports").style(
-                    f"color: {COLORS['text_muted']}"
+                    f"color: {COLORS.text_muted}"
                 )
                 continue
 
@@ -374,10 +371,10 @@ def _render_station_cards(topo_data: dict) -> None:
                     with ui.column().classes("w-full mb-2"):
                         with ui.row().classes("items-center gap-2 mb-1"):
                             ui.label(group_name).style(
-                                f"color: {COLORS['accent_orange']}; font-weight: bold; font-size: 13px"
+                                f"color: {COLORS.orange}; font-weight: bold; font-size: 13px"
                             )
                             ui.label(f"({group_up}/{len(group_ports)} up)").style(
-                                f"color: {COLORS['text_muted']}; font-size: 12px"
+                                f"color: {COLORS.text_muted}; font-size: 12px"
                             )
                         _render_port_grid(group_ports)
             else:
@@ -427,30 +424,30 @@ def _render_port_grid(ports: list[dict]) -> None:
             is_up = status.get("is_link_up", False) if status else False
 
             border_color = (
-                COLORS["accent_blue"] if role == "upstream"
-                else COLORS["accent_green"] if role == "downstream"
-                else COLORS["border"]
+                COLORS.blue if role == "upstream"
+                else COLORS.green if role == "downstream"
+                else COLORS.border
             )
 
             with ui.element("div").classes(
                 "p-2 rounded text-center"
             ).style(
-                f"background: {COLORS['bg_tertiary']}; "
+                f"background: {COLORS.bg_card}; "
                 f"border: 2px solid {border_color}; "
                 f"min-width: 80px"
             ):
                 ui.label(f"P{port_num}").style(
-                    f"color: {COLORS['text_primary']}; font-weight: bold"
+                    f"color: {COLORS.text_primary}; font-weight: bold"
                 )
                 ui.label(role).style(
-                    f"color: {COLORS['text_secondary']}; font-size: 11px"
+                    f"color: {COLORS.text_secondary}; font-size: 11px"
                 )
                 if status:
                     speed = status.get("link_speed", "unknown")
                     width = status.get("link_width", 0)
                     status_color = (
-                        COLORS["link_up"] if is_up
-                        else COLORS["link_down"]
+                        COLORS.green if is_up
+                        else COLORS.red
                     )
                     ui.label(
                         f"x{width} {speed}" if is_up else "DOWN"
@@ -469,7 +466,7 @@ def _port_is_up(port: dict) -> bool:
 
 def _stat_chip(label: str, value: str, color: str | None = None) -> None:
     """Render a small stat display."""
-    val_color = color or COLORS["text_primary"]
+    val_color = color or COLORS.text_primary
     with ui.column().classes("items-center"):
         ui.label(value).classes("text-h6").style(f"color: {val_color}")
-        ui.label(label).style(f"color: {COLORS['text_muted']}; font-size: 12px")
+        ui.label(label).style(f"color: {COLORS.text_muted}; font-size: 12px")

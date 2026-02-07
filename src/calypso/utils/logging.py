@@ -1,5 +1,7 @@
 """Structured logging setup using structlog."""
 
+import logging
+
 import structlog
 
 
@@ -21,7 +23,7 @@ def setup_logging(level: str = "INFO", json_output: bool = False) -> None:
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(
-            structlog.get_level_from_name(level)
+            getattr(logging, level.upper())
         ),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),

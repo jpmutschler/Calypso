@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import os
 import secrets
+from pathlib import Path
 
 from fastapi import FastAPI
 from nicegui import app, ui
 
-from calypso.ui.theme import CSS
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 def setup_ui(fastapi_app: FastAPI) -> None:
     """Register NiceGUI pages with the FastAPI application."""
+
+    app.add_static_files("/static", str(_STATIC_DIR))
 
     @ui.page("/")
     def index():

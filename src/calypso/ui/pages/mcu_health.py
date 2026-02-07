@@ -20,10 +20,10 @@ from calypso.ui.theme import COLORS
 def _temp_color(celsius: float) -> str:
     """Return color based on temperature threshold."""
     if celsius < 60:
-        return COLORS["accent_green"]
+        return COLORS.green
     if celsius < 80:
-        return COLORS["accent_yellow"]
-    return COLORS["accent_red"]
+        return COLORS.yellow
+    return COLORS.red
 
 
 def mcu_health_page() -> None:
@@ -44,48 +44,48 @@ def mcu_health_page() -> None:
 
         # Voltage rails
         with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; "
-            f"border: 1px solid {COLORS['border']}"
+            f"background: {COLORS.bg_secondary}; "
+            f"border: 1px solid {COLORS.border}"
         ):
             with ui.row().classes("items-center gap-2 mb-3"):
                 ui.icon("bolt").classes("text-lg").style(
-                    f"color: {COLORS['accent_blue']}"
+                    f"color: {COLORS.blue}"
                 )
                 ui.label("Voltage Rails").classes("text-subtitle2").style(
-                    f"color: {COLORS['text_primary']}"
+                    f"color: {COLORS.text_primary}"
                 )
             with ui.row().classes("w-full gap-6 flex-wrap"):
                 v_labels: dict[str, ui.label] = {}
                 for name in ["1V5", "VDD", "VDDA", "VDDA12"]:
                     with ui.column().classes("items-center min-w-[100px]"):
                         ui.label(name).classes("text-caption").style(
-                            f"color: {COLORS['text_muted']}"
+                            f"color: {COLORS.text_muted}"
                         )
                         v_labels[name] = ui.label("-- V").classes("text-h6").style(
-                            f"color: {COLORS['text_primary']}"
+                            f"color: {COLORS.text_primary}"
                         )
 
         # Power consumption
         with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; "
-            f"border: 1px solid {COLORS['border']}"
+            f"background: {COLORS.bg_secondary}; "
+            f"border: 1px solid {COLORS.border}"
         ):
             with ui.row().classes("items-center gap-2 mb-3"):
                 ui.icon("power").classes("text-lg").style(
-                    f"color: {COLORS['accent_blue']}"
+                    f"color: {COLORS.blue}"
                 )
                 ui.label("Power Consumption").classes("text-subtitle2").style(
-                    f"color: {COLORS['text_primary']}"
+                    f"color: {COLORS.text_primary}"
                 )
             with ui.row().classes("w-full gap-6 flex-wrap"):
                 pwr_items: dict[str, ui.label] = {}
                 for name, unit in [("Voltage", "V"), ("Current", "A"), ("Power", "W")]:
                     with ui.column().classes("items-center min-w-[100px]"):
                         ui.label(name).classes("text-caption").style(
-                            f"color: {COLORS['text_muted']}"
+                            f"color: {COLORS.text_muted}"
                         )
                         pwr_items[name] = ui.label(f"-- {unit}").classes("text-h6").style(
-                            f"color: {COLORS['text_primary']}"
+                            f"color: {COLORS.text_primary}"
                         )
 
         status = status_indicator()

@@ -14,10 +14,10 @@ logger = get_logger(__name__)
 
 
 class PcieTransport(Transport):
-    """Transport using PCIe bus via PLX kernel driver.
+    """Transport using PCIe bus via PLX driver.
 
-    Uses PLX_API_MODE_PCI. Requires the PLX driver to be loaded.
-    Linux only.
+    Uses PLX_API_MODE_PCI. Requires the PLX driver to be loaded
+    (PlxSvc kernel module on Linux, PlxSvc service + PlxApi.dll on Windows).
     """
 
     def __init__(self, config: PcieConfig | None = None) -> None:
@@ -43,13 +43,15 @@ class PcieTransport(Transport):
         if self._connected:
             return
 
-        if sys.platform != "linux":
+        if sys.platform == "win32":
+            self._check_library_available()
+        elif sys.platform == "linux":
+            self._check_driver_loaded()
+        else:
             raise DriverNotFoundError(
-                "PCIe transport requires Linux. "
-                "Use UART or SDB transport on this platform."
+                f"PCIe transport not supported on {sys.platform}."
             )
 
-        self._check_driver_loaded()
         logger.info("pcie_connecting")
         self._connected = True
         logger.info("pcie_connected")
@@ -60,6 +62,18 @@ class PcieTransport(Transport):
         logger.info("pcie_disconnecting")
         self._connected = False
         logger.info("pcie_disconnected")
+
+    def _check_library_available(self) -> None:
+        """Verify PlxApi.dll can be loaded on Windows."""
+        try:
+            from calypso.bindings.library import load_library
+
+            load_library()
+        except Exception as exc:
+            raise DriverNotFoundError(
+                f"PlxApi.dll not found. Ensure PLX SDK is installed and "
+                f"PLX_SDK_DIR is set. Detail: {exc}"
+            ) from exc
 
     def _check_driver_loaded(self) -> None:
         """Verify the PlxSvc kernel module is loaded."""

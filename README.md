@@ -4,7 +4,7 @@ PCIe Gen6 Atlas3 Host Card (PEX90144/PEX90080) configuration and monitoring tool
 
 ## Hardware
 
-Targets the **Broadcom PEX90144** PCIe Gen6 switch on the Serial Cables Atlas3 Host Card (Rev 1.1).
+Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables Atlas3 Host Card (Rev 1.1).
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|

@@ -6,14 +6,23 @@ import time
 
 from nicegui import ui
 
-from calypso.ui.theme import COLORS, CSS
+from calypso.ui.layout import page_layout
+from calypso.ui.theme import COLORS
 
 _MAX_CHART_POINTS = 60
 
 
 def performance_page(device_id: str) -> None:
     """Render the performance monitor page with live streaming charts."""
-    ui.add_head_html(f"<style>{CSS}</style>")
+
+    def content():
+        _performance_content(device_id)
+
+    page_layout("Performance Monitor", content, device_id=device_id)
+
+
+def _performance_content(device_id: str) -> None:
+    """Build the performance page content inside page_layout."""
 
     snapshot_data: dict = {}
     stream_state: dict = {"active": False, "ws_id": None}
@@ -146,8 +155,8 @@ def performance_page(device_id: str) -> None:
 
             util_chart.options["xAxis"]["categories"] = util_categories
             util_chart.options["series"] = [
-                {"name": "Ingress", "data": in_util, "color": COLORS["accent_blue"]},
-                {"name": "Egress", "data": out_util, "color": COLORS["accent_green"]},
+                {"name": "Ingress", "data": in_util, "color": COLORS.blue},
+                {"name": "Egress", "data": out_util, "color": COLORS.green},
             ]
             util_chart.update()
 
@@ -163,239 +172,233 @@ def performance_page(device_id: str) -> None:
 
     # --- Page layout ---
 
-    with ui.column().classes("w-full p-4 gap-4"):
-        ui.label("Performance Monitor").classes("text-h5").style(
-            f"color: {COLORS['text_primary']}"
-        )
-        ui.label(f"Device: {device_id}").style(f"color: {COLORS['text_secondary']}")
+    # Register WebSocket event handlers
+    ui.on("perf_snapshot", on_ws_snapshot)
+    ui.on("perf_ws_closed", on_ws_closed)
 
-        # Register WebSocket event handlers
-        ui.on("perf_snapshot", on_ws_snapshot)
-        ui.on("perf_ws_closed", on_ws_closed)
+    # Controls card
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    ):
+        with ui.row().classes("items-center gap-4"):
+            ui.button("Start Monitor", on_click=start_monitoring).props(
+                "flat color=positive"
+            )
+            ui.button("Stop Monitor", on_click=stop_monitoring).props(
+                "flat color=negative"
+            )
+            ui.separator().props("vertical").classes("h-8")
+            ui.button("Stream", on_click=start_stream).props(
+                "flat color=primary"
+            ).tooltip("Connect WebSocket for live 1s updates")
+            ui.button("Stop Stream", on_click=stop_stream).props("flat")
+            ui.button("Snapshot", on_click=take_snapshot).props("flat color=primary")
+            ui.separator().props("vertical").classes("h-8")
+            ui.button("Clear Chart", on_click=clear_chart).props("flat")
 
-        # Controls card
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
-        ):
-            with ui.row().classes("items-center gap-4"):
-                ui.button("Start Monitor", on_click=start_monitoring).props(
-                    "flat color=positive"
-                )
-                ui.button("Stop Monitor", on_click=stop_monitoring).props(
-                    "flat color=negative"
-                )
-                ui.separator().props("vertical").classes("h-8")
-                ui.button("Stream", on_click=start_stream).props(
-                    "flat color=primary"
-                ).tooltip("Connect WebSocket for live 1s updates")
-                ui.button("Stop Stream", on_click=stop_stream).props("flat")
-                ui.button("Snapshot", on_click=take_snapshot).props("flat color=primary")
-                ui.separator().props("vertical").classes("h-8")
-                ui.button("Clear Chart", on_click=clear_chart).props("flat")
-
-            stream_status_container = ui.row().classes("items-center gap-2 mt-2")
-
-            @ui.refreshable
-            def refresh_stream_status():
-                stream_status_container.clear()
-                with stream_status_container:
-                    if stream_state["active"]:
-                        ui.icon("sensors").style(f"color: {COLORS['accent_green']}")
-                        ui.label("WebSocket streaming").style(
-                            f"color: {COLORS['accent_green']}; font-size: 13px"
-                        )
-                    else:
-                        ui.icon("sensors_off").style(f"color: {COLORS['text_muted']}")
-                        ui.label("Not streaming").style(
-                            f"color: {COLORS['text_muted']}; font-size: 13px"
-                        )
-
-            refresh_stream_status()
-
-        # Aggregate summary
-        summary_container = ui.row().classes("w-full gap-4")
+        stream_status_container = ui.row().classes("items-center gap-2 mt-2")
 
         @ui.refreshable
-        def refresh_summary():
-            summary_container.clear()
-            with summary_container:
-                port_stats = snapshot_data.get("port_stats", [])
-                elapsed = snapshot_data.get("elapsed_ms", 0)
-                if not port_stats:
-                    return
+        def refresh_stream_status():
+            stream_status_container.clear()
+            with stream_status_container:
+                if stream_state["active"]:
+                    ui.icon("sensors").style(f"color: {COLORS.green}")
+                    ui.label("WebSocket streaming").style(
+                        f"color: {COLORS.green}; font-size: 13px"
+                    )
+                else:
+                    ui.icon("sensors_off").style(f"color: {COLORS.text_muted}")
+                    ui.label("Not streaming").style(
+                        f"color: {COLORS.text_muted}; font-size: 13px"
+                    )
 
-                total_in = sum(
-                    ps.get("ingress_payload_byte_rate", 0) for ps in port_stats
-                ) / (1024 * 1024)
-                total_out = sum(
-                    ps.get("egress_payload_byte_rate", 0) for ps in port_stats
-                ) / (1024 * 1024)
-                avg_in_util = (
-                    sum(ps.get("ingress_link_utilization", 0) for ps in port_stats)
-                    / len(port_stats) * 100
-                )
-                avg_out_util = (
-                    sum(ps.get("egress_link_utilization", 0) for ps in port_stats)
-                    / len(port_stats) * 100
-                )
+        refresh_stream_status()
 
-                with ui.card().classes("flex-1 p-3").style(
-                    f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
-                ):
-                    with ui.row().classes("justify-between items-center"):
-                        _summary_stat(
-                            "Total Ingress", f"{total_in:.1f} MB/s",
-                            COLORS["accent_blue"],
-                        )
-                        _summary_stat(
-                            "Total Egress", f"{total_out:.1f} MB/s",
-                            COLORS["accent_green"],
-                        )
-                        _summary_stat(
-                            "Avg In Util", f"{avg_in_util:.1f}%",
-                            COLORS["accent_blue"],
-                        )
-                        _summary_stat(
-                            "Avg Out Util", f"{avg_out_util:.1f}%",
-                            COLORS["accent_green"],
-                        )
-                        _summary_stat(
-                            "Ports", str(len(port_stats)),
-                            COLORS["text_primary"],
-                        )
-                        _summary_stat(
-                            "Interval", f"{elapsed} ms",
-                            COLORS["text_muted"],
-                        )
+    # Aggregate summary
+    summary_container = ui.row().classes("w-full gap-4")
 
-        refresh_summary()
+    @ui.refreshable
+    def refresh_summary():
+        summary_container.clear()
+        with summary_container:
+            port_stats = snapshot_data.get("port_stats", [])
+            elapsed = snapshot_data.get("elapsed_ms", 0)
+            if not port_stats:
+                return
 
-        # Charts row
-        with ui.row().classes("w-full gap-4"):
-            # Bandwidth chart
-            with ui.card().classes("flex-1 p-4").style(
-                f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
-            ):
-                ui.label("Bandwidth (MB/s)").classes("text-h6").style(
-                    f"color: {COLORS['text_primary']}"
-                )
-                bw_chart = ui.chart({
-                    "title": False,
-                    "chart": {
-                        "type": "line",
-                        "backgroundColor": COLORS["bg_secondary"],
-                        "animation": False,
-                    },
-                    "xAxis": {
-                        "type": "datetime",
-                        "labels": {"style": {"color": COLORS["text_secondary"]}},
-                    },
-                    "yAxis": {
-                        "title": {
-                            "text": "MB/s",
-                            "style": {"color": COLORS["text_secondary"]},
-                        },
-                        "labels": {"style": {"color": COLORS["text_secondary"]}},
-                        "gridLineColor": COLORS["border"],
-                        "min": 0,
-                    },
-                    "legend": {
-                        "itemStyle": {"color": COLORS["text_secondary"]},
-                    },
-                    "plotOptions": {
-                        "line": {"marker": {"enabled": False}},
-                    },
-                    "series": [],
-                }).classes("w-full").style("height: 350px")
-
-            # Utilization chart
-            with ui.card().classes("flex-1 p-4").style(
-                f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
-            ):
-                ui.label("Link Utilization (%)").classes("text-h6").style(
-                    f"color: {COLORS['text_primary']}"
-                )
-                util_chart = ui.chart({
-                    "title": False,
-                    "chart": {
-                        "type": "bar",
-                        "backgroundColor": COLORS["bg_secondary"],
-                        "animation": False,
-                    },
-                    "xAxis": {
-                        "categories": [],
-                        "labels": {"style": {"color": COLORS["text_secondary"]}},
-                    },
-                    "yAxis": {
-                        "title": {
-                            "text": "%",
-                            "style": {"color": COLORS["text_secondary"]},
-                        },
-                        "labels": {"style": {"color": COLORS["text_secondary"]}},
-                        "gridLineColor": COLORS["border"],
-                        "min": 0,
-                        "max": 100,
-                    },
-                    "legend": {
-                        "itemStyle": {"color": COLORS["text_secondary"]},
-                    },
-                    "series": [],
-                }).classes("w-full").style("height: 350px")
-
-        # Port statistics table
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}"
-        ):
-            ui.label("Port Statistics").classes("text-h6").style(
-                f"color: {COLORS['text_primary']}"
+            total_in = sum(
+                ps.get("ingress_payload_byte_rate", 0) for ps in port_stats
+            ) / (1024 * 1024)
+            total_out = sum(
+                ps.get("egress_payload_byte_rate", 0) for ps in port_stats
+            ) / (1024 * 1024)
+            avg_in_util = (
+                sum(ps.get("ingress_link_utilization", 0) for ps in port_stats)
+                / len(port_stats) * 100
             )
-            stats_container = ui.column().classes("w-full")
+            avg_out_util = (
+                sum(ps.get("egress_link_utilization", 0) for ps in port_stats)
+                / len(port_stats) * 100
+            )
 
-            @ui.refreshable
-            def refresh_stats_table():
-                stats_container.clear()
-                with stats_container:
-                    port_stats = snapshot_data.get("port_stats", [])
-                    if not port_stats:
-                        ui.label("Start monitoring and take a snapshot.").style(
-                            f"color: {COLORS['text_muted']}"
-                        )
-                        return
-                    rows = []
-                    for ps in port_stats:
-                        in_bw = ps.get("ingress_payload_byte_rate", 0) / (1024 * 1024)
-                        out_bw = ps.get("egress_payload_byte_rate", 0) / (1024 * 1024)
-                        in_util = ps.get("ingress_link_utilization", 0) * 100
-                        out_util = ps.get("egress_link_utilization", 0) * 100
-                        in_total = ps.get("ingress_payload_total_bytes", 0)
-                        out_total = ps.get("egress_payload_total_bytes", 0)
-                        in_avg_tlp = ps.get("ingress_payload_avg_per_tlp", 0)
-                        out_avg_tlp = ps.get("egress_payload_avg_per_tlp", 0)
-                        rows.append({
-                            "port": ps.get("port_number", 0),
-                            "in_mbps": f"{in_bw:.1f}",
-                            "in_util": f"{in_util:.1f}%",
-                            "in_total": _format_bytes(in_total),
-                            "in_avg_tlp": f"{in_avg_tlp:.0f}",
-                            "out_mbps": f"{out_bw:.1f}",
-                            "out_util": f"{out_util:.1f}%",
-                            "out_total": _format_bytes(out_total),
-                            "out_avg_tlp": f"{out_avg_tlp:.0f}",
-                        })
-                    columns = [
-                        {"name": "port", "label": "Port", "field": "port", "align": "left"},
-                        {"name": "in_mbps", "label": "In MB/s", "field": "in_mbps", "align": "right"},
-                        {"name": "in_util", "label": "In Util", "field": "in_util", "align": "right"},
-                        {"name": "in_total", "label": "In Total", "field": "in_total", "align": "right"},
-                        {"name": "in_avg_tlp", "label": "In Avg/TLP", "field": "in_avg_tlp", "align": "right"},
-                        {"name": "out_mbps", "label": "Out MB/s", "field": "out_mbps", "align": "right"},
-                        {"name": "out_util", "label": "Out Util", "field": "out_util", "align": "right"},
-                        {"name": "out_total", "label": "Out Total", "field": "out_total", "align": "right"},
-                        {"name": "out_avg_tlp", "label": "Out Avg/TLP", "field": "out_avg_tlp", "align": "right"},
-                    ]
-                    ui.table(columns=columns, rows=rows, row_key="port").classes("w-full")
+            with ui.card().classes("flex-1 p-3").style(
+                f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+            ):
+                with ui.row().classes("justify-between items-center"):
+                    _summary_stat(
+                        "Total Ingress", f"{total_in:.1f} MB/s",
+                        COLORS.blue,
+                    )
+                    _summary_stat(
+                        "Total Egress", f"{total_out:.1f} MB/s",
+                        COLORS.green,
+                    )
+                    _summary_stat(
+                        "Avg In Util", f"{avg_in_util:.1f}%",
+                        COLORS.blue,
+                    )
+                    _summary_stat(
+                        "Avg Out Util", f"{avg_out_util:.1f}%",
+                        COLORS.green,
+                    )
+                    _summary_stat(
+                        "Ports", str(len(port_stats)),
+                        COLORS.text_primary,
+                    )
+                    _summary_stat(
+                        "Interval", f"{elapsed} ms",
+                        COLORS.text_muted,
+                    )
 
-            refresh_stats_table()
+    refresh_summary()
+
+    # Charts row
+    with ui.row().classes("w-full gap-4"):
+        # Bandwidth chart
+        with ui.card().classes("flex-1 p-4").style(
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+        ):
+            ui.label("Bandwidth (MB/s)").classes("text-h6").style(
+                f"color: {COLORS.text_primary}"
+            )
+            bw_chart = ui.chart({
+                "title": False,
+                "chart": {
+                    "type": "line",
+                    "backgroundColor": COLORS.bg_secondary,
+                    "animation": False,
+                },
+                "xAxis": {
+                    "type": "datetime",
+                    "labels": {"style": {"color": COLORS.text_secondary}},
+                },
+                "yAxis": {
+                    "title": {
+                        "text": "MB/s",
+                        "style": {"color": COLORS.text_secondary},
+                    },
+                    "labels": {"style": {"color": COLORS.text_secondary}},
+                    "gridLineColor": COLORS.border,
+                    "min": 0,
+                },
+                "legend": {
+                    "itemStyle": {"color": COLORS.text_secondary},
+                },
+                "plotOptions": {
+                    "line": {"marker": {"enabled": False}},
+                },
+                "series": [],
+            }).classes("w-full").style("height: 350px")
+
+        # Utilization chart
+        with ui.card().classes("flex-1 p-4").style(
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+        ):
+            ui.label("Link Utilization (%)").classes("text-h6").style(
+                f"color: {COLORS.text_primary}"
+            )
+            util_chart = ui.chart({
+                "title": False,
+                "chart": {
+                    "type": "bar",
+                    "backgroundColor": COLORS.bg_secondary,
+                    "animation": False,
+                },
+                "xAxis": {
+                    "categories": [],
+                    "labels": {"style": {"color": COLORS.text_secondary}},
+                },
+                "yAxis": {
+                    "title": {
+                        "text": "%",
+                        "style": {"color": COLORS.text_secondary},
+                    },
+                    "labels": {"style": {"color": COLORS.text_secondary}},
+                    "gridLineColor": COLORS.border,
+                    "min": 0,
+                    "max": 100,
+                },
+                "legend": {
+                    "itemStyle": {"color": COLORS.text_secondary},
+                },
+                "series": [],
+            }).classes("w-full").style("height: 350px")
+
+    # Port statistics table
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    ):
+        ui.label("Port Statistics").classes("text-h6").style(
+            f"color: {COLORS.text_primary}"
+        )
+        stats_container = ui.column().classes("w-full")
+
+        @ui.refreshable
+        def refresh_stats_table():
+            stats_container.clear()
+            with stats_container:
+                port_stats = snapshot_data.get("port_stats", [])
+                if not port_stats:
+                    ui.label("Start monitoring and take a snapshot.").style(
+                        f"color: {COLORS.text_muted}"
+                    )
+                    return
+                rows = []
+                for ps in port_stats:
+                    in_bw = ps.get("ingress_payload_byte_rate", 0) / (1024 * 1024)
+                    out_bw = ps.get("egress_payload_byte_rate", 0) / (1024 * 1024)
+                    in_util = ps.get("ingress_link_utilization", 0) * 100
+                    out_util = ps.get("egress_link_utilization", 0) * 100
+                    in_total = ps.get("ingress_payload_total_bytes", 0)
+                    out_total = ps.get("egress_payload_total_bytes", 0)
+                    in_avg_tlp = ps.get("ingress_payload_avg_per_tlp", 0)
+                    out_avg_tlp = ps.get("egress_payload_avg_per_tlp", 0)
+                    rows.append({
+                        "port": ps.get("port_number", 0),
+                        "in_mbps": f"{in_bw:.1f}",
+                        "in_util": f"{in_util:.1f}%",
+                        "in_total": _format_bytes(in_total),
+                        "in_avg_tlp": f"{in_avg_tlp:.0f}",
+                        "out_mbps": f"{out_bw:.1f}",
+                        "out_util": f"{out_util:.1f}%",
+                        "out_total": _format_bytes(out_total),
+                        "out_avg_tlp": f"{out_avg_tlp:.0f}",
+                    })
+                columns = [
+                    {"name": "port", "label": "Port", "field": "port", "align": "left"},
+                    {"name": "in_mbps", "label": "In MB/s", "field": "in_mbps", "align": "right"},
+                    {"name": "in_util", "label": "In Util", "field": "in_util", "align": "right"},
+                    {"name": "in_total", "label": "In Total", "field": "in_total", "align": "right"},
+                    {"name": "in_avg_tlp", "label": "In Avg/TLP", "field": "in_avg_tlp", "align": "right"},
+                    {"name": "out_mbps", "label": "Out MB/s", "field": "out_mbps", "align": "right"},
+                    {"name": "out_util", "label": "Out Util", "field": "out_util", "align": "right"},
+                    {"name": "out_total", "label": "Out Total", "field": "out_total", "align": "right"},
+                    {"name": "out_avg_tlp", "label": "Out Avg/TLP", "field": "out_avg_tlp", "align": "right"},
+                ]
+                ui.table(columns=columns, rows=rows, row_key="port").classes("w-full")
+
+        refresh_stats_table()
 
 
 def _summary_stat(label: str, value: str, color: str) -> None:
@@ -405,7 +408,7 @@ def _summary_stat(label: str, value: str, color: str) -> None:
             f"color: {color}; font-weight: bold"
         )
         ui.label(label).style(
-            f"color: {COLORS['text_muted']}; font-size: 12px"
+            f"color: {COLORS.text_muted}; font-size: 12px"
         )
 
 

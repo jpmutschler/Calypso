@@ -12,22 +12,22 @@ def bandwidth_chart(snapshots: list[PerfSnapshot], port_number: int | None = Non
     """Create a real-time bandwidth chart using ECharts."""
     chart = ui.echart({
         "backgroundColor": "transparent",
-        "textStyle": {"color": COLORS["text_secondary"]},
+        "textStyle": {"color": COLORS.text_secondary},
         "tooltip": {"trigger": "axis"},
         "legend": {
             "data": ["Ingress", "Egress"],
-            "textStyle": {"color": COLORS["text_secondary"]},
+            "textStyle": {"color": COLORS.text_secondary},
         },
         "xAxis": {
             "type": "category",
             "data": [],
-            "axisLine": {"lineStyle": {"color": COLORS["border"]}},
+            "axisLine": {"lineStyle": {"color": COLORS.border}},
         },
         "yAxis": {
             "type": "value",
             "name": "MB/s",
-            "axisLine": {"lineStyle": {"color": COLORS["border"]}},
-            "splitLine": {"lineStyle": {"color": COLORS["border"] + "40"}},
+            "axisLine": {"lineStyle": {"color": COLORS.border}},
+            "splitLine": {"lineStyle": {"color": COLORS.border + "40"}},
         },
         "series": [
             {
@@ -35,18 +35,18 @@ def bandwidth_chart(snapshots: list[PerfSnapshot], port_number: int | None = Non
                 "type": "line",
                 "smooth": True,
                 "data": [],
-                "lineStyle": {"color": COLORS["accent_green"]},
-                "itemStyle": {"color": COLORS["accent_green"]},
-                "areaStyle": {"color": COLORS["accent_green"] + "20"},
+                "lineStyle": {"color": COLORS.green},
+                "itemStyle": {"color": COLORS.green},
+                "areaStyle": {"color": COLORS.green + "20"},
             },
             {
                 "name": "Egress",
                 "type": "line",
                 "smooth": True,
                 "data": [],
-                "lineStyle": {"color": COLORS["accent_blue"]},
-                "itemStyle": {"color": COLORS["accent_blue"]},
-                "areaStyle": {"color": COLORS["accent_blue"] + "20"},
+                "lineStyle": {"color": COLORS.cyan},
+                "itemStyle": {"color": COLORS.cyan},
+                "areaStyle": {"color": COLORS.cyan + "20"},
             },
         ],
     }).classes("w-full").style("height: 300px")
@@ -59,11 +59,11 @@ def utilization_gauge(utilization: float, label: str = "Utilization") -> ui.echa
     pct = utilization * 100
 
     if pct < 50:
-        color = COLORS["accent_green"]
+        color = COLORS.green
     elif pct < 80:
-        color = COLORS["accent_yellow"]
+        color = COLORS.yellow
     else:
-        color = COLORS["accent_red"]
+        color = COLORS.red
 
     return ui.echart({
         "backgroundColor": "transparent",
@@ -76,22 +76,22 @@ def utilization_gauge(utilization: float, label: str = "Utilization") -> ui.echa
             "detail": {
                 "formatter": f"{pct:.1f}%",
                 "fontSize": 16,
-                "color": COLORS["text_primary"],
+                "color": COLORS.text_primary,
             },
             "title": {
                 "show": True,
                 "offsetCenter": [0, "80%"],
                 "fontSize": 12,
-                "color": COLORS["text_secondary"],
+                "color": COLORS.text_secondary,
             },
             "data": [{"value": round(pct, 1), "name": label}],
             "axisLine": {
                 "lineStyle": {
                     "width": 10,
                     "color": [
-                        [0.5, COLORS["accent_green"]],
-                        [0.8, COLORS["accent_yellow"]],
-                        [1, COLORS["accent_red"]],
+                        [0.5, COLORS.green],
+                        [0.8, COLORS.yellow],
+                        [1, COLORS.red],
                     ],
                 },
             },

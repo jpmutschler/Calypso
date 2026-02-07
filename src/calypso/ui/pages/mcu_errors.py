@@ -68,12 +68,12 @@ def mcu_errors_page() -> None:
                     ui.notify(f"Clear failed: {exc}", type="negative")
 
             ui.button("Clear Counters", icon="delete_sweep", on_click=clear_errors).style(
-                f"background: {COLORS['accent_red']}"
+                f"background: {COLORS.red}"
             )
 
         with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS['bg_secondary']}; "
-            f"border: 1px solid {COLORS['border']}"
+            f"background: {COLORS.bg_secondary}; "
+            f"border: 1px solid {COLORS.border}"
         ):
             table = ui.table(
                 columns=_ERROR_COLUMNS,
@@ -84,11 +84,11 @@ def mcu_errors_page() -> None:
         # Summary counters
         with ui.row().classes("w-full gap-4 flex-wrap mt-4"):
             total_errors_label = ui.label("Total Errors: --").classes("text-h6").style(
-                f"color: {COLORS['text_primary']}"
+                f"color: {COLORS.text_primary}"
             )
             ports_with_errors_label = ui.label("Ports with Errors: --").classes(
                 "text-h6"
-            ).style(f"color: {COLORS['text_primary']}")
+            ).style(f"color: {COLORS.text_primary}")
 
         status = status_indicator()
 
@@ -109,7 +109,7 @@ def mcu_errors_page() -> None:
                 total = sum(c.total_errors for c in snapshot.counters)
                 with_errors = sum(1 for c in snapshot.counters if c.total_errors > 0)
 
-                color = COLORS["accent_green"] if total == 0 else COLORS["accent_red"]
+                color = COLORS.green if total == 0 else COLORS.red
                 total_errors_label.text = f"Total Errors: {total}"
                 total_errors_label.style(f"color: {color}")
 

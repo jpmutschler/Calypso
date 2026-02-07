@@ -47,11 +47,11 @@ def _port_to_row(port: McuPortInfo) -> dict:
 def _port_section(title: str) -> ui.table:
     """Create a labeled port table section. Always creates the table."""
     with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS['bg_secondary']}; "
-        f"border: 1px solid {COLORS['border']}"
+        f"background: {COLORS.bg_secondary}; "
+        f"border: 1px solid {COLORS.border}"
     ):
         ui.label(title).classes("text-subtitle2 mb-2").style(
-            f"color: {COLORS['text_primary']}"
+            f"color: {COLORS.text_primary}"
         )
         table = ui.table(
             columns=_PORT_COLUMNS,
@@ -73,7 +73,7 @@ def mcu_ports_page() -> None:
         page_header("Port Status", f"MCU: {mcu_port}")
 
         chip_label = ui.label("Chip: --").classes("text-caption mb-4").style(
-            f"color: {COLORS['text_secondary']}"
+            f"color: {COLORS.text_secondary}"
         )
 
         tables: dict[str, ui.table] = {}
