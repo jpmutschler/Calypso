@@ -77,6 +77,11 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.error_overview import error_overview_page
         error_overview_page(device_id)
 
+    @ui.page("/switch/{device_id}/compliance")
+    def compliance(device_id: str):
+        from calypso.ui.pages.compliance import compliance_page
+        compliance_page(device_id)
+
     @ui.page("/switch/{device_id}/workloads")
     def workloads_ui(device_id: str):
         from calypso.ui.pages.workloads import workloads_page
