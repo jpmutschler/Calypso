@@ -1,6 +1,6 @@
 # Calypso
 
-PCIe Gen6 Atlas3 Host Card (PEX90144/PEX90080) configuration and monitoring tool. Provides CLI, REST API, and web dashboard interfaces for switch management, PCIe link diagnostics, performance monitoring, and MCU communication.
+PCIe Gen6 Atlas3 Host Card (PEX90144/PEX90080) configuration and monitoring tool. Provides CLI, REST API, and web dashboard interfaces for switch management, PCIe link diagnostics, performance monitoring, compliance testing, and MCU communication.
 
 ## Hardware
 
@@ -111,6 +111,7 @@ src/calypso/
 ├── hardware/       # Atlas3 board definitions (station/connector/lane mapping, PHY)
 ├── models/         # Pydantic data models
 ├── core/           # Domain logic (switch, ports, topology, perf, PCIe config, PHY, EEPROM)
+├── compliance/     # PCIe compliance testing (6 suites, HTML reports)
 ├── workloads/      # Optional NVMe workload generation (SPDK perf, pynvme)
 ├── mcu/            # MCU serial client (health, ports, errors, BIST, config)
 ├── api/            # FastAPI REST + WebSocket API
@@ -234,6 +235,7 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Config | `GET /{id}/config` | Switch configuration |
 | Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
 | Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
+| Compliance | `POST /{id}/compliance/start`, `GET /{id}/compliance/progress`, `GET /{id}/compliance/result`, `POST /{id}/compliance/cancel`, `GET /{id}/compliance/report` | PCIe compliance testing + HTML reports |
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear` | PCIe config space |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `GET /{id}/phy/lane-margining`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer |
@@ -265,6 +267,7 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | PHY Monitor | `/switch/{id}/phy` | Equalization, SerDes, UTP testing, lane margining |
 | Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |
 | LTSSM Trace | `/switch/{id}/ltssm` | LTSSM state polling, retrain-and-watch with state transition chart, Ptrace capture |
+| Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 
 ### MCU Pages (Serial)

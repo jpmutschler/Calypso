@@ -25,8 +25,9 @@ Version 0.1.0
    - 5.10 [Eye Diagram](#510-eye-diagram)
    - 5.11 [LTSSM Trace](#511-ltssm-trace)
    - 5.12 [Error Overview](#512-error-overview)
-   - 5.13 [Workloads](#513-workloads)
-   - 5.14 [MCU Pages](#514-mcu-pages)
+   - 5.13 [Compliance](#513-compliance)
+   - 5.14 [Workloads](#514-workloads)
+   - 5.15 [MCU Pages](#515-mcu-pages)
 6. [Hardware Reference](#6-hardware-reference)
 7. [Appendix A: REST API Reference](#appendix-a-rest-api-reference)
 8. [Appendix B: CLI Reference](#appendix-b-cli-reference)
@@ -43,6 +44,7 @@ Calypso is a comprehensive management tool for the Broadcom PEX90144 and PEX9008
 - **Performance monitoring** -- real-time bandwidth and utilization via WebSocket streaming
 - **PHY-layer analysis** -- SerDes diagnostics, User Test Patterns, lane margining eye diagrams
 - **Error management** -- combined AER, MCU, and LTSSM error views with per-port breakdown
+- **Compliance testing** -- 6 automated test suites (link training, error audit, config audit, signal integrity, BER, port sweep) with real-time progress and HTML reports
 - **Switch configuration** -- EEPROM management, device control (MPS/MRRS), link speed targeting
 - **NVMe workload generation** -- SPDK and pynvme backends with combined host+switch metrics
 - **MCU monitoring** -- thermal, fan, voltage, power, error counters, BIST via serial
@@ -728,7 +730,106 @@ Toggle the **Auto-refresh (5s)** switch for periodic updates. The status label s
 
 ---
 
-### 5.13 Workloads
+### 5.13 Compliance
+
+**Route:** `/switch/{device_id}/compliance`
+
+Automated PCIe compliance testing with 6 test suites, real-time progress tracking, and downloadable HTML reports. Designed for PCIe validation engineers performing link qualification and signal integrity verification.
+
+#### Test Suites
+
+| Suite | ID | Tests/Port | Description |
+|-------|-----|-----------|-------------|
+| Link Training | T1 | 4 | Speed negotiation, LTSSM state validation, EQ phase verification, recovery count baseline |
+| Error Audit | T2 | 3 | AER error audit, error reporting enables, error-free operation hold |
+| Config Audit | T3 | 4 | Capability list integrity, MPS/MRRS validation, link capability consistency, supported speeds contiguity |
+| Signal Integrity | T4 | ~20 | Lane margining eye measurement (per-lane), spec minimum eye check, per-lane margin comparison |
+| BER Test | T5 | ~18 | PRBS31 per-lane BER at current speed, multi-speed BER across all supported Gen3+ speeds |
+| Port Sweep | T6 | 3 (total) | All-port link status, all-port error sweep, all-port recovery count audit |
+
+Test count scales with the number of ports and lanes selected. Port Sweep (T6) runs once per compliance run, not per-port.
+
+#### Thresholds
+
+Spec-aligned pass/fail thresholds derived from PCIe CEM 6.0 and PCIe Base Spec 6.0.1:
+
+| Generation | Min Eye Width (UI) | Min Eye Height (mV) | Max BER | Signaling |
+|------------|-------------------|---------------------|---------|-----------|
+| Gen3 (8 GT/s) | 0.30 | 15 | 1e-12 | NRZ |
+| Gen4 (16 GT/s) | 0.25 | 15 | 1e-12 | NRZ |
+| Gen5 (32 GT/s) | 0.20 | 10 | 1e-6 | PAM4 |
+| Gen6 (64 GT/s) | 0.15 | 8 | 1e-6 | PAM4 |
+
+Signal integrity tests also flag lanes whose measured eye is >30% below the per-port average (outlier detection).
+
+#### Configuration
+
+**Test Suite Selection:** Checkboxes for all 6 suites (all enabled by default).
+
+**Port Configuration:** Multi-port support with add/remove controls. Per-port inputs:
+
+| Parameter | Range | Default |
+|-----------|-------|---------|
+| Port Number | 0-143 | 0 |
+| Port Select | 0-15 | 0 |
+| Lane Count | 1-16 | 16 |
+
+**Timing Parameters:**
+
+| Parameter | Range | Default | Purpose |
+|-----------|-------|---------|---------|
+| BER Duration | 1-300s | 10s | Duration of PRBS pattern test per speed |
+| Idle Wait | 1-60s | 5s | Idle hold period for error-free operation tests |
+| Speed Settle | 0.5-10s | 2s | Delay after speed change to allow link training |
+
+#### Running a Compliance Test
+
+1. Select test suites (or leave all enabled for a full compliance run)
+2. Configure target port(s) -- port number, port select, and lane count
+3. Adjust timing parameters if needed (defaults are suitable for most cases)
+4. Click **Start Test Run**
+5. Monitor progress: current suite/test name, completion percentage, elapsed time
+6. On completion, review results summary and per-suite tables
+7. Click **Download Report** for a self-contained HTML report
+
+#### Progress Display
+
+- Linear progress bar with percentage
+- Current suite and test name
+- Tests completed / total count
+- Elapsed time in seconds
+- Auto-updates every 1 second
+
+#### Results
+
+After completion, the page displays:
+
+- **Summary:** Overall verdict (PASS/FAIL/WARN/ERROR), total pass/fail/warn/skip/error counts, run duration
+- **Per-Suite Tables:** Each suite shows test ID, test name, verdict badge (color-coded), result message, and execution time
+- **Verdicts:** PASS (green), FAIL (red), WARN (yellow), SKIP (gray), ERROR (red)
+
+#### HTML Report
+
+Click **Download Report** to generate a self-contained HTML file including:
+
+- Device metadata (ID, chip, revision, timestamp)
+- Executive summary with proportional pass/fail bar chart
+- Per-suite result tables
+- Signal integrity eye width/height bar charts (when T4 was run)
+- BER results table with per-lane and per-speed data (when T5 was run)
+- Dark-themed styling matching the Calypso dashboard
+
+The report requires no external dependencies and can be shared as a standalone file.
+
+#### Cancellation
+
+Click **Cancel** to request cancellation of a running test. The engine completes the current test, marks remaining tests as SKIP, and returns partial results.
+
+<!-- Screenshot: Compliance page with test suite selection, progress bar, and per-suite result tables -->
+
+---
+
+### 5.14 Workloads
 
 **Route:** `/switch/{device_id}/workloads`
 
@@ -778,7 +879,7 @@ A table of all workloads run during the session with ID, backend, BDF, state, IO
 
 ---
 
-### 5.14 MCU Pages
+### 5.15 MCU Pages
 
 The MCU pages communicate with the Atlas3 microcontroller over a serial (USB) connection. Ensure the MCU is connected on the Discovery page before navigating to these pages.
 
@@ -1017,6 +1118,16 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `GET` | `/api/devices/{id}/errors/overview` | Combined error overview. Params: `mcu_port` (optional) |
 | `POST` | `/api/devices/{id}/errors/clear-aer` | Clear AER errors |
 | `POST` | `/api/devices/{id}/errors/clear-mcu` | Clear MCU counters. Params: `mcu_port` |
+
+### Compliance
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/devices/{id}/compliance/start` | Start compliance test run. Body: `{suites, ports, ber_duration_s, idle_wait_s, speed_settle_s}` |
+| `GET` | `/api/devices/{id}/compliance/progress` | Poll test run progress (status, current suite/test, percent, elapsed) |
+| `GET` | `/api/devices/{id}/compliance/result` | Get completed test run result (all suite results, verdicts, metrics) |
+| `POST` | `/api/devices/{id}/compliance/cancel` | Request cancellation of running test |
+| `GET` | `/api/devices/{id}/compliance/report` | Download HTML compliance report (attachment) |
 
 ### MCU
 

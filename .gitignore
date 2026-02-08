@@ -21,3 +21,5 @@ nul
 *.log
 
 vendor/
+
+CLAUDE.md
