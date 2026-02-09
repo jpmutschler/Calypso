@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import struct
+from unittest.mock import MagicMock
 
-from calypso.workloads.smart_parser import parse_smart_buffer
+from calypso.workloads.smart_parser import parse_smart_buffer, read_smart_from_controller
 
 _KELVIN_OFFSET = 273
 
@@ -114,3 +115,71 @@ class TestParseSmartBuffer:
         buf = _build_smart_buffer(composite_k=_KELVIN_OFFSET + 105)
         snap = parse_smart_buffer(bytes(buf))
         assert snap.composite_temp_celsius == 105.0
+
+
+class TestReadSmartFromController:
+    """Tests for read_smart_from_controller with mock controllers."""
+
+    def test_successful_read(self):
+        buf = _build_smart_buffer(
+            composite_k=_KELVIN_OFFSET + 55,
+            available_spare=90,
+            poh=1000,
+        )
+        ctrl = MagicMock()
+        ctrl.getlogpage.return_value = bytes(buf)
+        ctrl.getfeatures.return_value = 2  # PS2
+
+        snap = read_smart_from_controller(ctrl)
+
+        assert snap is not None
+        assert snap.composite_temp_celsius == 55.0
+        assert snap.available_spare_pct == 90
+        assert snap.power_on_hours == 1000
+        assert snap.power_state == 2
+        ctrl.getlogpage.assert_called_once_with(2, 512)
+        ctrl.getfeatures.assert_called_once_with(2)
+
+    def test_getlogpage_returns_none(self):
+        ctrl = MagicMock()
+        ctrl.getlogpage.return_value = None
+
+        snap = read_smart_from_controller(ctrl)
+        assert snap is None
+
+    def test_getlogpage_returns_too_short(self):
+        ctrl = MagicMock()
+        ctrl.getlogpage.return_value = b"\x00"
+
+        snap = read_smart_from_controller(ctrl)
+        assert snap is None
+
+    def test_getlogpage_raises(self):
+        ctrl = MagicMock()
+        ctrl.getlogpage.side_effect = RuntimeError("device gone")
+
+        snap = read_smart_from_controller(ctrl)
+        assert snap is None
+
+    def test_getfeatures_raises_still_returns_snapshot(self):
+        buf = _build_smart_buffer(composite_k=_KELVIN_OFFSET + 40)
+        ctrl = MagicMock()
+        ctrl.getlogpage.return_value = bytes(buf)
+        ctrl.getfeatures.side_effect = RuntimeError("not supported")
+
+        snap = read_smart_from_controller(ctrl)
+
+        assert snap is not None
+        assert snap.composite_temp_celsius == 40.0
+        assert snap.power_state == 0  # fallback
+
+    def test_getfeatures_masked_to_5_bits(self):
+        buf = _build_smart_buffer(composite_k=_KELVIN_OFFSET + 30)
+        ctrl = MagicMock()
+        ctrl.getlogpage.return_value = bytes(buf)
+        ctrl.getfeatures.return_value = 0xFF  # only low 5 bits = 31
+
+        snap = read_smart_from_controller(ctrl)
+
+        assert snap is not None
+        assert snap.power_state == 31
