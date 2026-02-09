@@ -19,6 +19,11 @@ def setup_ui(fastapi_app: FastAPI) -> None:
 
     @ui.page("/")
     def index():
+        from calypso.ui.pages.auto_discovery import auto_discovery_page
+        auto_discovery_page()
+
+    @ui.page("/discovery")
+    def manual_discovery():
         from calypso.ui.pages.discovery import discovery_page
         discovery_page()
 

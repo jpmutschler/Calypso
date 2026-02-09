@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 
 from nicegui import app, ui
@@ -9,6 +10,7 @@ from nicegui import app, ui
 from calypso.mcu import pool
 from calypso.mcu.client import McuClient
 from calypso.ui.layout import page_layout
+from calypso.ui.services.pcie import connect_pcie_device, scan_pcie_devices
 from calypso.ui.theme import COLORS
 from calypso.utils.logging import get_logger
 
@@ -16,7 +18,7 @@ logger = get_logger(__name__)
 
 
 def discovery_page() -> None:
-    """Render the device discovery page at /."""
+    """Render the device discovery page at /discovery."""
 
     def content():
         _discovery_content()
@@ -39,16 +41,16 @@ def _discovery_content() -> None:
             f"color: {COLORS.text_primary}"
         )
 
-        transport = ui.select(
+        ui.select(
             ["PCIe Bus", "UART (MCU/USB)", "SDB (USB)"],
             value="PCIe Bus",
         ).classes("w-full")
 
         with ui.row().classes("gap-4 mt-2"):
-            port_input = ui.number("Port", value=0, min=0).classes("w-32")
-            baud_select = ui.select(["115200", "19200"], value="115200").classes("w-32")
+            ui.number("Port", value=0, min=0).classes("w-32")
+            ui.select(["115200", "19200"], value="115200").classes("w-32")
 
-        scan_btn = ui.button("Scan for Devices", icon="search").classes("mt-2").style(
+        ui.button("Scan for Devices", icon="search").classes("mt-2").style(
             f"background: {COLORS.blue}"
         )
 
@@ -69,7 +71,7 @@ def _discovery_content() -> None:
                 f"color: {COLORS.green}; font-weight: bold"
             )
 
-            for dev in devices:
+            for idx, dev in enumerate(devices):
                 with ui.card().classes("w-full p-3").style(
                     f"background: {COLORS.bg_card}; "
                     f"border: 1px solid {COLORS.border}"
@@ -94,13 +96,24 @@ def _discovery_content() -> None:
 
                         ui.space()
 
-                        device_key = f"{dev.bus:02X}:{dev.slot:02X}.{dev.function}"
+                        async def _connect_click(_e, device_index=idx):
+                            try:
+                                device_id = await asyncio.to_thread(
+                                    connect_pcie_device, device_index
+                                )
+                                ui.navigate.to(f"/switch/{device_id}")
+                            except Exception as exc:
+                                logger.error(
+                                    "connect_failed", error=str(exc),
+                                    index=device_index,
+                                )
+                                ui.notify(
+                                    "Connection failed. Check logs for details.",
+                                    type="negative",
+                                )
+
                         ui.button(
-                            "Connect",
-                            icon="link",
-                            on_click=lambda _e, dk=device_key: ui.navigate.to(
-                                f"/device/{dk}/dashboard"
-                            ),
+                            "Connect", icon="link", on_click=_connect_click,
                         ).style(f"background: {COLORS.green}")
 
     with results_container:
@@ -111,16 +124,11 @@ def _discovery_content() -> None:
         if sys.platform not in ("win32", "linux"):
             return
         try:
-            from calypso.core.discovery import scan_devices
-            from calypso.transport.pcie import PcieTransport
-
-            transport_obj = PcieTransport()
-            devices = await ui.run_cpu_bound(scan_devices, transport_obj)
+            devices = await asyncio.to_thread(scan_pcie_devices)
             if devices:
                 _show_pcie_results(devices)
         except Exception:
-            # Silently fall back - no driver or no devices is fine
-            pass
+            logger.debug("pcie_auto_scan_skipped", exc_info=True)
 
     ui.timer(0.1, _auto_scan_pcie, once=True)
 

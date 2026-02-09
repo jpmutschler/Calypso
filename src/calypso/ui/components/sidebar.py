@@ -25,7 +25,8 @@ def sidebar_nav(
         current_path: Current page path for active link highlighting.
     """
     with ui.column().classes("w-full q-pa-sm q-gutter-sm"):
-        _nav_item("Device Discovery", "search", "/", active=(current_path == "/"))
+        _nav_item("Device Discovery", "search", "/discovery",
+                  active=(current_path == "/discovery"))
 
         ui.separator().style(f"background-color: {COLORS.border};")
 
