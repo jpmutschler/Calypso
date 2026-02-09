@@ -20,6 +20,4 @@ nul
 .env
 *.log
 
-vendor/
-
 CLAUDE.md
