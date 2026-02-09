@@ -14,12 +14,15 @@ from calypso.workloads.exceptions import (
     WorkloadTargetError,
 )
 from calypso.workloads.models import (
+    SmartSnapshot,
+    SmartTimeSeries,
     WorkloadConfig,
     WorkloadIOStats,
     WorkloadProgress,
     WorkloadResult,
     WorkloadState,
 )
+from calypso.workloads.smart_parser import read_smart_from_controller
 
 logger = get_logger(__name__)
 
@@ -27,6 +30,7 @@ logger = get_logger(__name__)
 @dataclass
 class _PynvmeWorkload:
     """Tracks a single pynvme workload run."""
+
     workload_id: str
     config: WorkloadConfig
     state: WorkloadState = WorkloadState.PENDING
@@ -39,6 +43,9 @@ class _PynvmeWorkload:
     current_iops: float = 0.0
     current_bw_mbps: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock)
+    smart_snapshots: list[SmartSnapshot] = field(default_factory=list)
+    latest_smart: SmartSnapshot | None = None
+    smart_poll_interval: float = 3.0
 
 
 class PynvmeBackend(WorkloadBackend):
@@ -55,6 +62,7 @@ class PynvmeBackend(WorkloadBackend):
         """Verify the NVMe device at *bdf* is accessible via pynvme."""
         try:
             import pynvme
+
             pcie = pynvme.Pcie(bdf)
             pcie.close()
             return True
@@ -111,6 +119,7 @@ class PynvmeBackend(WorkloadBackend):
                 duration_ms=duration_ms,
                 error=wl.error,
                 state=wl.state,
+                smart_history=self._build_smart_history(wl),
             )
 
     def get_progress(self, workload_id: str) -> WorkloadProgress:
@@ -124,6 +133,7 @@ class PynvmeBackend(WorkloadBackend):
                 current_iops=wl.current_iops,
                 current_bandwidth_mbps=wl.current_bw_mbps,
                 state=wl.state,
+                smart=wl.latest_smart,
             )
 
     def is_running(self, workload_id: str) -> bool:
@@ -172,7 +182,7 @@ class PynvmeBackend(WorkloadBackend):
             return
 
         try:
-            results = self._run_ioworkers(wl, ns)
+            results = self._run_ioworkers(wl, ns, ctrl)
             with wl.lock:
                 if wl.state == WorkloadState.RUNNING:
                     wl.stats = self._aggregate_results(results, wl.config)
@@ -189,8 +199,13 @@ class PynvmeBackend(WorkloadBackend):
             except Exception:
                 pass
 
-    def _run_ioworkers(self, wl: _PynvmeWorkload, ns: object) -> list[dict]:
-        """Launch IOWorkers and collect their result dicts."""
+    def _run_ioworkers(
+        self,
+        wl: _PynvmeWorkload,
+        ns: object,
+        ctrl: object,
+    ) -> list[dict]:
+        """Launch IOWorkers, poll SMART while they run, collect result dicts."""
         config = wl.config
         num_workers = config.num_workers
         io_size_lba = max(1, config.io_size_bytes // 512)
@@ -228,13 +243,47 @@ class PynvmeBackend(WorkloadBackend):
             ioworker = ns.ioworker(**worker_kwargs)
             workers.append(ioworker)
 
-        # IOWorkers run, collect results
+        # Poll SMART while IOWorkers run in background C threads
+        self._poll_smart_loop(wl, ctrl)
+
+        # IOWorkers should have finished by now, collect results
         results = []
         for ioworker in workers:
             result = ioworker.close()
             results.append(result if isinstance(result, dict) else {})
 
         return results
+
+    def _poll_smart_loop(self, wl: _PynvmeWorkload, ctrl: object) -> None:
+        """Poll SMART data at regular intervals until duration expires or stopped."""
+        deadline = wl.start_time + wl.config.duration_seconds
+        while not wl.stop_event.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            snap = read_smart_from_controller(ctrl)
+            if snap is not None:
+                with wl.lock:
+                    wl.smart_snapshots.append(snap)
+                    wl.latest_smart = snap
+
+            wait_time = min(wl.smart_poll_interval, remaining)
+            if wait_time > 0:
+                wl.stop_event.wait(timeout=wait_time)
+
+    @staticmethod
+    def _build_smart_history(wl: _PynvmeWorkload) -> SmartTimeSeries | None:
+        """Build SmartTimeSeries from accumulated snapshots. Caller holds wl.lock."""
+        if not wl.smart_snapshots:
+            return None
+        temps = [s.composite_temp_celsius for s in wl.smart_snapshots]
+        return SmartTimeSeries(
+            snapshots=list(wl.smart_snapshots),
+            peak_temp_celsius=max(temps),
+            avg_temp_celsius=sum(temps) / len(temps),
+            latest=wl.smart_snapshots[-1],
+        )
 
     @staticmethod
     def _aggregate_results(
@@ -273,9 +322,7 @@ class PynvmeBackend(WorkloadBackend):
             iops_total=iops_read + iops_write,
             bandwidth_read_mbps=(iops_read * io_size_bytes) / (1024 * 1024),
             bandwidth_write_mbps=(iops_write * io_size_bytes) / (1024 * 1024),
-            bandwidth_total_mbps=(
-                (iops_read + iops_write) * io_size_bytes / (1024 * 1024)
-            ),
+            bandwidth_total_mbps=((iops_read + iops_write) * io_size_bytes / (1024 * 1024)),
             latency_avg_us=latency_avg_sum / n if n > 0 else 0.0,
             latency_max_us=latency_max_val,
             cpu_usage_percent=cpu_sum / n if n > 0 else 0.0,

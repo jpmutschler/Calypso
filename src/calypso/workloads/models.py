@@ -13,6 +13,7 @@ _CORE_MASK_RE = re.compile(r"^0[xX][0-9a-fA-F]+$")
 
 class WorkloadType(str, Enum):
     """NVMe I/O workload pattern."""
+
     RANDREAD = "randread"
     RANDWRITE = "randwrite"
     READ = "read"
@@ -23,12 +24,14 @@ class WorkloadType(str, Enum):
 
 class BackendType(str, Enum):
     """Workload generation backend."""
+
     SPDK = "spdk"
     PYNVME = "pynvme"
 
 
 class WorkloadState(str, Enum):
     """Lifecycle state of a workload."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -38,6 +41,7 @@ class WorkloadState(str, Enum):
 
 class WorkloadConfig(BaseModel):
     """Configuration for a workload run."""
+
     backend: BackendType
     target_bdf: str = Field(description="PCIe BDF address, e.g. 0000:01:00.0")
     workload_type: WorkloadType = WorkloadType.RANDREAD
@@ -66,8 +70,29 @@ class WorkloadConfig(BaseModel):
         return v
 
 
+class SmartSnapshot(BaseModel):
+    """Single point-in-time NVMe SMART reading."""
+
+    timestamp_ms: int = 0
+    composite_temp_celsius: float = 0.0
+    temp_sensors_celsius: list[float] = Field(default_factory=list)
+    power_on_hours: int = 0
+    power_state: int = 0
+    available_spare_pct: int = 100
+
+
+class SmartTimeSeries(BaseModel):
+    """Accumulated SMART history across a workload run."""
+
+    snapshots: list[SmartSnapshot] = Field(default_factory=list)
+    peak_temp_celsius: float = 0.0
+    avg_temp_celsius: float = 0.0
+    latest: SmartSnapshot | None = None
+
+
 class WorkloadIOStats(BaseModel):
     """Aggregated I/O statistics from a workload run."""
+
     io_count_read: int = 0
     io_count_write: int = 0
     iops_read: float = 0.0
@@ -86,26 +111,31 @@ class WorkloadIOStats(BaseModel):
 
 class WorkloadProgress(BaseModel):
     """Live progress snapshot of a running workload."""
+
     workload_id: str
     elapsed_seconds: float = 0.0
     total_seconds: float = 0.0
     current_iops: float = 0.0
     current_bandwidth_mbps: float = 0.0
     state: WorkloadState = WorkloadState.RUNNING
+    smart: SmartSnapshot | None = None
 
 
 class WorkloadResult(BaseModel):
     """Final result of a completed workload run."""
+
     workload_id: str
     config: WorkloadConfig
     stats: WorkloadIOStats | None = None
     duration_ms: float = 0.0
     error: str | None = None
     state: WorkloadState = WorkloadState.COMPLETED
+    smart_history: SmartTimeSeries | None = None
 
 
 class WorkloadStatus(BaseModel):
     """Full lifecycle status of a workload."""
+
     workload_id: str
     backend: BackendType
     target_bdf: str
@@ -117,6 +147,7 @@ class WorkloadStatus(BaseModel):
 
 class CombinedPerfView(BaseModel):
     """Host-side workload stats combined with switch-side performance snapshot."""
+
     workload_id: str
     workload_stats: WorkloadIOStats | None = None
     workload_state: WorkloadState = WorkloadState.PENDING
