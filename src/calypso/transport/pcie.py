@@ -45,6 +45,7 @@ class PcieTransport(Transport):
 
         if sys.platform == "win32":
             self._check_library_available()
+            self._check_service_running()
         elif sys.platform == "linux":
             self._check_driver_loaded()
         else:
@@ -73,6 +74,31 @@ class PcieTransport(Transport):
             raise DriverNotFoundError(
                 f"PlxApi.dll not found. Ensure PLX SDK is installed and "
                 f"PLX_SDK_DIR is set. Detail: {exc}"
+            ) from exc
+
+    def _check_service_running(self) -> None:
+        """Verify the PlxSvc Windows service is running."""
+        try:
+            from calypso.driver.manager import DriverManager
+
+            mgr = DriverManager()
+            status = mgr.get_status()
+            if not status.is_loaded:
+                raise DriverNotFoundError(
+                    "PlxSvc service is not running. "
+                    "Run 'calypso driver install' to install and start it."
+                )
+        except FileNotFoundError as exc:
+            raise DriverNotFoundError(
+                "PLX SDK not found. Set PLX_SDK_DIR environment variable. "
+                "Run 'calypso driver check' for prerequisite details."
+            ) from exc
+        except DriverNotFoundError:
+            raise
+        except Exception as exc:
+            raise DriverNotFoundError(
+                f"Failed to check PlxSvc service status: {exc}. "
+                "Run 'calypso driver check' for prerequisite details."
             ) from exc
 
     def _check_driver_loaded(self) -> None:

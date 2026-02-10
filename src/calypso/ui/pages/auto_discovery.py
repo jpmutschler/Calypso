@@ -261,9 +261,9 @@ def _action_buttons(area: ui.column) -> None:
 def _platform_driver_instructions() -> str:
     if sys.platform == "win32":
         return (
-            "PlxApi.dll was not found.\n"
-            "Install the Broadcom PLX SDK and ensure PLX_SDK_DIR is set,\n"
-            "or place PlxApi.dll in vendor/plxsdk/."
+            "PlxSvc service is not running or PlxApi.dll was not found.\n"
+            "Run 'calypso driver install' to install and start the service.\n"
+            "This requires administrator privileges."
         )
     return (
         "PlxSvc kernel module is not loaded.\n"

@@ -1,17 +1,19 @@
-"""PLX kernel driver build, install, and status management.
+"""PLX driver build, install, and status management.
 
 Wraps the Broadcom PLX SDK's builddriver, Plx_load, and Plx_unload
-scripts to provide a clean Python interface for driver lifecycle
-management. Linux-only.
+scripts on Linux, and manages the PlxSvc Windows kernel service via
+sc.exe + winreg on Windows.
 """
 
 from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +42,22 @@ _SDK_MARKER_FILES = (
     Path("Include") / "PexApi.h",
 )
 
+# Windows service constants
+_WIN_SERVICE_NAME = "PlxSvc"
+_WIN_SERVICE_DISPLAY = "PLX PCI/PCIe Service Driver"
+_WIN_SC_EXE = os.path.join(
+    os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe"
+)
+_WIN_REGISTRY_VALUES: dict[str, int] = {
+    "CommonBufferSize": 0x2000,       # 8 KB DMA common buffer (PLX default)
+    "BarMapLimitMB": 0,               # No limit on BAR mapping size
+    "EnablePciBarProbe": 0,           # Disable BAR probing (safer for switches)
+    "EcamProbeAllow": 0,              # Disable ECAM memory probing
+    "EcamProbeAddrStart": 0xD0000000, # ECAM MMIO range start (platform-specific)
+    "EcamProbeAddrEnd": 0xFC000000,   # ECAM MMIO range end (below 4GB MMIO hole)
+}
+_WIN_SERVICE_STOP_TIMEOUT_S = 5.0
+
 
 @dataclass(frozen=True)
 class Prerequisite:
@@ -56,11 +74,11 @@ class PrerequisiteReport:
     """Full prerequisites check result."""
 
     items: tuple[Prerequisite, ...] = ()
-    is_linux: bool = False
+    is_supported_platform: bool = False
 
     @property
     def all_satisfied(self) -> bool:
-        return self.is_linux and all(p.satisfied for p in self.items)
+        return self.is_supported_platform and all(p.satisfied for p in self.items)
 
     @property
     def missing(self) -> tuple[Prerequisite, ...]:
@@ -77,6 +95,7 @@ class DriverStatus:
     sdk_path: str = ""
     driver_built: bool = False
     library_built: bool = False
+    service_state: str = ""
 
 
 @dataclass(frozen=True)
@@ -90,10 +109,10 @@ class BuildResult:
 
 
 class DriverManager:
-    """Manages PLX kernel driver build, install, and status lifecycle.
+    """Manages PLX driver build, install, and status lifecycle.
 
-    Wraps the SDK's builddriver/Plx_load/Plx_unload scripts with
-    proper prerequisite checking, error handling, and status reporting.
+    On Linux, wraps the SDK's builddriver/Plx_load/Plx_unload scripts.
+    On Windows, manages the PlxSvc kernel service via sc.exe and winreg.
     """
 
     def __init__(self, sdk_dir: str | Path | None = None) -> None:
@@ -111,6 +130,10 @@ class DriverManager:
     @property
     def driver_module_path(self) -> Path:
         return self.driver_source_dir / f"Source.{DRIVER_NAME}" / f"{DRIVER_NAME}.ko"
+
+    @property
+    def driver_sys_path(self) -> Path:
+        return self._sdk_dir / "Driver" / "PlxSvc.sys"
 
     @property
     def builddriver_script(self) -> Path:
@@ -131,6 +154,77 @@ class DriverManager:
     @property
     def plxapi_so_path(self) -> Path:
         return self.plxapi_library_dir / "Library" / "PlxApi.so"
+
+    # ------------------------------------------------------------------
+    # Public dispatch methods
+    # ------------------------------------------------------------------
+
+    def check_prerequisites(self) -> PrerequisiteReport:
+        """Check all prerequisites for building and installing the driver."""
+        if sys.platform == "linux":
+            return self._check_prerequisites_linux()
+        if sys.platform == "win32":
+            return self._check_prerequisites_windows()
+        return PrerequisiteReport(
+            items=(
+                Prerequisite(
+                    name="Supported OS",
+                    description="PLX driver requires Linux or Windows",
+                    satisfied=False,
+                    detail=f"Current platform: {sys.platform}",
+                ),
+            ),
+            is_supported_platform=False,
+        )
+
+    def get_status(self) -> DriverStatus:
+        """Get current driver status."""
+        if sys.platform == "linux":
+            return self._get_status_linux()
+        if sys.platform == "win32":
+            return self._get_status_windows()
+        return DriverStatus(
+            module_name=DRIVER_NAME,
+            sdk_path=str(self._sdk_dir),
+        )
+
+    def build_driver(self) -> BuildResult:
+        """Build the PlxSvc kernel module (Linux only)."""
+        if sys.platform == "win32":
+            return BuildResult(
+                success=False,
+                error="Not supported on Windows. Driver is prebuilt.",
+            )
+        return self._build_driver_linux()
+
+    def build_library(self) -> BuildResult:
+        """Build the PlxApi shared library (Linux only)."""
+        if sys.platform == "win32":
+            return BuildResult(
+                success=False,
+                error="Not supported on Windows. Library is prebuilt.",
+            )
+        return self._build_library_linux()
+
+    def install_driver(self) -> BuildResult:
+        """Install and start the PLX driver."""
+        if sys.platform == "linux":
+            return self._install_driver_linux()
+        if sys.platform == "win32":
+            return self._install_driver_windows()
+        return BuildResult(success=False, error=f"Not supported on {sys.platform}")
+
+    def uninstall_driver(self) -> BuildResult:
+        """Stop and remove the PLX driver."""
+        if sys.platform == "linux":
+            return self._uninstall_driver_linux()
+        if sys.platform == "win32":
+            return self._uninstall_driver_windows()
+        return BuildResult(success=False, error=f"Not supported on {sys.platform}")
+
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
 
     def _resolve_sdk_dir(self, sdk_dir: str | Path | None) -> Path:
         """Resolve the PLX SDK directory from argument, env var, or project structure."""
@@ -173,26 +267,13 @@ class DriverManager:
         env["PLX_SDK_DIR"] = str(self._sdk_dir)
         return env
 
-    def check_prerequisites(self) -> PrerequisiteReport:
-        """Check all prerequisites for building and installing the driver."""
-        is_linux = sys.platform == "linux"
+    # ------------------------------------------------------------------
+    # Linux implementation
+    # ------------------------------------------------------------------
 
-        if not is_linux:
-            return PrerequisiteReport(
-                items=(
-                    Prerequisite(
-                        name="Linux OS",
-                        description="PLX kernel driver requires Linux",
-                        satisfied=False,
-                        detail=f"Current platform: {sys.platform}",
-                    ),
-                ),
-                is_linux=False,
-            )
-
+    def _check_prerequisites_linux(self) -> PrerequisiteReport:
         items: list[Prerequisite] = []
 
-        # Check kernel headers
         kernel_release = platform.release()
         headers_dir = Path(f"/lib/modules/{kernel_release}/build")
         items.append(Prerequisite(
@@ -205,7 +286,6 @@ class DriverManager:
             ),
         ))
 
-        # Check GCC
         gcc_path = shutil.which("gcc")
         items.append(Prerequisite(
             name="GCC",
@@ -214,7 +294,6 @@ class DriverManager:
             detail=gcc_path or "Not found. Install with: sudo apt install build-essential",
         ))
 
-        # Check make
         make_path = shutil.which("make")
         items.append(Prerequisite(
             name="Make",
@@ -223,7 +302,6 @@ class DriverManager:
             detail=make_path or "Not found. Install with: sudo apt install build-essential",
         ))
 
-        # Check SDK directory
         sdk_exists = self._sdk_dir.exists()
         items.append(Prerequisite(
             name="PLX SDK",
@@ -232,7 +310,6 @@ class DriverManager:
             detail=str(self._sdk_dir) if sdk_exists else "SDK directory not found",
         ))
 
-        # Check builddriver script
         script_exists = self.builddriver_script.exists()
         items.append(Prerequisite(
             name="Build Script",
@@ -241,7 +318,6 @@ class DriverManager:
             detail=str(self.builddriver_script) if script_exists else "Not found in SDK",
         ))
 
-        # Check sudo access
         is_root = self._is_root()
         has_sudo = is_root or shutil.which("sudo") is not None
         items.append(Prerequisite(
@@ -253,10 +329,9 @@ class DriverManager:
             ),
         ))
 
-        return PrerequisiteReport(items=tuple(items), is_linux=True)
+        return PrerequisiteReport(items=tuple(items), is_supported_platform=True)
 
-    def get_status(self) -> DriverStatus:
-        """Get current driver status."""
+    def _get_status_linux(self) -> DriverStatus:
         is_loaded = self._is_module_loaded()
         device_nodes = self._get_device_nodes()
         driver_built = self.driver_module_path.exists()
@@ -271,11 +346,7 @@ class DriverManager:
             library_built=library_built,
         )
 
-    def build_driver(self) -> BuildResult:
-        """Build the PlxSvc kernel module.
-
-        Equivalent to: cd $PLX_SDK_DIR/Driver && ./builddriver Svc
-        """
+    def _build_driver_linux(self) -> BuildResult:
         if not self.builddriver_script.exists():
             return BuildResult(
                 success=False,
@@ -313,11 +384,7 @@ class DriverManager:
             error=result.stderr if not success else "",
         )
 
-    def build_library(self) -> BuildResult:
-        """Build the PlxApi shared library.
-
-        Equivalent to: cd $PLX_SDK_DIR/PlxApi && make
-        """
+    def _build_library_linux(self) -> BuildResult:
         makefile = self.plxapi_library_dir / "Makefile"
         if not makefile.exists():
             return BuildResult(
@@ -356,11 +423,7 @@ class DriverManager:
             error=result.stderr if not success else "",
         )
 
-    def install_driver(self) -> BuildResult:
-        """Load the PlxSvc kernel module and create device nodes.
-
-        Equivalent to: sudo $PLX_SDK_DIR/Bin/Plx_load Svc
-        """
+    def _install_driver_linux(self) -> BuildResult:
         if not self.driver_module_path.exists():
             return BuildResult(
                 success=False,
@@ -413,11 +476,7 @@ class DriverManager:
             error=result.stderr if not success else "",
         )
 
-    def uninstall_driver(self) -> BuildResult:
-        """Unload the PlxSvc kernel module and remove device nodes.
-
-        Equivalent to: sudo $PLX_SDK_DIR/Bin/Plx_unload Svc
-        """
+    def _uninstall_driver_linux(self) -> BuildResult:
         if not self._is_module_loaded():
             return BuildResult(
                 success=True,
@@ -492,3 +551,329 @@ class DriverManager:
         if self._is_root():
             return cmd
         return ["sudo"] + cmd
+
+    # ------------------------------------------------------------------
+    # Windows implementation
+    # ------------------------------------------------------------------
+
+    def _is_admin_windows(self) -> bool:
+        """Check if running with administrator privileges on Windows."""
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except (AttributeError, OSError):
+            return False
+
+    def _query_service_state(self) -> str | None:
+        """Query the PlxSvc Windows service state.
+
+        Returns "RUNNING", "STOPPED", "STOP_PENDING", etc., or None
+        if the service is not installed.
+        """
+        try:
+            result = subprocess.run(
+                [_WIN_SC_EXE, "query", _WIN_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+
+        if result.returncode != 0:
+            return None
+
+        # Parse "STATE  : 4  RUNNING" from sc query output
+        for line in result.stdout.splitlines():
+            match = re.search(r"STATE\s+:\s+\d+\s+(\w+)", line)
+            if match:
+                return match.group(1)
+
+        return None
+
+    def _check_prerequisites_windows(self) -> PrerequisiteReport:
+        items: list[Prerequisite] = []
+
+        is_admin = self._is_admin_windows()
+        items.append(Prerequisite(
+            name="Administrator",
+            description="Required for service management",
+            satisfied=is_admin,
+            detail="Running as administrator" if is_admin else (
+                "Not running as administrator. Right-click terminal and "
+                "'Run as administrator'."
+            ),
+        ))
+
+        sys_exists = self.driver_sys_path.exists()
+        items.append(Prerequisite(
+            name="PlxSvc.sys",
+            description="PLX kernel service driver",
+            satisfied=sys_exists,
+            detail=str(self.driver_sys_path) if sys_exists else (
+                "Not found in vendor directory"
+            ),
+        ))
+
+        dll_findable = self._can_find_plxapi_dll()
+        items.append(Prerequisite(
+            name="PlxApi DLL",
+            description="PLX API library",
+            satisfied=dll_findable,
+            detail="Found" if dll_findable else "PlxApi DLL not found in SDK",
+        ))
+
+        return PrerequisiteReport(items=tuple(items), is_supported_platform=True)
+
+    def _can_find_plxapi_dll(self) -> bool:
+        """Check if PlxApi DLL can be found in the SDK directory."""
+        try:
+            from calypso.bindings.library import _find_library_paths
+
+            return any(p.exists() for p in _find_library_paths())
+        except Exception:
+            return False
+
+    def _get_status_windows(self) -> DriverStatus:
+        state = self._query_service_state()
+        is_loaded = state == "RUNNING"
+        sys_exists = self.driver_sys_path.exists()
+
+        return DriverStatus(
+            is_loaded=is_loaded,
+            module_name=_WIN_SERVICE_NAME,
+            sdk_path=str(self._sdk_dir),
+            driver_built=sys_exists,
+            library_built=self._can_find_plxapi_dll(),
+            service_state=state or "NOT_INSTALLED",
+        )
+
+    def _install_driver_windows(self) -> BuildResult:
+        if not self._is_admin_windows():
+            return BuildResult(
+                success=False,
+                error=(
+                    "Administrator privileges required. "
+                    "Right-click terminal and 'Run as administrator'."
+                ),
+            )
+
+        state = self._query_service_state()
+        if state == "RUNNING":
+            return BuildResult(
+                success=True,
+                output=f"{_WIN_SERVICE_NAME} service is already running.",
+            )
+
+        if not self.driver_sys_path.exists():
+            return BuildResult(
+                success=False,
+                error=f"PlxSvc.sys not found at {self.driver_sys_path}",
+            )
+
+        logger.info("driver_install_start_windows", service=_WIN_SERVICE_NAME)
+
+        # Copy PlxSvc.sys to System32\Drivers
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        dest = Path(system_root) / "System32" / "Drivers" / "PlxSvc.sys"
+
+        try:
+            shutil.copy2(str(self.driver_sys_path), str(dest))
+        except OSError as exc:
+            return BuildResult(
+                success=False,
+                error=f"Failed to copy PlxSvc.sys to {dest}: {exc}",
+            )
+
+        # Create the service if it doesn't exist
+        if state is None:
+            try:
+                bin_path = r"\SystemRoot\System32\Drivers\PlxSvc.sys"
+                result = subprocess.run(
+                    [
+                        _WIN_SC_EXE, "create", _WIN_SERVICE_NAME,
+                        f"binPath= {bin_path}",
+                        "type= kernel",
+                        "start= auto",
+                        "error= normal",
+                        f"DisplayName= {_WIN_SERVICE_DISPLAY}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if result.returncode != 0:
+                    self._rollback_install_windows(dest)
+                    return BuildResult(
+                        success=False,
+                        error=f"sc create failed: {result.stderr or result.stdout}",
+                    )
+            except subprocess.TimeoutExpired:
+                self._rollback_install_windows(dest)
+                return BuildResult(
+                    success=False,
+                    error="sc create timed out after 15 seconds.",
+                )
+
+        # Set registry values
+        reg_error = self._set_registry_values_windows()
+        if reg_error:
+            logger.warning("registry_set_warning", error=reg_error)
+
+        # Start the service
+        try:
+            result = subprocess.run(
+                [_WIN_SC_EXE, "start", _WIN_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            return BuildResult(
+                success=False,
+                error="sc start timed out after 15 seconds.",
+            )
+
+        final_state = self._query_service_state()
+        success = final_state == "RUNNING"
+
+        logger.info(
+            "driver_install_complete_windows",
+            success=success,
+            state=final_state,
+        )
+
+        if not success:
+            sc_error = result.stderr or result.stdout
+            self._rollback_install_windows(dest)
+            return BuildResult(
+                success=False,
+                error=f"Service failed to start (state={final_state}): {sc_error}",
+            )
+
+        return BuildResult(
+            success=True,
+            output=f"{_WIN_SERVICE_NAME} service installed and started.",
+        )
+
+    def _uninstall_driver_windows(self) -> BuildResult:
+        if not self._is_admin_windows():
+            return BuildResult(
+                success=False,
+                error=(
+                    "Administrator privileges required. "
+                    "Right-click terminal and 'Run as administrator'."
+                ),
+            )
+
+        state = self._query_service_state()
+        if state is None:
+            return BuildResult(
+                success=True,
+                output=f"{_WIN_SERVICE_NAME} service is not installed.",
+            )
+
+        logger.info("driver_uninstall_start_windows", service=_WIN_SERVICE_NAME)
+
+        # Stop the service (ignore error 1062 = already stopped)
+        if state not in ("STOPPED",):
+            try:
+                subprocess.run(
+                    [_WIN_SC_EXE, "stop", _WIN_SERVICE_NAME],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            except subprocess.TimeoutExpired:
+                return BuildResult(
+                    success=False,
+                    error="sc stop timed out after 15 seconds.",
+                )
+
+            # Wait for the service to fully stop before deleting
+            deadline = time.monotonic() + _WIN_SERVICE_STOP_TIMEOUT_S
+            while time.monotonic() < deadline:
+                current = self._query_service_state()
+                if current in ("STOPPED", None):
+                    break
+                time.sleep(0.5)
+            else:
+                return BuildResult(
+                    success=False,
+                    error=(
+                        f"Service did not stop within "
+                        f"{_WIN_SERVICE_STOP_TIMEOUT_S:.0f} seconds."
+                    ),
+                )
+
+        # Delete the service
+        try:
+            result = subprocess.run(
+                [_WIN_SC_EXE, "delete", _WIN_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                return BuildResult(
+                    success=False,
+                    error=f"sc delete failed: {result.stderr or result.stdout}",
+                )
+        except subprocess.TimeoutExpired:
+            return BuildResult(
+                success=False,
+                error="sc delete timed out after 15 seconds.",
+            )
+
+        # Remove PlxSvc.sys from System32\Drivers
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        dest = Path(system_root) / "System32" / "Drivers" / "PlxSvc.sys"
+        try:
+            if dest.exists():
+                dest.unlink()
+        except OSError as exc:
+            logger.warning("driver_sys_cleanup_failed", error=str(exc))
+
+        logger.info("driver_uninstall_complete_windows", success=True)
+
+        return BuildResult(
+            success=True,
+            output=f"{_WIN_SERVICE_NAME} service stopped and removed.",
+        )
+
+    def _rollback_install_windows(self, sys_dest: Path) -> None:
+        """Clean up after a failed Windows install attempt."""
+        try:
+            subprocess.run(
+                [_WIN_SC_EXE, "delete", _WIN_SERVICE_NAME],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+        try:
+            if sys_dest.exists():
+                sys_dest.unlink()
+        except OSError:
+            pass
+
+    def _set_registry_values_windows(self) -> str | None:
+        """Set PlxSvc registry parameters. Returns error string or None."""
+        try:
+            import winreg
+
+            key_path = rf"SYSTEM\CurrentControlSet\Services\{_WIN_SERVICE_NAME}"
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                key_path,
+                0,
+                winreg.KEY_SET_VALUE,
+            ) as key:
+                for name, value in _WIN_REGISTRY_VALUES.items():
+                    winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
+            return None
+        except Exception as exc:
+            return str(exc)

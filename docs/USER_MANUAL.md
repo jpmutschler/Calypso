@@ -70,7 +70,7 @@ The primary audience for this tool is PCIe validation engineers performing link 
 | Python | 3.10 or later | |
 | Broadcom PLX SDK | PlxApi shared library | See [PLX SDK Setup](#plx-sdk-setup) |
 | Linux driver | `PlxSvc` kernel module | Build via `calypso driver build && calypso driver install` |
-| Windows driver | Broadcom PlxSvc service | `PlxApi.dll` loaded via `ctypes.WinDLL` (`__stdcall`) |
+| Windows driver | PlxSvc kernel service | Install via `calypso driver install` (requires administrator) |
 | MCU serial | `serialcables-atlas3` package | Optional, for UART/MCU features |
 | SPDK | `spdk_nvme_perf` on PATH | Optional, for SPDK workload generation |
 | pynvme | Python package | Optional, Linux only, for pynvme workload generation |
@@ -125,11 +125,43 @@ calypso driver install     # Load kernel module (requires sudo)
 calypso driver status      # Verify driver is loaded
 ```
 
+### Windows Driver Setup
+
+The Windows driver (`PlxSvc.sys`) is vendored in `vendor/plxsdk/Driver/`. No build step is needed.
+
+```bash
+calypso driver check      # Verify prerequisites (admin, driver files, DLL)
+calypso driver install     # Install and start PlxSvc service (requires administrator)
+calypso driver status      # Verify service is running
+```
+
+To remove the driver:
+
+```bash
+calypso driver uninstall   # Stop and remove PlxSvc service (requires administrator)
+```
+
 ---
 
 ## 4. Getting Started
 
-### Starting the Server
+### One-Click Launch
+
+The fastest way to get running is the included launcher script, which automates venv creation, package installation, driver setup, and server launch:
+
+**Windows:**
+- Double-click `launch.bat`
+- To install the PLX driver automatically, right-click the script and select "Run as administrator"
+
+**Linux:**
+```bash
+chmod +x launch.sh
+./launch.sh
+```
+- Run with `sudo` if the PLX driver needs to be built and loaded
+- The script will prompt whether to install NVMe workload generation support (pynvme, Linux only)
+
+### Manual Setup
 
 Launch the web dashboard and API server:
 
@@ -829,11 +861,11 @@ Click **Cancel** to request cancellation of a running test. The engine completes
 
 ---
 
-### 5.14 Workloads
+### 5.14 Workloads (Linux only)
 
 **Route:** `/switch/{device_id}/workloads`
 
-NVMe workload generation with optional combined host+switch performance correlation.
+NVMe workload generation with optional combined host+switch performance correlation. Requires the SPDK or pynvme backend, both of which are Linux-only.
 
 > Requires SPDK (`spdk_nvme_perf` on PATH) or pynvme. Backend availability is shown at the top of the page.
 
@@ -1148,7 +1180,7 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `POST` | `/api/mcu/config/mode` | Set operation mode. Params: `port`, `mode` (1-4) |
 | `POST` | `/api/mcu/bist` | Run Built-In Self Test. Params: `port` |
 
-### Workloads
+### Workloads (Linux only)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -1301,7 +1333,7 @@ calypso mcu --port PORT set_mode {1|2|3|4}
 calypso mcu --port PORT config
 ```
 
-### NVMe Workloads
+### NVMe Workloads (Linux only)
 
 ```bash
 # Show available backends
@@ -1318,15 +1350,17 @@ calypso workloads run --backend {spdk|pynvme} --bdf BDF \
     [--with-switch-perf] [--device-index IDX]
 ```
 
-### Driver Management (Linux)
+### Driver Management
 
 ```bash
-calypso driver status      # Check driver status
-calypso driver check       # Check build prerequisites
-calypso driver build       # Build PlxSvc module and PlxApi library
-calypso driver install     # Load kernel module (requires sudo)
-calypso driver uninstall   # Unload kernel module (requires sudo)
+calypso driver status      # Check driver/service status
+calypso driver check       # Check prerequisites
+calypso driver build       # Build PlxSvc module and PlxApi library (Linux only)
+calypso driver install     # Install and start driver/service
+calypso driver uninstall   # Stop and remove driver/service
 ```
+
+On Linux, `install`/`uninstall` require sudo. On Windows, they require administrator privileges. The `build` command is Linux-only; the Windows driver is prebuilt and vendored.
 
 ### Web Server
 
@@ -1351,7 +1385,7 @@ calypso serve [--host HOST] [--port PORT] [--no-ui]
 **Checks:**
 1. Verify the Atlas3 card is seated in the PCIe slot
 2. Linux: ensure `PlxSvc` module is loaded (`calypso driver status`)
-3. Windows: verify the Broadcom PlxSvc service is running
+3. Windows: verify PlxSvc service is running (`calypso driver status`), install with `calypso driver install` if needed
 4. Check `PLX_SDK_DIR` points to the correct SDK location
 
 ### PlxApi Library Not Found

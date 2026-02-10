@@ -41,7 +41,7 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 - Python 3.10+
 - Broadcom PLX SDK (PlxApi shared library)
 - **Linux**: PLX kernel driver (`PlxSvc` module) loaded -- use `calypso driver build && calypso driver install`
-- **Windows**: Broadcom PlxSvc Windows service installed, `PlxApi.dll` accessible (loaded via `ctypes.WinDLL` for correct `__stdcall` calling convention)
+- **Windows**: PlxSvc kernel service running -- use `calypso driver install` (requires administrator). `PlxApi.dll` loaded via `ctypes.WinDLL` (`__stdcall`). Both `PlxSvc.sys` and `PlxApi.dll` are vendored in `vendor/plxsdk/`.
 - Serial connection to MCU (optional, for MCU features -- requires `serialcables-atlas3` package)
 - SPDK `spdk_nvme_perf` on PATH (optional, for SPDK workload generation)
 - pynvme (optional, Linux only, for pynvme workload generation)
@@ -86,6 +86,15 @@ On **Windows**, the library is loaded with `ctypes.WinDLL` (`__stdcall` calling 
 | `CALYPSO_STORAGE_SECRET` | Secret key for NiceGUI browser session storage | Random 32-byte hex per launch |
 
 ## Quick Start
+
+The fastest way to get running is the one-click launcher script, which handles venv creation, package installation, driver setup, and server launch:
+
+- **Windows**: Double-click `launch.bat` (right-click "Run as administrator" for driver install)
+- **Linux**: `chmod +x launch.sh && ./launch.sh` (run with `sudo` for driver install)
+
+On Linux, the launcher will prompt to install with NVMe workload generation support (pynvme).
+
+### Manual Setup
 
 ```bash
 # Scan for devices on PCIe bus
@@ -183,7 +192,7 @@ calypso mcu --port COM3 config               # Mode/clock/spread/FLIT
 calypso mcu --port COM3 bist                 # Built-In Self Test
 ```
 
-### NVMe Workloads
+### NVMe Workloads (Linux only)
 
 ```bash
 calypso workloads backends                   # Show available backends
@@ -205,15 +214,17 @@ calypso workloads run --backend spdk --bdf 0000:01:00.0 \
 
 Neither backend is required. The module probes for SPDK and pynvme at runtime and degrades gracefully. When no backend is available, `calypso workloads backends` reports an empty list and all other commands return helpful errors.
 
-### Driver Management (Linux)
+### Driver Management
 
 ```bash
-calypso driver status                        # Check driver status
-calypso driver check                         # Check build prerequisites
-calypso driver build                         # Build PlxSvc + PlxApi
-calypso driver install                       # Load kernel module
-calypso driver uninstall                     # Unload kernel module
+calypso driver status                        # Check driver/service status
+calypso driver check                         # Check prerequisites
+calypso driver build                         # Build PlxSvc + PlxApi (Linux only)
+calypso driver install                       # Install and start driver/service
+calypso driver uninstall                     # Stop and remove driver/service
 ```
+
+On **Linux**, `install` loads the PlxSvc kernel module (requires sudo). On **Windows**, `install` registers and starts the PlxSvc kernel service (requires administrator). The Windows driver (`PlxSvc.sys`) is vendored in `vendor/plxsdk/Driver/`.
 
 ## REST API
 

@@ -18,10 +18,23 @@ _lib_instance: ctypes.CDLL | None = None
 _load_func = ctypes.WinDLL if sys.platform == "win32" else ctypes.CDLL
 
 
+def _glob_versioned_dlls(directory: Path, pattern: str) -> list[Path]:
+    """Find versioned PLX SDK libraries matching a glob pattern.
+
+    The SDK ships DLLs with version-embedded names like PlxApi232440_x64.dll.
+    Returns matches sorted by name descending so the newest version is tried first.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(directory.glob(pattern), reverse=True)
+
+
 def _find_library_paths() -> list[Path]:
     """Build a list of candidate paths for the PLX SDK shared library.
 
     Search order: vendored SDK, env var override, legacy SDK, system paths.
+    Versioned DLL names (e.g. PlxApi232440_x64.dll) are searched alongside
+    the unversioned PlxApi.dll name.
     """
     candidates: list[Path] = []
 
@@ -29,23 +42,37 @@ def _find_library_paths() -> list[Path]:
     sdk_path = find_sdk_dir()
     if sdk_path is not None:
         if sys.platform == "win32":
-            candidates.extend([
-                sdk_path / "PlxApi" / "Release" / "PlxApi.dll",
-                sdk_path / "PlxApi" / "Debug" / "PlxApi.dll",
-                sdk_path / "Bin" / "PlxApi.dll",
-            ])
+            # Versioned x64 DLLs first (e.g. PlxApi232440_x64.dll), then unversioned
+            release_dir = sdk_path / "PlxApi" / "Release"
+            candidates.extend(_glob_versioned_dlls(release_dir, "PlxApi*_x64.dll"))
+            candidates.append(release_dir / "PlxApi.dll")
+
+            debug_dir = sdk_path / "PlxApi" / "Debug"
+            candidates.extend(_glob_versioned_dlls(debug_dir, "PlxApi*_x64.dll"))
+            candidates.append(debug_dir / "PlxApi.dll")
+
+            bin_dir = sdk_path / "Bin"
+            candidates.extend(_glob_versioned_dlls(bin_dir, "PlxApi*_x64.dll"))
+            candidates.extend(_glob_versioned_dlls(bin_dir, "PlxApi*.dll"))
+            candidates.append(bin_dir / "PlxApi.dll")
         else:
-            candidates.extend([
-                sdk_path / "PlxApi" / "Library" / "PlxApi.so",
-                sdk_path / "PlxApi" / "Library" / "libPlxApi.so",
-                sdk_path / "Bin" / "PlxApi.so",
-            ])
+            lib_dir = sdk_path / "PlxApi" / "Library"
+            candidates.extend(_glob_versioned_dlls(lib_dir, "PlxApi*.so"))
+            candidates.extend(_glob_versioned_dlls(lib_dir, "libPlxApi*.so"))
+            candidates.append(lib_dir / "PlxApi.so")
+            candidates.append(lib_dir / "libPlxApi.so")
+
+            bin_dir = sdk_path / "Bin"
+            candidates.extend(_glob_versioned_dlls(bin_dir, "PlxApi*.so"))
+            candidates.append(bin_dir / "PlxApi.so")
 
     # Check system library paths
     if sys.platform != "win32":
         for lib_dir in ["/usr/local/lib", "/usr/lib", "/opt/plx/lib"]:
-            candidates.append(Path(lib_dir) / "PlxApi.so")
-            candidates.append(Path(lib_dir) / "libPlxApi.so")
+            p = Path(lib_dir)
+            candidates.extend(_glob_versioned_dlls(p, "libPlxApi*.so"))
+            candidates.append(p / "PlxApi.so")
+            candidates.append(p / "libPlxApi.so")
 
     return candidates
 

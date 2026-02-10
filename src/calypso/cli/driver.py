@@ -1,4 +1,4 @@
-"""CLI subcommands for PLX kernel driver management."""
+"""CLI subcommands for PLX driver management."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _require_linux(ctx: click.Context) -> bool:
         click.echo("ERROR: This command is only supported on Linux.")
         click.echo(f"Current platform: {sys.platform}")
         click.echo()
-        click.echo("UART and SDB transports work on any platform.")
+        click.echo("On Windows, the driver and library are prebuilt.")
         ctx.exit(1)
         return False
     return True
@@ -41,12 +41,11 @@ def _get_manager(ctx: click.Context):
 )
 @click.pass_context
 def driver(ctx: click.Context, sdk_dir: str | None) -> None:
-    """Manage the PLX kernel driver for PCIe transport.
+    """Manage the PLX driver for PCIe transport.
 
-    The PCIe transport requires the PlxSvc kernel module to be
-    built and loaded. These commands help manage that process.
-
-    Linux only.
+    The PCIe transport requires the PlxSvc driver to be active.
+    On Linux, these commands build and load the kernel module.
+    On Windows, these commands install and manage the PlxSvc service.
     """
     ctx.ensure_object(dict)
     ctx.obj["sdk_dir"] = sdk_dir
@@ -55,10 +54,7 @@ def driver(ctx: click.Context, sdk_dir: str | None) -> None:
 @driver.command()
 @click.pass_context
 def check(ctx: click.Context) -> None:
-    """Check prerequisites for building and installing the driver."""
-    if not _require_linux(ctx):
-        return
-
+    """Check prerequisites for driver installation."""
     mgr = _get_manager(ctx)
     if mgr is None:
         return
@@ -79,7 +75,7 @@ def check(ctx: click.Context) -> None:
 
     click.echo()
     if all_ok:
-        click.echo("All prerequisites satisfied. Ready to build.")
+        click.echo("All prerequisites satisfied. Ready to install.")
     else:
         click.echo("Some prerequisites are missing. See details above.")
         ctx.exit(1)
@@ -90,7 +86,7 @@ def check(ctx: click.Context) -> None:
 @click.option("--driver-only", is_flag=True, help="Only build kernel module, skip PlxApi.so")
 @click.pass_context
 def build(ctx: click.Context, library_only: bool, driver_only: bool) -> None:
-    """Build the PlxSvc kernel module and PlxApi shared library."""
+    """Build the PlxSvc kernel module and PlxApi shared library (Linux only)."""
     if not _require_linux(ctx):
         return
 
@@ -144,25 +140,26 @@ def build(ctx: click.Context, library_only: bool, driver_only: bool) -> None:
 @driver.command()
 @click.pass_context
 def install(ctx: click.Context) -> None:
-    """Load the PlxSvc kernel module (requires sudo)."""
-    if not _require_linux(ctx):
-        return
-
+    """Install and start the PLX driver (requires elevated privileges)."""
     mgr = _get_manager(ctx)
     if mgr is None:
         return
 
-    click.echo("Loading PlxSvc kernel module...")
+    if sys.platform == "linux":
+        click.echo("Loading PlxSvc kernel module...")
+    else:
+        click.echo("Installing PlxSvc service...")
+
     result = mgr.install_driver()
 
     if result.success:
-        click.echo(result.output or "  Module loaded successfully.")
-        # Show device nodes
-        status = mgr.get_status()
-        if status.device_nodes:
-            click.echo("  Device nodes:")
-            for node in status.device_nodes:
-                click.echo(f"    {node}")
+        click.echo(result.output or "  Driver installed successfully.")
+        if sys.platform == "linux":
+            status = mgr.get_status()
+            if status.device_nodes:
+                click.echo("  Device nodes:")
+                for node in status.device_nodes:
+                    click.echo(f"    {node}")
     else:
         click.echo(f"  FAILED: {result.error}")
         if result.output:
@@ -173,19 +170,20 @@ def install(ctx: click.Context) -> None:
 @driver.command()
 @click.pass_context
 def uninstall(ctx: click.Context) -> None:
-    """Unload the PlxSvc kernel module (requires sudo)."""
-    if not _require_linux(ctx):
-        return
-
+    """Stop and remove the PLX driver (requires elevated privileges)."""
     mgr = _get_manager(ctx)
     if mgr is None:
         return
 
-    click.echo("Unloading PlxSvc kernel module...")
+    if sys.platform == "linux":
+        click.echo("Unloading PlxSvc kernel module...")
+    else:
+        click.echo("Removing PlxSvc service...")
+
     result = mgr.uninstall_driver()
 
     if result.success:
-        click.echo(result.output or "  Module unloaded successfully.")
+        click.echo(result.output or "  Driver removed successfully.")
     else:
         click.echo(f"  FAILED: {result.error}")
         if result.output:
@@ -211,6 +209,7 @@ def status(ctx: click.Context) -> None:
             "sdk_path": st.sdk_path,
             "driver_built": st.driver_built,
             "library_built": st.library_built,
+            "service_state": st.service_state,
         }, indent=2))
     else:
         click.echo("PLX Driver Status")
@@ -228,6 +227,7 @@ def status(ctx: click.Context) -> None:
                     click.echo(f"    {node}")
             else:
                 click.echo("  Device Nodes:   None")
+        elif sys.platform == "win32":
+            click.echo(f"  Service State:  {st.service_state}")
         else:
-            click.echo(f"  Module Status:  N/A (Linux only)")
-            click.echo(f"  Platform:       {sys.platform}")
+            click.echo(f"  Platform:       {sys.platform} (unsupported)")
