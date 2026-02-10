@@ -12,7 +12,6 @@ from ctypes import (
     Structure,
     c_char,
     c_int,
-    c_int32,
     c_int64,
     c_uint8,
     c_uint16,
@@ -172,16 +171,6 @@ class PLX_VERSION(Structure):
         ("ApiReqBySw", c_uint16),
         ("Features", c_uint32),
     ]
-
-
-class PLX_MODE_PROP(Structure):
-    """API mode properties - matches _PLX_MODE_PROP in PlxTypes.h.
-
-    This is a union in C. We model it as separate nested structures
-    that overlay the same memory via a Union.
-    """
-
-    _pack_ = 4
 
 
 class _PLX_MODE_PROP_I2C(Structure):

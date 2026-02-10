@@ -5,7 +5,7 @@ from __future__ import annotations
 from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_DEVICE_KEY
 from calypso.hardware.atlas3 import get_board_profile
 from calypso.hardware.pcie_registers import PCIeConfigSpace
-from calypso.models.port import PortRole, PortStatus, LINK_SPEED_VALUE_MAP, LinkSpeed
+from calypso.models.port import PortRole, PortStatus
 from calypso.models.topology import (
     ConnectedDevice,
     TopologyMap,

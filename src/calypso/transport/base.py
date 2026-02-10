@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from calypso.bindings.constants import PlxApiMode, SdbBaudRate, SdbUartCable
-from calypso.bindings.types import PLX_DEVICE_KEY, PLX_MODE_PROP
+from calypso.bindings.types import PLX_MODE_PROP
 
 
 class TransportMode(StrEnum):

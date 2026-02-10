@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 
 import click
 
@@ -78,7 +77,6 @@ def info(ctx: click.Context, device_index: int, transport: str, port: int) -> No
     from calypso.bindings.library import load_library
     from calypso.bindings.functions import initialize
     from calypso.core.switch import SwitchDevice
-    from calypso.transport import PcieConfig, PcieTransport, SdbConfig, SdbTransport, UartConfig, UartTransport
 
     load_library()
     initialize()

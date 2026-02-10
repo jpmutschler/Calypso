@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-from ctypes import byref
-from typing import TYPE_CHECKING
-
-from calypso.bindings.constants import PlxApiMode, PlxChipFamily
-from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT, PLX_MODE_PROP
+from calypso.bindings.constants import PlxChipFamily
+from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.exceptions import CalypsoError, DeviceNotOpenError
-from calypso.models.device_info import ChipFeatures, DeviceInfo, DriverInfo, VersionInfo
+from calypso.models.device_info import ChipFeatures, DeviceInfo, DriverInfo
 from calypso.models.port import PortProperties, PortStatus
 from calypso.sdk import device as sdk_device
 from calypso.transport.base import Transport
 from calypso.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from calypso.models.configuration import MultiHostConfig
 
 logger = get_logger(__name__)
 
@@ -134,7 +128,7 @@ class SwitchDevice:
         """Get properties for the current port."""
         device = self._require_open()
         props = sdk_device.get_port_properties(device)
-        from calypso.models.port import LINK_SPEED_VALUE_MAP, LinkSpeed, PortRole
+        from calypso.models.port import LINK_SPEED_VALUE_MAP, LinkSpeed
         return PortProperties(
             port_number=props.PortNumber,
             port_type=props.PortType,

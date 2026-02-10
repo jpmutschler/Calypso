@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ctypes import byref, c_int, c_uint32
+from ctypes import byref, c_int
 
 from calypso.bindings.library import get_library
 from calypso.bindings.types import PLX_DEVICE_OBJECT

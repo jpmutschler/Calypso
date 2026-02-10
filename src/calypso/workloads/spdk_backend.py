@@ -16,7 +16,6 @@ from calypso.workloads.exceptions import (
     WorkloadTargetError,
 )
 from calypso.workloads.models import (
-    BackendType,
     WorkloadConfig,
     WorkloadIOStats,
     WorkloadProgress,

@@ -18,7 +18,6 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import IntEnum, IntFlag
 from typing import NamedTuple
 

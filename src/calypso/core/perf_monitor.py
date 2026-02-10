@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import time
-from ctypes import byref
 
 from calypso.bindings.constants import PEX_MAX_PORT
-from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_PERF_PROP, PLX_PERF_STATS
-from calypso.models.performance import PerfCounters, PerfSnapshot, PerfStats
+from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_PERF_PROP
+from calypso.models.performance import PerfSnapshot, PerfStats
 from calypso.sdk import performance as sdk_perf
 from calypso.utils.logging import get_logger
 

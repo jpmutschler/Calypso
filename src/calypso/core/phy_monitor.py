@@ -30,7 +30,6 @@ from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpee
 from calypso.models.phy import (
     LaneEqualizationControl,
     PhysLayer16GT,
-    PhysLayer32GT,
 )
 from calypso.sdk.registers import read_pci_register_fast, write_pci_register_fast
 from calypso.utils.logging import get_logger

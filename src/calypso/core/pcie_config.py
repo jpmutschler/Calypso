@@ -24,7 +24,6 @@ from calypso.models.pcie_config import (
     AerStatus,
     AerUncorrectableErrors,
     ConfigRegister,
-    ConfigSpaceDump,
     DeviceCapabilities,
     DeviceControlStatus,
     EqStatus16GT,

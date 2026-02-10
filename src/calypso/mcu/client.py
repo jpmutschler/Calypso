@@ -7,7 +7,6 @@ the PLX SDK register-level access.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Callable
 
 from calypso.mcu.models import (

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from calypso.bindings.constants import PlxApiMode
 from calypso.bindings.types import PLX_MODE_PROP
-from calypso.exceptions import ConnectionError, TransportError
-from calypso.transport.base import Transport, TransportMode, UartConfig
+from calypso.exceptions import TransportError
+from calypso.transport.base import Transport, UartConfig
 from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)

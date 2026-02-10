@@ -105,7 +105,7 @@ def run(
 ) -> None:
     """Run an NVMe workload."""
     from calypso.workloads.manager import WorkloadManager
-    from calypso.workloads.models import BackendType, WorkloadConfig, WorkloadState, WorkloadType
+    from calypso.workloads.models import BackendType, WorkloadConfig, WorkloadType
 
     config = WorkloadConfig(
         backend=BackendType(backend),

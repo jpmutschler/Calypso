@@ -58,13 +58,6 @@ def utilization_gauge(utilization: float, label: str = "Utilization") -> ui.echa
     """Create a utilization gauge using ECharts."""
     pct = utilization * 100
 
-    if pct < 50:
-        color = COLORS.green
-    elif pct < 80:
-        color = COLORS.yellow
-    else:
-        color = COLORS.red
-
     return ui.echart({
         "backgroundColor": "transparent",
         "series": [{

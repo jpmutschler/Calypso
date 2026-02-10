@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import ctypes
-from ctypes import POINTER, byref, c_uint8, c_uint16
+from ctypes import byref, c_uint8, c_uint16
 
-from calypso.bindings.constants import PlxApiMode, PlxChipFamily
+from calypso.bindings.constants import PlxApiMode
 from calypso.bindings.library import get_library
 from calypso.bindings.types import (
     PEX_CHIP_FEAT,
@@ -15,7 +14,7 @@ from calypso.bindings.types import (
     PLX_MODE_PROP,
     PLX_PORT_PROP,
 )
-from calypso.exceptions import DeviceNotFoundError, check_status
+from calypso.exceptions import check_status
 from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)

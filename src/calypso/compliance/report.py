@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 
-from calypso.compliance.models import TestRun, TestSuiteResult, Verdict
+from calypso.compliance.models import TestRun, TestSuiteResult
 
 # Dark theme colours matching Calypso UI
 _BG = "#0d1117"

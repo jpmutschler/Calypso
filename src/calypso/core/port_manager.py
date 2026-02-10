@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from calypso.bindings.constants import PlxChipFamily
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.models.port import (
     LINK_SPEED_VALUE_MAP,
     LinkSpeed,
-    PortProperties,
     PortRole,
     PortStatus,
 )

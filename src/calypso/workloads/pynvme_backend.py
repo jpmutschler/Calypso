@@ -11,7 +11,6 @@ from calypso.utils.logging import get_logger
 from calypso.workloads.base import WorkloadBackend
 from calypso.workloads.exceptions import (
     WorkloadNotFoundError,
-    WorkloadTargetError,
 )
 from calypso.workloads.models import (
     SmartSnapshot,

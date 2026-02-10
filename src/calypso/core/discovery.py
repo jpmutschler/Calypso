@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from calypso.bindings.constants import PlxApiMode, PlxChipFamily
-from calypso.bindings.types import PLX_MODE_PROP
-from calypso.models.device_info import DeviceInfo, TransportInfo, TransportMode
+from calypso.bindings.constants import PlxChipFamily
+from calypso.models.device_info import DeviceInfo, TransportMode
 from calypso.sdk import device as sdk_device
 from calypso.transport.base import Transport
 from calypso.utils.logging import get_logger

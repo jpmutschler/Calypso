@@ -55,7 +55,6 @@ def _t1_1_speed_negotiation(
 ) -> list[TestResult]:
     """T1.1: Verify link negotiates to each supported speed."""
     results: list[TestResult] = []
-    start = time.monotonic()
 
     speeds = reader.get_supported_speeds()
     original_status = reader.get_link_status()
@@ -151,7 +150,7 @@ def _t1_2_ltssm_validation(
             msg = f"LTSSM reached L0 after {len(transitions)} transitions in {result.duration_ms:.0f}ms"
         elif reached_l0:
             verdict = Verdict.WARN
-            msg = f"Reached L0 but did not settle (may have left L0 briefly)"
+            msg = "Reached L0 but did not settle (may have left L0 briefly)"
         else:
             verdict = Verdict.FAIL
             msg = f"Did not reach L0. Final state: {result.final_state_name}"

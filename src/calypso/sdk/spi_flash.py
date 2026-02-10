@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import ctypes
-from ctypes import byref, c_int, c_uint8, c_uint32
+from ctypes import byref, c_int, c_uint8
 
 from calypso.bindings.library import get_library
 from calypso.bindings.types import PEX_SPI_OBJ, PLX_DEVICE_OBJECT
