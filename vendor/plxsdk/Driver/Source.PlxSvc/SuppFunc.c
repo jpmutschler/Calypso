@@ -1067,7 +1067,8 @@ PlxDeterminePlxPortType(
         // Synthetic TWC EP
         pDevice->Key.PlxPortType = PLX_SPEC_PORT_SYNTH_TWC;
     }
-    else if(pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 && pDevice->Key.SubDeviceId == 0x2004)
+    else if((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+             pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) && pDevice->Key.SubDeviceId == 0x2004)
     {
      // NT 2.0 EP
         pDevice->Key.PlxPortType = PLX_SPEC_PORT_NT;

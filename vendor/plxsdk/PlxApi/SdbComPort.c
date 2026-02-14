@@ -415,7 +415,8 @@ Sdb_PlxRegisterRead(
     if (bAdjustForPort)
     {
         // Adjust offset to port-specific register region
-		if(pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+		if(pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+		   pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             offset += ATLAS_REGS_AXI_BASE_ADDR + (pDevice->Key.PlxPort * 0x8000);
 		else
 			offset += ATLAS_REGS_AXI_BASE_ADDR + (pDevice->Key.PlxPort * 0x1000);

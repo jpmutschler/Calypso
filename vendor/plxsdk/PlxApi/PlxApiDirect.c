@@ -1137,7 +1137,8 @@ PlxDir_PerformanceResetCounters(
     for (i = 0; i < StnCount; i++)
     {
         // Reset (30) & enable monitor (31) & infinite sampling (28) & start (27)
-        if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+        if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+            pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
         {
             PLX_8000_REG_WRITE(
                 pDevice,
@@ -1745,7 +1746,8 @@ PlxDir_PerformanceGetCounters(
     {
         if ((i == 0) || bStationBased)
         {
-            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 PLX_8000_REG_WRITE(
                     pDevice,
@@ -1786,7 +1788,8 @@ PlxDir_PerformanceGetCounters(
                 // For station based counters use register in station port 0
                 if (bStationBased)
                 {
-                    if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+                    if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
                         Offset_Fifo += (StnPortCount * 0x10000);
                     else
                         Offset_Fifo += (StnPortCount * 0x1000);
@@ -2743,7 +2746,8 @@ PlxDir_ChipFilterDisabledPorts(
     maxPorts = 24;
 
      // TO DO: Check and fix why some ports wrongly disabled for Atlas3
-    if(pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+    if(pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+       pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
     {
         return PLX_STATUS_OK;
     }
@@ -2923,7 +2927,8 @@ PlxDir_ScanCCRRegAtAxiAddr(
     {
         pDevice->Key.DeviceMode = PLX_CHIP_MODE_FABRIC;
     }
-    else if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+    else if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+              pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
     	 (atlasSwMode == 2)) //base switch with fw
     {
         pDevice->Key.DeviceMode = PLX_CHIP_MODE_STANDARD;
@@ -3042,7 +3047,8 @@ PlxDir_ProbeSwitch(
 
             // Set port offset
             // For Atlas3 family, the Port config region has been increased from 4KB to 32KB for each port.
-            if((pexChip) && (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+            if((pexChip) && (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                             pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
             {
                 pDevice->Key.ApiInternal[1] = (U32)portNum * PEX_PORT_REGS_SIZE * 8;
             }
@@ -3506,7 +3512,8 @@ PlxDir_ProbeSwitch(
             //   ports are discovered, matching BIOS enumeration order.
             // - ATLAS2 (C030) and older: Uses portNum % 32 as slot, which matches
             //   the physical port position.
-            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 // ATLAS3: Assign slots sequentially (0, 1, 2...) as DS ports are discovered
                 // This matches BIOS enumeration order which assigns device numbers sequentially
