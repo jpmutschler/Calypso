@@ -10,6 +10,10 @@ from __future__ import annotations
 from typing import Callable
 
 from calypso.mcu.models import (
+    I2cScanResult,
+    I3cDevice,
+    I3cEntdaaResult,
+    I3cReadResponse,
     McuBistDevice,
     McuBistResult,
     McuClockStatus,
@@ -373,6 +377,98 @@ class McuClient:
         self._require_connection()
         result = self._atlas3.i2c_write(address, connector, channel, data)
         return result is not None
+
+    def i2c_scan(
+        self,
+        connector: int,
+        channel: str,
+        start_addr: int = 0x03,
+        end_addr: int = 0x77,
+    ) -> I2cScanResult:
+        """Scan an I2C bus for responding devices.
+
+        Probes each 7-bit address in [start_addr, end_addr] by attempting
+        a 1-byte read.  Returns addresses that ACK.
+        """
+        self._require_connection()
+        found: list[int] = []
+        for addr in range(start_addr, end_addr + 1):
+            try:
+                result = self._atlas3.i2c_read(addr, connector, channel, 1, 0)
+                if getattr(result, "data", None) is not None:
+                    found.append(addr)
+            except Exception:
+                continue
+        logger.info(
+            "i2c_scan_complete",
+            connector=connector,
+            channel=channel,
+            found=len(found),
+        )
+        return I2cScanResult(connector=connector, channel=channel, devices=found)
+
+    # --- I3C ---
+
+    def i3c_read(
+        self,
+        address: int,
+        connector: int,
+        channel: str,
+        read_bytes: int,
+        register: int = 0,
+    ) -> I3cReadResponse:
+        """Read bytes from an I3C target device."""
+        self._require_connection()
+        result = self._atlas3.i3c_read(address, connector, channel, read_bytes, register)
+        data = getattr(result, "data", [])
+        return I3cReadResponse(
+            connector=connector,
+            channel=channel,
+            address=address,
+            reg_offset=register,
+            data=data,
+        )
+
+    def i3c_write(
+        self,
+        address: int,
+        connector: int,
+        channel: str,
+        data: list[int],
+        register: int = 0,
+    ) -> bool:
+        """Write bytes to an I3C target device."""
+        self._require_connection()
+        result = self._atlas3.i3c_write(address, connector, channel, data, register)
+        return result is not None
+
+    def i3c_entdaa(
+        self,
+        connector: int,
+        channel: str,
+    ) -> I3cEntdaaResult:
+        """Run I3C ENTDAA to discover and assign dynamic addresses."""
+        self._require_connection()
+        result = self._atlas3.i3c_entdaa(connector, channel)
+        devices = []
+        for dev in getattr(result, "devices", []):
+            devices.append(
+                I3cDevice(
+                    provisional_id=getattr(dev, "provisional_id", b"\x00" * 6),
+                    bcr=getattr(dev, "bcr", 0),
+                    dcr=getattr(dev, "dcr", 0),
+                    dynamic_address=getattr(dev, "dynamic_address", 0),
+                )
+            )
+        logger.info(
+            "i3c_entdaa_complete",
+            connector=connector,
+            channel=channel,
+            found=len(devices),
+        )
+        return I3cEntdaaResult(
+            connector=connector, channel=channel, devices=devices
+        )
 
     # --- Firmware ---
 

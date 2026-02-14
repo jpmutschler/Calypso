@@ -118,6 +118,16 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.mcu_diagnostics import mcu_diagnostics_page
         mcu_diagnostics_page()
 
+    @ui.page("/mcu/bus")
+    def mcu_bus():
+        from calypso.ui.pages.mcu_bus import mcu_bus_page
+        mcu_bus_page()
+
+    @ui.page("/mcu/nvme")
+    def mcu_nvme():
+        from calypso.ui.pages.nvme_drives import nvme_drives_page
+        nvme_drives_page()
+
     storage_secret = os.environ.get("CALYPSO_STORAGE_SECRET") or secrets.token_hex(32)
 
     ui.run_with(

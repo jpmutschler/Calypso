@@ -88,6 +88,9 @@ def create_app(enable_ui: bool = True) -> FastAPI:
     app.include_router(compliance.router, prefix="/api")
     app.include_router(mcu.router)
 
+    from calypso.api.routes import nvme_mi
+    app.include_router(nvme_mi.router)
+
     # Always register workloads routes -- endpoints handle missing backends gracefully
     try:
         from calypso.api.routes.workloads import router as workloads_router

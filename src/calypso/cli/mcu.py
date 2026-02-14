@@ -7,6 +7,27 @@ import json
 import click
 
 
+def _parse_hex_list(value: str) -> list[int]:
+    """Parse a comma-separated hex/decimal byte string like '0x01,0x02,255'.
+
+    Raises click.BadParameter if any value is not a valid integer.
+    """
+    parts = [p.strip() for p in value.split(",")]
+    try:
+        return [int(p, 0) for p in parts]
+    except ValueError as exc:
+        raise click.BadParameter(f"Invalid byte value in data: {exc}") from exc
+
+
+def _parse_address(value: str, label: str = "address") -> int | None:
+    """Parse a hex/decimal address string, returning None on error."""
+    try:
+        return int(value, 0)
+    except ValueError:
+        click.echo(f"ERROR: Invalid {label}: {value!r} (use hex like 0x50 or decimal)")
+        return None
+
+
 @click.group()
 @click.option("--port", "-p", required=True, help="Serial port (e.g. /dev/ttyUSB0 or COM3)")
 @click.option("--baud", type=int, default=115200, help="Baudrate (default: 115200)")
@@ -16,7 +37,7 @@ def mcu(ctx: click.Context, port: str, baud: int) -> None:
 
     These commands communicate directly with the Atlas3 MCU firmware
     over a serial (USB) connection, providing access to system health,
-    port status, error counters, configuration, and diagnostics.
+    port status, error counters, configuration, diagnostics, and bus I/O.
     """
     ctx.ensure_object(dict)
     ctx.obj["mcu_port"] = port
@@ -245,3 +266,182 @@ def config(ctx: click.Context) -> None:
             click.echo(f"    Station 5: {'Enabled' if flit.station5 else 'Disabled'}")
             click.echo(f"    Station 7: {'Enabled' if flit.station7 else 'Disabled'}")
             click.echo(f"    Station 8: {'Enabled' if flit.station8 else 'Disabled'}")
+
+
+# --- I2C Commands ---
+
+
+@mcu.command(name="i2c-read")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.option("--address", "-a", type=str, required=True, help="7-bit I2C address (hex or dec)")
+@click.option("--register", "-r", type=str, default="0", help="Register offset (hex or dec)")
+@click.option("--count", "-n", type=int, default=16, help="Bytes to read (default: 16)")
+@click.pass_context
+def i2c_read(ctx: click.Context, connector: int, channel: str, address: str, register: str, count: int) -> None:
+    """Read bytes from an I2C device."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    addr = _parse_address(address)
+    reg = _parse_address(register, "register")
+    if addr is None or reg is None:
+        return
+
+    with client:
+        data = client.i2c_read(
+            address=addr, connector=connector, channel=channel,
+            read_bytes=count, register=reg,
+        )
+        if ctx.obj.get("json_output"):
+            click.echo(json.dumps({"address": addr, "register": reg, "data": data}))
+        else:
+            click.echo(f"I2C Read: addr=0x{addr:02X} reg=0x{reg:02X} count={count}")
+            click.echo(f"  Data: {' '.join(f'{b:02X}' for b in data)}")
+
+
+@mcu.command(name="i2c-write")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.option("--address", "-a", type=str, required=True, help="7-bit I2C address (hex or dec)")
+@click.option("--data", "-d", type=str, required=True, help="Bytes to write (comma-separated hex/dec)")
+@click.pass_context
+def i2c_write(ctx: click.Context, connector: int, channel: str, address: str, data: str) -> None:
+    """Write bytes to an I2C device."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    addr = _parse_address(address)
+    if addr is None:
+        return
+    payload = _parse_hex_list(data)
+
+    with client:
+        success = client.i2c_write(
+            address=addr, connector=connector, channel=channel, data=payload,
+        )
+        if ctx.obj.get("json_output"):
+            click.echo(json.dumps({"address": addr, "success": success}))
+        else:
+            status = "OK" if success else "FAILED"
+            click.echo(f"I2C Write: addr=0x{addr:02X} [{len(payload)} bytes] -> {status}")
+
+
+@mcu.command(name="i2c-scan")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.pass_context
+def i2c_scan(ctx: click.Context, connector: int, channel: str) -> None:
+    """Scan an I2C bus for responding devices."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    with client:
+        click.echo(f"Scanning I2C bus: connector={connector} channel={channel}...")
+        result = client.i2c_scan(connector=connector, channel=channel)
+        if ctx.obj.get("json_output"):
+            click.echo(result.model_dump_json(indent=2))
+        else:
+            if not result.devices:
+                click.echo("  No devices found.")
+            else:
+                click.echo(f"  Found {result.device_count} device(s):")
+                for addr in result.devices:
+                    click.echo(f"    0x{addr:02X}")
+
+
+# --- I3C Commands ---
+
+
+@mcu.command(name="i3c-read")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.option("--address", "-a", type=str, required=True, help="I3C target address (hex or dec)")
+@click.option("--register", "-r", type=str, default="0", help="16-bit register offset")
+@click.option("--count", "-n", type=int, default=16, help="Bytes to read (default: 16)")
+@click.pass_context
+def i3c_read(ctx: click.Context, connector: int, channel: str, address: str, register: str, count: int) -> None:
+    """Read bytes from an I3C target device."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    addr = _parse_address(address)
+    reg = _parse_address(register, "register")
+    if addr is None or reg is None:
+        return
+
+    with client:
+        result = client.i3c_read(
+            address=addr, connector=connector, channel=channel,
+            read_bytes=count, register=reg,
+        )
+        if ctx.obj.get("json_output"):
+            click.echo(result.model_dump_json(indent=2))
+        else:
+            click.echo(f"I3C Read: addr=0x{addr:02X} reg=0x{reg:04X} count={count}")
+            click.echo(f"  Data: {result.hex_dump}")
+
+
+@mcu.command(name="i3c-write")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.option("--address", "-a", type=str, required=True, help="I3C target address (hex or dec)")
+@click.option("--register", "-r", type=str, default="0", help="16-bit register offset")
+@click.option("--data", "-d", type=str, required=True, help="Bytes to write (comma-separated hex/dec)")
+@click.pass_context
+def i3c_write(ctx: click.Context, connector: int, channel: str, address: str, register: str, data: str) -> None:
+    """Write bytes to an I3C target device."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    addr = _parse_address(address)
+    reg = _parse_address(register, "register")
+    if addr is None or reg is None:
+        return
+    payload = _parse_hex_list(data)
+
+    with client:
+        success = client.i3c_write(
+            address=addr, connector=connector, channel=channel,
+            data=payload, register=reg,
+        )
+        if ctx.obj.get("json_output"):
+            click.echo(json.dumps({"address": addr, "register": reg, "success": success}))
+        else:
+            status = "OK" if success else "FAILED"
+            click.echo(f"I3C Write: addr=0x{addr:02X} reg=0x{reg:04X} [{len(payload)} bytes] -> {status}")
+
+
+@mcu.command(name="i3c-scan")
+@click.option("--connector", "-c", type=int, required=True, help="Connector index")
+@click.option("--channel", "-ch", type=str, required=True, help="Channel (e.g. a, b)")
+@click.pass_context
+def i3c_scan(ctx: click.Context, connector: int, channel: str) -> None:
+    """Run I3C ENTDAA to discover devices on the bus."""
+    client = _get_mcu(ctx)
+    if client is None:
+        return
+
+    with client:
+        click.echo(f"Running I3C ENTDAA: connector={connector} channel={channel}...")
+        result = client.i3c_entdaa(connector=connector, channel=channel)
+        if ctx.obj.get("json_output"):
+            click.echo(result.model_dump_json(indent=2))
+        else:
+            if not result.devices:
+                click.echo("  No I3C devices found.")
+            else:
+                click.echo(f"  Found {result.device_count} device(s):")
+                for dev in result.devices:
+                    mctp_str = " [MCTP]" if dev.supports_mctp else ""
+                    click.echo(
+                        f"    Addr=0x{dev.dynamic_address:02X} "
+                        f"PID={dev.pid_hex} "
+                        f"BCR=0x{dev.bcr:02X} DCR=0x{dev.dcr:02X}"
+                        f"{mctp_str}"
+                    )

@@ -87,6 +87,10 @@ def sidebar_nav(
                        active=(current_path == "/mcu/config"), indent=True)
             _nav_item("Diagnostics", "bug_report", "/mcu/diagnostics",
                        active=(current_path == "/mcu/diagnostics"), indent=True)
+            _nav_item("I2C / I3C Bus", "cable", "/mcu/bus",
+                       active=(current_path == "/mcu/bus"), indent=True)
+            _nav_item("NVMe Drives", "storage", "/mcu/nvme",
+                       active=(current_path == "/mcu/nvme"), indent=True)
 
 
 def _nav_item(

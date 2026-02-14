@@ -6,6 +6,14 @@ from fastapi import APIRouter, HTTPException, Query
 
 from calypso.mcu import pool
 from calypso.mcu.models import (
+    I2cReadRequest,
+    I2cReadResponse,
+    I2cScanResult,
+    I2cWriteRequest,
+    I3cEntdaaResult,
+    I3cReadRequest,
+    I3cReadResponse,
+    I3cWriteRequest,
     McuBistResult,
     McuClockStatus,
     McuDeviceInfo,
@@ -119,3 +127,89 @@ async def set_mode(
 async def run_bist(port: str = Query(...)) -> McuBistResult:
     """Run Built-In Self Test."""
     return _get_client(port).run_bist()
+
+
+# --- I2C Endpoints ---
+
+
+@router.post("/i2c/read")
+async def i2c_read(req: I2cReadRequest, port: str = Query(...)) -> I2cReadResponse:
+    """Read bytes from an I2C device."""
+    client = _get_client(port)
+    data = client.i2c_read(
+        address=req.address,
+        connector=req.connector,
+        channel=req.channel,
+        read_bytes=req.count,
+        register=req.reg_offset,
+    )
+    return I2cReadResponse(
+        connector=req.connector,
+        channel=req.channel,
+        address=req.address,
+        reg_offset=req.reg_offset,
+        data=data,
+    )
+
+
+@router.post("/i2c/write")
+async def i2c_write(req: I2cWriteRequest, port: str = Query(...)) -> dict:
+    """Write bytes to an I2C device."""
+    client = _get_client(port)
+    success = client.i2c_write(
+        address=req.address,
+        connector=req.connector,
+        channel=req.channel,
+        data=req.data,
+    )
+    return {"success": success}
+
+
+@router.post("/i2c/scan")
+async def i2c_scan(
+    port: str = Query(...),
+    connector: int = Query(..., ge=0, le=5),
+    channel: str = Query(..., pattern=r"^[ab]$"),
+) -> I2cScanResult:
+    """Scan an I2C bus for responding devices."""
+    return _get_client(port).i2c_scan(connector=connector, channel=channel)
+
+
+# --- I3C Endpoints ---
+
+
+@router.post("/i3c/read")
+async def i3c_read(req: I3cReadRequest, port: str = Query(...)) -> I3cReadResponse:
+    """Read bytes from an I3C target device."""
+    client = _get_client(port)
+    return client.i3c_read(
+        address=req.address,
+        connector=req.connector,
+        channel=req.channel,
+        read_bytes=req.count,
+        register=req.reg_offset,
+    )
+
+
+@router.post("/i3c/write")
+async def i3c_write(req: I3cWriteRequest, port: str = Query(...)) -> dict:
+    """Write bytes to an I3C target device."""
+    client = _get_client(port)
+    success = client.i3c_write(
+        address=req.address,
+        connector=req.connector,
+        channel=req.channel,
+        data=req.data,
+        register=req.reg_offset,
+    )
+    return {"success": success}
+
+
+@router.post("/i3c/entdaa")
+async def i3c_entdaa(
+    port: str = Query(...),
+    connector: int = Query(..., ge=0, le=5),
+    channel: str = Query(..., pattern=r"^[ab]$"),
+) -> I3cEntdaaResult:
+    """Run I3C ENTDAA to discover and assign dynamic addresses."""
+    return _get_client(port).i3c_entdaa(connector=connector, channel=channel)

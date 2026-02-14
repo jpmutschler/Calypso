@@ -226,6 +226,7 @@ def _make_transport(transport: str, port: int):
 from calypso.cli.driver import driver  # noqa: E402
 from calypso.cli.eeprom import eeprom  # noqa: E402
 from calypso.cli.mcu import mcu  # noqa: E402
+from calypso.cli.nvme_mi import nvme  # noqa: E402
 from calypso.cli.phy import phy  # noqa: E402
 from calypso.cli.registers import pcie  # noqa: E402
 
@@ -234,6 +235,9 @@ cli.add_command(eeprom)
 cli.add_command(mcu)
 cli.add_command(phy)
 cli.add_command(pcie)
+
+# Register NVMe-MI as a subgroup of MCU
+mcu.add_command(nvme)
 
 try:
     from calypso.cli.workloads import workloads  # noqa: E402
