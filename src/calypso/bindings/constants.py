@@ -35,6 +35,8 @@ PERF_MAX_BPS_GEN_1_0 = 250_000_000
 PERF_MAX_BPS_GEN_2_0 = 500_000_000
 PERF_MAX_BPS_GEN_3_0 = 1_000_000_000
 PERF_MAX_BPS_GEN_4_0 = 2_000_000_000
+PERF_MAX_BPS_GEN_5_0 = 4_000_000_000
+PERF_MAX_BPS_GEN_6_0 = 8_000_000_000
 
 # Find amount matched sentinel
 FIND_AMOUNT_MATCHED = 80001
@@ -103,6 +105,7 @@ class PlxChipFamily(IntEnum):
     ATLAS_2 = 19
     ATLAS2_LLC = 20
     ATLAS_3 = 21
+    ATLAS3_LLC = 22
 
 
 class PlxChipMode(IntEnum):
@@ -168,6 +171,8 @@ class PlxLinkSpeed(IntEnum):
     GEN2_5_GBPS = 2
     GEN3_8_GBPS = 3
     GEN4_16_GBPS = 4
+    GEN5_32_GBPS = 5
+    GEN6_64_GBPS = 6
 
 
 class PlxEepromStatus(IntEnum):

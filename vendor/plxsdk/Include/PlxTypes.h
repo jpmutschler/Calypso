@@ -350,6 +350,7 @@ typedef enum _PLX_CHIP_FAMILY
     PLX_FAMILY_ATLAS_2,                 // C030
     PLX_FAMILY_ATLAS2_LLC,              // C034
     PLX_FAMILY_ATLAS_3,                 // C040
+    PLX_FAMILY_ATLAS3_LLC,              // C044
     PLX_FAMILY_LAST_ENTRY               // -- Must be final entry --
 } PLX_CHIP_FAMILY;
 

@@ -785,7 +785,8 @@ PlxI2c_PlxRegisterRead(
 
     if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
         pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
-        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
     {
         // Check for absolute or adjusted address of MPT 0 B0h
         if (((bAdjustForPort == FALSE) && (offset == 0x608F00B0)) ||
@@ -806,7 +807,8 @@ PlxI2c_PlxRegisterRead(
           ((offset & I2C_PEX_BASE_ADDR_MASK) != ATLAS_REGS_AXI_BASE_ADDR)) ||
          ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
            pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
-             pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+           pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+           pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC ) &&
           (bAdjustForPort == FALSE) &&
           ((offset & I2C_PEX_BASE_ADDR_ATLAS2_MASK) != ATLAS_REGS_AXI_BASE_ADDR)) )
     {
@@ -1011,7 +1013,8 @@ PlxI2c_PlxRegisterWrite(
           ((offset & I2C_PEX_BASE_ADDR_MASK) != ATLAS_REGS_AXI_BASE_ADDR)) ||
          ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
            pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
-             pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+           pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+           pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
           (bAdjustForPort == FALSE) &&
           ((offset & I2C_PEX_BASE_ADDR_ATLAS2_MASK) != ATLAS_REGS_AXI_BASE_ADDR)) )
     {
@@ -2127,16 +2130,19 @@ PlxI2c_GenerateCommand(
 
     if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
          pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
-        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+         pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+         pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
         (bAdjustForPort == FALSE) &&
         ((Address & I2C_PEX_BASE_ADDR_ATLAS2_MASK) == ATLAS_REGS_AXI_BASE_ADDR))
     {
         Address &= I2C_PEX_MAX_OFFSET_ATLAS2_MASK;
+        Address = Address | 0xF00000;
     }
 
     if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
         pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
-        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+        pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
     {
         return PlxI2c_GenerateAtlas2Command(
                 I2cOperation,
@@ -2608,7 +2614,8 @@ PlxI2c_GenerateCommand(
             if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
                 (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
                 (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
-                (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+                (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
+                (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
             {
                 // For Atlas, must specify PEX region (608x_xxxx)
                 highAddrOffset += ATLAS_REGS_AXI_BASE_ADDR;
@@ -2631,7 +2638,7 @@ PlxI2c_GenerateCommand(
 
     // Convert offset to DWORD index
     regOffset = regOffset >> 2;
-
+    I2cOperation = I2cOperation | 0x2;
     // Build I2C command
     command =
         (0            <<           27) |  // Reserved [31:27]
@@ -4176,6 +4183,7 @@ PlxI2c_GenerateAtlas2Command(
      */
     addrLow = (Address & 0xFFF) >> 2;     // Address[11:2]
     addrHigh = (Address >> 12) & 0x3FF;   // Address[12:21]
+    I2cOperation = I2cOperation | 0x2;
     command =
         (0              << 27) |  // Reserved [31:27]
         (I2cOperation   << 24) |  // Register operation [26:24]

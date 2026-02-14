@@ -666,6 +666,7 @@ PlxDir_PerformanceInitializeProperties(
         case PLX_FAMILY_ATLAS_2:
         case PLX_FAMILY_ATLAS2_LLC:
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             StnPortCount = 16;
             break;
         case PLX_FAMILY_DRACO_1:
@@ -765,6 +766,7 @@ PlxDir_PerformanceMonitorControl(
             Offset_Control = 0x3E0;
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             pexBase        = ATLAS_PEX_STN_REGS_BASE_OFFSET;
             Offset_Control = 0x33E0;
             break;
@@ -844,6 +846,7 @@ PlxDir_PerformanceMonitorControl(
         case PLX_FAMILY_ATLAS_2:
         case PLX_FAMILY_ATLAS2_LLC:
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             // Set device configuration
             if (pDevice->Key.PlxFamily == PLX_FAMILY_CYGNUS)
             {
@@ -897,8 +900,15 @@ PlxDir_PerformanceMonitorControl(
                 }
             }
 
-            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
+                StnCount = 9;
+                if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+                {
+                    StnCount = 3;
+                }
+
                 for (i = 0; i < (StnCount * StnPortCount); i++)
                 {
                     if ((i % StnPortCount) == 0)
@@ -1001,7 +1011,7 @@ PlxDir_PerformanceMonitorControl(
     {
         if ((i == 0) || bStationBased)
         {
-            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 pexBase = ATLAS_PEX_STN_REGS_BASE_OFFSET + (((i * 16)/16) * 0x10000);
                 Offset_Control = 0x33E0;
@@ -1076,6 +1086,7 @@ PlxDir_PerformanceResetCounters(
             Offset_Control = ATLAS_PEX_REGS_BASE_OFFSET + 0x3E0;
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             Offset_Control = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33E0;
             break;
 
@@ -1109,6 +1120,11 @@ PlxDir_PerformanceResetCounters(
     else if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
     {
         StnCount     = 9;
+        StnPortCount = 16;
+    }
+    else if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+    {
+        StnCount     = 3;
         StnPortCount = 16;
     }
     else
@@ -1687,6 +1703,7 @@ PlxDir_PerformanceGetCounters(
             }
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             Offset_RamCtrl   = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33F0;
             Offset_Fifo      = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33E4;
             NumCounters      = 14;
@@ -1694,6 +1711,11 @@ PlxDir_PerformanceGetCounters(
             StnPortCount     = 16;
             bStationBased    = TRUE;
             InEgPerPortCount = 6;    // Non-Posted header count added
+
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+            {
+                StnCount = 3;
+            }
             break;
         default:
             DebugPrintf(("ERROR - Unsupported PLX chip (%04X)\n", pDevice->Key.PlxChip));
@@ -1832,7 +1854,8 @@ PlxDir_PerformanceGetCounters(
         if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
             (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
             (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
-            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC))
+            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
+            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
         {
             // NP header added in Atlas
             pPerfProps[i].IngressNonpostedHdr  = pCounters[index++];  // 2
@@ -1851,7 +1874,8 @@ PlxDir_PerformanceGetCounters(
         if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
             (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
             (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
-            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC))
+            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
+            (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
         {
             // NP header added in Atlas
             pPerfProps[i].EgressNonpostedHdr  = pCounters[index++];  // 2
@@ -2646,9 +2670,13 @@ _PlxChipAssignFamily:
             pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS2_LLC;
             break;
 
-	    case 0xC040:
-	        pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS_3;
-	        break;
+        case 0xC040:
+            pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS_3;
+            break;
+
+        case 0xC044:
+            pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS3_LLC;
+            break;
 
         case 0:
             pDevice->Key.PlxFamily = PLX_FAMILY_NONE;
@@ -2774,6 +2802,7 @@ PlxDir_ChipFilterDisabledPorts(
             break;
 
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             offset = 0x7F0000 + ATLAS3_REG_PORT_CLOCK_EN_0;
             if (pDevice->Key.ApiMode != PLX_API_MODE_PCI)
             {
@@ -2823,7 +2852,8 @@ PlxDir_ChipFilterDisabledPorts(
         }
 
         // For Atlas 3, port clock register for ports 128-143 are at offset 1324h
-        if ( (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3) && (index == 3) )
+        if ( (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+              pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) && (index == 3) )
         {
             offset = ATLAS_REGS_AXI_BASE_ADDR + 0x7F0000 + ATLAS3_REG_PORT_CLOCK_EN_4;
         }
@@ -2962,9 +2992,14 @@ PlxDir_ProbeSwitch(
     PEX_CHIP_FEAT  chipFeat;
     PLX_DEVICE_KEY tempKey;
 
+    // Counter for ATLAS3 DS port slot assignment
+    // Slots are assigned sequentially (0, 1, 2...) in discovery order, matching BIOS enumeration
+    U8             dsPortCount;       // Number of DS ports found so far (used as slot number)
 
-    devCount      = 0;
-    port_Upstream = (U8)-1;
+
+    devCount        = 0;
+    port_Upstream   = (U8)-1;
+    dsPortCount     = 0;
 
     // Always reset key but save some properties temporarily to restore
     tempKey = pDevice->Key;
@@ -3069,6 +3104,7 @@ PlxDir_ProbeSwitch(
                     case PLX_FAMILY_ATLAS_2:
                     case PLX_FAMILY_ATLAS_3:
                     case PLX_FAMILY_ATLAS2_LLC:
+                    case PLX_FAMILY_ATLAS3_LLC:
 
                         // Determine switch mode (CCR B0h[1:0])
                         atlasSwMode =
@@ -3083,7 +3119,7 @@ PlxDir_ProbeSwitch(
                         {
                             pDevice->Key.DeviceMode = PLX_CHIP_MODE_STANDARD;
 
-                            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+                            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
                             {
                                 // Store upstream port number (360h[7:0])
                                 regVal =
@@ -3134,12 +3170,13 @@ PlxDir_ProbeSwitch(
                         }
                         else if ((pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_2 ||
                                   pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
-                                  pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) &&
+                                  pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC ||
+                                  pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
                                  (atlasSwMode == 2)) //base switch with fw
                         {
                             pDevice->Key.DeviceMode = PLX_CHIP_MODE_STANDARD;
 
-                            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+                            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
                             {
                                 // Store upstream port number (1360h[7:0])
                                 regVal =
@@ -3464,8 +3501,23 @@ PlxDir_ProbeSwitch(
         }
         else if (pDevice->Key.PlxPortType == PLX_SPEC_PORT_DOWNSTREAM)
         {
-            // Slot tied to port number
-            pDevice->Key.slot = (U8)portNum % PCI_MAX_DEV;
+            // Slot calculation differs by chip family:
+            // - ATLAS3 (C040): Sequential counter method. Assigns slots 0, 1, 2... as DS
+            //   ports are discovered, matching BIOS enumeration order.
+            // - ATLAS2 (C030) and older: Uses portNum % 32 as slot, which matches
+            //   the physical port position.
+            if (pDevice->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            {
+                // ATLAS3: Assign slots sequentially (0, 1, 2...) as DS ports are discovered
+                // This matches BIOS enumeration order which assigns device numbers sequentially
+                pDevice->Key.slot = dsPortCount;
+                dsPortCount++;
+            }
+            else
+            {
+                // Original behavior for ATLAS and older chips: portNum % 32
+                pDevice->Key.slot = (U8)(portNum % PCI_MAX_DEV);
+            }
         }
 
         // Get PCI Revision

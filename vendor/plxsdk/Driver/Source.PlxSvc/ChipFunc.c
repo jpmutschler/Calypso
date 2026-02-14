@@ -229,7 +229,8 @@ PlxRegisterRead_8000(
             }
 
             // Adjust the offset based on port number
-            if (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC )
             {
                 OffsetAdjustment = (pNode->PortProp.PortNumber * (32 * 1024));
             }
@@ -242,9 +243,10 @@ PlxRegisterRead_8000(
             if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
                 (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
                 (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
-                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
+                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
             {
-                if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+                if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
                     (pNode->pRegNode->PciBar[0].Properties.Size == 0x400000))
                 {
                     OffsetAdjustment += 0x240000;
@@ -375,7 +377,7 @@ PlxRegisterWrite_8000(
             }
 
             // Adjust the offset based on port number
-            if (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 OffsetAdjustment = (pNode->PortProp.PortNumber * (32 * 1024));
             }
@@ -388,9 +390,10 @@ PlxRegisterWrite_8000(
             if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
                 (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
                 (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
-                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
+                (pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
             {
-                if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3) &&
+                if ((pNode->Key.PlxFamily == PLX_FAMILY_ATLAS_3 || pNode->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC) &&
                 (pNode->pRegNode->PciBar[0].Properties.Size == 0x400000))
                 {
                     OffsetAdjustment += 0x240000;
@@ -980,6 +983,10 @@ _PlxChipAssignFamily:
 
         case 0xC040:
             pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS_3;
+            break;
+
+        case 0xC044:
+            pDevice->Key.PlxFamily = PLX_FAMILY_ATLAS3_LLC;
             break;
 
         case 0:

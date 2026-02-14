@@ -1991,6 +1991,7 @@ PlxPciPerformanceInitializeProperties(
             StnPortCount = 16;
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             StnPortCount = 16;
             break;
         case PLX_FAMILY_DRACO_1:
@@ -2096,6 +2097,7 @@ PlxPciPerformanceMonitorControl(
             Offset_Control = 0x3E0;
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             pexBase        = ATLAS_PEX_STN_REGS_BASE_OFFSET;
             Offset_Control = 0x33E0;
             break;
@@ -2174,6 +2176,7 @@ PlxPciPerformanceMonitorControl(
         case PLX_FAMILY_ATLAS_2:
         case PLX_FAMILY_ATLAS2_LLC:
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             // Set device configuration
             if (pdx->Key.PlxFamily == PLX_FAMILY_CYGNUS)
             {
@@ -2227,7 +2230,8 @@ PlxPciPerformanceMonitorControl(
                 }
             }
 
-            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                  Bit_EgressEn    = 6;
                  StnCount        = 9;
@@ -2235,6 +2239,10 @@ PlxPciPerformanceMonitorControl(
                  bStationBased   = TRUE;
                  bEgressAllPorts = TRUE;
 
+                if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+                {
+                    StnCount        = 3;
+                }
                 for (i = 0; i < (StnCount * StnPortCount); i++)
                 {
                     if ((i % StnPortCount) == 0)
@@ -2337,7 +2345,8 @@ PlxPciPerformanceMonitorControl(
     {
         if ((i == 0) || bStationBased)
         {
-            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 pexBase = ATLAS_PEX_STN_REGS_BASE_OFFSET + (((i * 16)/16) * 0x10000);
                 Offset_Control = 0x33E0;
@@ -2411,6 +2420,7 @@ PlxPciPerformanceResetCounters(
             Offset_Control = ATLAS_PEX_REGS_BASE_OFFSET + 0x3E0;
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             Offset_Control = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33E0;
             break;
         default:
@@ -2445,6 +2455,11 @@ PlxPciPerformanceResetCounters(
         StnCount = 9;
         StnPortCount = 16;
     }
+    else if(pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+    {
+        StnCount = 3;
+        StnPortCount = 16;
+    }
     else
     {
         StnCount     = 1;
@@ -2455,7 +2470,8 @@ PlxPciPerformanceResetCounters(
     for (i = 0; i < StnCount; i++)
     {
         // Reset (30) & enable monitor (31) & infinite sampling (28) & start (27)
-        if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+        if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+            pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
         {
             PLX_8000_REG_WRITE(
             pdx,
@@ -3020,6 +3036,7 @@ PlxPciPerformanceGetCounters(
             }
             break;
         case PLX_FAMILY_ATLAS_3:
+        case PLX_FAMILY_ATLAS3_LLC:
             Offset_RamCtrl   = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33F0;
             Offset_Fifo      = ATLAS_PEX_STN_REGS_BASE_OFFSET + 0x33E4;
             NumCounters      = 14;
@@ -3027,6 +3044,10 @@ PlxPciPerformanceGetCounters(
             StnPortCount     = 16;
             bStationBased    = TRUE;
             InEgPerPortCount = 6;    // Non-Posted header count added
+            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
+            {
+                StnCount = 3;
+            }
             break;
         default:
             DebugPrintf(("ERROR - Unsupported PLX chip (%04X)\n", pdx->Key.PlxChip));
@@ -3077,7 +3098,8 @@ PlxPciPerformanceGetCounters(
     {
         if ((i == 0) || bStationBased)
         {
-            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+            if (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
             {
                 PLX_8000_REG_WRITE(
                     pdx,
@@ -3118,7 +3140,8 @@ PlxPciPerformanceGetCounters(
                 // For station based counters use register in station port 0
                 if (bStationBased)
                 {
-                    if(pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3)
+                    if(pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3 ||
+                       pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC)
                     {
                         Offset_Fifo += (StnPortCount * 0x10000);
                     }
@@ -3212,7 +3235,8 @@ PlxPciPerformanceGetCounters(
         if ((pdx->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
             (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
             (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
-            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
+            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
         {
             // NP header added in Atlas
             pTmpPerfProps[i].IngressNonpostedHdr  = pCounters[index++];  // 2
@@ -3231,7 +3255,8 @@ PlxPciPerformanceGetCounters(
         if ((pdx->Key.PlxFamily == PLX_FAMILY_ATLAS) ||
             (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_2) ||
             (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS2_LLC) ||
-            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3))
+            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS_3) ||
+            (pdx->Key.PlxFamily == PLX_FAMILY_ATLAS3_LLC))
         {
             // NP header added in Atlas
             pTmpPerfProps[i].EgressNonpostedHdr  = pCounters[index++];  // 2
