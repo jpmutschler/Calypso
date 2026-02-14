@@ -105,6 +105,27 @@ class TestMCTPPacket:
         assert parsed.payload == payload
         assert parsed.ic_bit is False
 
+    def test_build_packet_max_payload(self):
+        payload = b"\xAA" * 64
+        pkt = build_mctp_packet(
+            dest_eid=0x0A, source_eid=0x08,
+            message_type=MCTPMessageType.NVME_MI,
+            payload=payload,
+        )
+        # 4 header + 1 msg type + 64 payload = 69
+        assert len(pkt) == 69
+
+    def test_build_packet_empty_payload(self):
+        pkt = build_mctp_packet(
+            dest_eid=0x0A, source_eid=0x08,
+            message_type=MCTPMessageType.CONTROL,
+            payload=b"",
+        )
+        # 4 header + 1 msg type + 0 payload = 5
+        assert len(pkt) == 5
+        parsed = parse_mctp_packet(pkt)
+        assert parsed.payload == b""
+
     def test_parse_packet_too_short(self):
         with pytest.raises(ValueError, match="at least 5 bytes"):
             parse_mctp_packet(b"\x10\x0A\x08\xC8")
@@ -184,6 +205,29 @@ class TestI2CMCTPFrame:
     def test_parse_frame_too_short(self):
         with pytest.raises(ValueError, match="too short"):
             parse_i2c_mctp_frame(b"\x0F\x01\x43", dest_slave_addr=0x21)
+
+    def test_parse_frame_byte_count_mismatch(self):
+        mctp_pkt = build_mctp_packet(
+            dest_eid=0x0A, source_eid=0x08,
+            message_type=MCTPMessageType.CONTROL,
+            payload=b"\x80\x02",
+        )
+        frame = build_i2c_mctp_frame(
+            dest_slave_addr=0x6A,
+            source_slave_addr=0x21,
+            mctp_packet=mctp_pkt,
+        )
+        # Corrupt byte_count (index 1) — set it too high but keep PEC valid
+        # by recalculating. Instead, just tamper and expect either PEC or count error.
+        corrupted = bytearray(frame)
+        corrupted[1] = frame[1] + 5  # wrong byte count
+        # Recompute PEC over the corrupted frame
+        dest_addr_w = (0x6A << 1) & 0xFE
+        pec_input = bytes([dest_addr_w]) + bytes(corrupted[:-1])
+        pec = _smbus_pec(pec_input)
+        corrupted[-1] = pec
+        with pytest.raises(ValueError, match="Byte count mismatch"):
+            parse_i2c_mctp_frame(bytes(corrupted), dest_slave_addr=0x6A)
 
     def test_parse_frame_wrong_command_code(self):
         with pytest.raises(ValueError, match="command code"):
