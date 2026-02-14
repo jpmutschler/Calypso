@@ -42,7 +42,7 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 - Broadcom PLX SDK (PlxApi shared library)
 - **Linux**: PLX kernel driver (`PlxSvc` module) loaded -- use `calypso driver build && calypso driver install`
 - **Windows**: PlxSvc kernel service running -- use `calypso driver install` (requires administrator). `PlxApi.dll` loaded via `ctypes.WinDLL` (`__stdcall`). Both `PlxSvc.sys` and `PlxApi.dll` are vendored in `vendor/plxsdk/`.
-- Serial connection to MCU (optional, for MCU features -- requires `serialcables-atlas3` package)
+- Serial connection to MCU (optional, for MCU and NVMe-MI features -- requires `serialcables-atlas3` package)
 - SPDK `spdk_nvme_perf` on PATH (optional, for SPDK workload generation)
 - pynvme (optional, Linux only, for pynvme workload generation)
 
@@ -122,7 +122,9 @@ src/calypso/
 ├── core/           # Domain logic (switch, ports, topology, perf, PCIe config, PHY, EEPROM)
 ├── compliance/     # PCIe compliance testing (6 suites, HTML reports)
 ├── workloads/      # Optional NVMe workload generation (SPDK perf, pynvme)
-├── mcu/            # MCU serial client (health, ports, errors, BIST, config)
+├── mcu/            # MCU serial client (health, ports, errors, BIST, config, I2C/I3C bus)
+├── mctp/           # MCTP over I2C/I3C transport, framing, and endpoint discovery
+├── nvme_mi/        # NVMe-MI client, commands, drive discovery, and health models
 ├── api/            # FastAPI REST + WebSocket API
 ├── cli/            # Click CLI commands
 ├── ui/             # NiceGUI web dashboard
@@ -192,6 +194,16 @@ calypso mcu --port COM3 config               # Mode/clock/spread/FLIT
 calypso mcu --port COM3 bist                 # Built-In Self Test
 ```
 
+### NVMe-MI (via MCU Serial)
+
+```bash
+calypso mcu --port COM3 nvme discover               # Scan all connectors for NVMe drives
+calypso mcu --port COM3 nvme health -c 0 -ch a      # Poll health for drive at CN0/a
+calypso mcu --port COM3 nvme health -c 2 -ch b -a 0x6A  # Specify I2C address
+```
+
+Discovers NVMe drives via the NVMe-MI over MCTP over I2C protocol stack. Each connector (CN0-CN5) has two I2C channels (a/b). The MCU acts as the I2C bus master, with MCTP framing carried over I2C to NVMe-MI endpoints on attached drives.
+
 ### NVMe Workloads (Linux only)
 
 ```bash
@@ -252,9 +264,10 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `GET /{id}/phy/lane-margining`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer |
 | LTSSM | `GET /{id}/ltssm/snapshot`, `POST /{id}/ltssm/retrain`, `GET /{id}/ltssm/retrain/progress`, `GET /{id}/ltssm/retrain/result`, `POST /{id}/ltssm/clear-counters`, `POST /{id}/ltssm/ptrace/configure`, `POST /{id}/ltssm/ptrace/start`, `POST /{id}/ltssm/ptrace/stop`, `GET /{id}/ltssm/ptrace/status`, `GET /{id}/ltssm/ptrace/buffer` | LTSSM state trace + Ptrace capture |
 | MCU | `GET /mcu/discover`, `POST /mcu/connect`, `GET /mcu/health`, `GET /mcu/ports`, `GET /mcu/errors`, `GET /mcu/config/*`, `POST /mcu/bist` | MCU serial |
+| NVMe-MI | `GET /mcu/nvme/discover`, `GET /mcu/nvme/health`, `GET /mcu/nvme/drive` | NVMe-MI over MCTP drive discovery and health |
 | Workloads | `GET /workloads/backends`, `POST /workloads/start`, `POST /workloads/{id}/stop`, `GET /workloads/{id}`, `GET /workloads`, `GET /workloads/{id}/combined/{device_id}`, `WS /workloads/{id}/stream` | NVMe workload generation + live progress |
 
-All device endpoints prefixed with `/api/devices`. Workloads endpoints prefixed with `/api`. MCU endpoints prefixed with `/api/mcu`.
+All device endpoints prefixed with `/api/devices`. Workloads endpoints prefixed with `/api`. MCU endpoints prefixed with `/api/mcu`. NVMe-MI endpoints prefixed with `/api/mcu/nvme`.
 
 ## Web Dashboard
 
@@ -290,6 +303,7 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Error Counters | `/mcu/errors` | Per-port error counts with clear |
 | Configuration | `/mcu/config` | Mode, clock, spread spectrum, FLIT |
 | Diagnostics | `/mcu/diagnostics` | BIST and diagnostic tools |
+| NVMe Drives | `/mcu/nvme` | NVMe-MI drive discovery, SMART health, per-controller detail, auto-refresh |
 
 ## Transport Layers
 
@@ -298,6 +312,7 @@ Calypso supports three transport modes for communicating with Atlas3 devices:
 - **PCIe** -- Direct PCIe bus access via PLX SDK. Primary transport for all switch operations. On Linux, requires the `PlxSvc` kernel module. On Windows, requires the Broadcom PlxSvc Windows service and `PlxApi.dll`.
 - **UART** -- Serial port communication via the Atlas3 MCU over USB. Used for health, port status, error counters, configuration, and BIST. Requires the `serialcables-atlas3` Python package.
 - **SDB** -- Serial Debug Bus over USB. Alternative debug interface using the PLX SDK's SDB mode.
+- **I2C/I3C (MCTP)** -- MCU-managed I2C/I3C bus for NVMe-MI over MCTP. The MCU on the Atlas3 board acts as the I2C bus master; MCTP messages are framed over I2C to communicate with NVMe-MI endpoints on attached NVMe drives (CN0-CN5, channels a/b).
 
 ## Development
 
