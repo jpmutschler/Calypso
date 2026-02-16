@@ -113,6 +113,21 @@
 #endif
 
 /***********************************************************
+ * ioremap_prot
+ *
+ * Starting with kernel 6.13, the third argument changed from
+ * unsigned long to pgprot_t. Wrap the call so older kernels
+ * still receive the bare integer.
+ **********************************************************/
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0))
+    #define Plx_ioremap_prot(addr, size, prot) \
+            ioremap_prot( (addr), (size), __pgprot(prot) )
+#else
+    #define Plx_ioremap_prot(addr, size, prot) \
+            ioremap_prot( (addr), (size), (prot) )
+#endif
+
+/***********************************************************
  * INIT_WORK & INIT_DELAYED_WORK
  *
  * This macro initializes a work structure with the function
