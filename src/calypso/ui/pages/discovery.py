@@ -156,7 +156,7 @@ def _discovery_content() -> None:
 
             async def scan_mcu():
                 try:
-                    ports = McuClient.find_devices()
+                    ports = await asyncio.to_thread(McuClient.find_devices)
                     mcu_port_select.options = ports
                     if ports:
                         mcu_port_select.value = ports[0]

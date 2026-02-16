@@ -503,7 +503,35 @@ class McuClient:
 
     @staticmethod
     def find_devices() -> list[str]:
-        """Find available Atlas3 devices on serial ports."""
-        from serialcables_atlas3 import Atlas3
+        """Find available Atlas3 devices on serial ports.
 
-        return Atlas3.find_devices()
+        Enumerates all system serial ports and returns those matching
+        known USB-serial device path patterns.  The upstream
+        ``Atlas3.find_devices()`` filters by the port *description*
+        containing "USB" or "SERIAL", which misses Linux CDC-ACM
+        devices (``/dev/ttyACM*``) whose descriptions often lack
+        those keywords.  We filter by device path instead.
+        """
+        import re
+        import sys
+
+        from serial.tools import list_ports
+
+        patterns: dict[str, re.Pattern[str]] = {
+            "win32": re.compile(r"^COM\d{1,3}$"),
+            "linux": re.compile(r"^/dev/tty(USB|ACM|S)\d{1,3}$"),
+            "darwin": re.compile(
+                r"^/dev/(tty|cu)\.(usbserial|usbmodem)[\w.\-]+$"
+            ),
+        }
+        pattern = patterns.get(sys.platform)
+        if pattern is None:
+            # Unknown platform — fall back to upstream
+            from serialcables_atlas3 import Atlas3
+            return Atlas3.find_devices()
+
+        return [
+            port.device
+            for port in list_ports.comports()
+            if pattern.match(port.device)
+        ]
