@@ -7,6 +7,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from calypso.exceptions import CalypsoError, UnsupportedError
 from calypso.models.eeprom import EepromData, EepromInfo
 
 router = APIRouter(tags=["eeprom"])
@@ -31,7 +32,16 @@ def _get_eeprom_manager(device_id: str):
 async def get_eeprom_info(device_id: str) -> EepromInfo:
     """Get EEPROM presence and status info."""
     mgr = _get_eeprom_manager(device_id)
-    return await asyncio.to_thread(mgr.get_info)
+    try:
+        return await asyncio.to_thread(mgr.get_info)
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501, detail="EEPROM is not supported on this device"
+        ) from None
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"EEPROM not accessible: {exc}"
+        ) from exc
 
 
 @router.get("/devices/{device_id}/eeprom/read", response_model=EepromData)
@@ -40,7 +50,16 @@ async def read_eeprom(
 ) -> EepromData:
     """Read a range of 32-bit EEPROM values."""
     mgr = _get_eeprom_manager(device_id)
-    return await asyncio.to_thread(mgr.read_range, offset=offset, count=count)
+    try:
+        return await asyncio.to_thread(mgr.read_range, offset=offset, count=count)
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501, detail="EEPROM is not supported on this device"
+        ) from None
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"EEPROM not accessible: {exc}"
+        ) from exc
 
 
 class EepromWriteRequest(BaseModel):
@@ -52,7 +71,16 @@ class EepromWriteRequest(BaseModel):
 async def write_eeprom(device_id: str, body: EepromWriteRequest) -> dict[str, str]:
     """Write a 32-bit value to EEPROM."""
     mgr = _get_eeprom_manager(device_id)
-    await asyncio.to_thread(mgr.write_value, offset=body.offset, value=body.value)
+    try:
+        await asyncio.to_thread(mgr.write_value, offset=body.offset, value=body.value)
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501, detail="EEPROM is not supported on this device"
+        ) from None
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"EEPROM write failed: {exc}"
+        ) from exc
     return {"status": "written"}
 
 
@@ -60,7 +88,16 @@ async def write_eeprom(device_id: str, body: EepromWriteRequest) -> dict[str, st
 async def get_eeprom_crc(device_id: str) -> dict[str, object]:
     """Verify EEPROM CRC."""
     mgr = _get_eeprom_manager(device_id)
-    crc_value, status = await asyncio.to_thread(mgr.verify_crc)
+    try:
+        crc_value, status = await asyncio.to_thread(mgr.verify_crc)
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501, detail="EEPROM is not supported on this device"
+        ) from None
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"EEPROM not accessible: {exc}"
+        ) from exc
     return {"crc_value": crc_value, "status": status}
 
 
@@ -68,5 +105,14 @@ async def get_eeprom_crc(device_id: str) -> dict[str, object]:
 async def update_eeprom_crc(device_id: str) -> dict[str, int]:
     """Recalculate and write EEPROM CRC."""
     mgr = _get_eeprom_manager(device_id)
-    crc_value = await asyncio.to_thread(mgr.update_crc)
+    try:
+        crc_value = await asyncio.to_thread(mgr.update_crc)
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501, detail="EEPROM is not supported on this device"
+        ) from None
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"EEPROM CRC update failed: {exc}"
+        ) from exc
     return {"crc_value": crc_value}

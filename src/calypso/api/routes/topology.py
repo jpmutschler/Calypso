@@ -6,6 +6,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 
+from calypso.exceptions import CalypsoError
 from calypso.models.topology import TopologyMap
 
 router = APIRouter(tags=["topology"])
@@ -26,4 +27,10 @@ async def get_topology(device_id: str) -> TopologyMap:
     from calypso.core.topology import TopologyMapper
     sw = _get_switch(device_id)
     mapper = TopologyMapper(sw._device_obj, sw._device_key)
-    return await asyncio.to_thread(mapper.build_topology)
+    try:
+        return await asyncio.to_thread(mapper.build_topology)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to build topology map: {exc}",
+        ) from exc

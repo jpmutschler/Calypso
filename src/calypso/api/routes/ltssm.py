@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from calypso.exceptions import CalypsoError
 from calypso.models.ltssm import (
     PortLtssmSnapshot,
     PtraceConfig,
@@ -53,7 +54,13 @@ async def get_ltssm_snapshot(
 ) -> PortLtssmSnapshot:
     """Read current LTSSM state, recovery count, and link status."""
     tracer = _get_tracer(device_id, port_number)
-    return await asyncio.to_thread(tracer.get_snapshot, port_select)
+    try:
+        return await asyncio.to_thread(tracer.get_snapshot, port_select)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read LTSSM state for port {port_number}: {exc}",
+        ) from exc
 
 
 class ClearCountersRequest(BaseModel):
@@ -68,7 +75,13 @@ async def clear_ltssm_counters(
 ) -> dict[str, str]:
     """Clear recovery count for a port."""
     tracer = _get_tracer(device_id, body.port_number)
-    await asyncio.to_thread(tracer.clear_recovery_count, body.port_select)
+    try:
+        await asyncio.to_thread(tracer.clear_recovery_count, body.port_select)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear counters for port {body.port_number}: {exc}",
+        ) from exc
     return {"status": "cleared", "port_number": str(body.port_number)}
 
 
@@ -171,7 +184,13 @@ async def configure_ptrace(
         trigger_on_ltssm=body.trigger_on_ltssm,
         ltssm_trigger_state=body.ltssm_trigger_state,
     )
-    await asyncio.to_thread(tracer.configure_ptrace, config)
+    try:
+        await asyncio.to_thread(tracer.configure_ptrace, config)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to configure Ptrace for port {body.port_number}: {exc}",
+        ) from exc
     return {"status": "configured"}
 
 
@@ -186,7 +205,13 @@ async def start_ptrace(
 ) -> dict[str, str]:
     """Start Ptrace capture."""
     tracer = _get_tracer(device_id, body.port_number)
-    await asyncio.to_thread(tracer.start_ptrace)
+    try:
+        await asyncio.to_thread(tracer.start_ptrace)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start Ptrace for port {body.port_number}: {exc}",
+        ) from exc
     return {"status": "started"}
 
 
@@ -197,7 +222,13 @@ async def stop_ptrace(
 ) -> dict[str, str]:
     """Stop Ptrace capture."""
     tracer = _get_tracer(device_id, body.port_number)
-    await asyncio.to_thread(tracer.stop_ptrace)
+    try:
+        await asyncio.to_thread(tracer.stop_ptrace)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop Ptrace for port {body.port_number}: {exc}",
+        ) from exc
     return {"status": "stopped"}
 
 
@@ -211,7 +242,13 @@ async def get_ptrace_status(
 ) -> PtraceStatusResponse:
     """Read current Ptrace capture status."""
     tracer = _get_tracer(device_id, port_number)
-    return await asyncio.to_thread(tracer.read_ptrace_status)
+    try:
+        return await asyncio.to_thread(tracer.read_ptrace_status)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read Ptrace status for port {port_number}: {exc}",
+        ) from exc
 
 
 @router.get(
@@ -228,4 +265,10 @@ async def get_ptrace_buffer(
     Runs in executor to avoid blocking the event loop on large reads.
     """
     tracer = _get_tracer(device_id, port_number)
-    return await asyncio.to_thread(tracer.read_ptrace_buffer, max_entries)
+    try:
+        return await asyncio.to_thread(tracer.read_ptrace_buffer, max_entries)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read Ptrace buffer for port {port_number}: {exc}",
+        ) from exc

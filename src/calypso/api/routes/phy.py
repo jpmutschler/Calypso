@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from calypso.exceptions import CalypsoError
 from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpeedsVector
 from calypso.models.phy_api import (
     EyeSweepResult,
@@ -221,7 +222,13 @@ async def get_port_control(
             port_select=ctrl.port_select,
         )
 
-    return await asyncio.to_thread(_read)
+    try:
+        return await asyncio.to_thread(_read)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read Port Control register for port {port_number}: {exc}",
+        ) from exc
 
 
 # --- PHY Command/Status ---
@@ -260,7 +267,13 @@ async def get_phy_cmd_status(
             utp_kcode_flags=status.utp_kcode_flags,
         )
 
-    return await asyncio.to_thread(_read)
+    try:
+        return await asyncio.to_thread(_read)
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read PHY Command/Status register for port {port_number}: {exc}",
+        ) from exc
 
 
 # --- Lane Margining Detection ---

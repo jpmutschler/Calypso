@@ -6,6 +6,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 
+from calypso.exceptions import CalypsoError, UnsupportedError
 from calypso.models.configuration import MultiHostConfig, SwitchConfig, VirtualSwitchConfig
 
 router = APIRouter(tags=["configuration"])
@@ -53,5 +54,10 @@ async def get_config(device_id: str) -> SwitchConfig:
 
     try:
         return await asyncio.to_thread(_read_config)
-    except Exception as exc:
+    except UnsupportedError:
+        raise HTTPException(
+            status_code=501,
+            detail="Multi-Host configuration is not supported on this device",
+        ) from None
+    except CalypsoError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
