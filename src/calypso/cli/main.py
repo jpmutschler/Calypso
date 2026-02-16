@@ -167,7 +167,7 @@ def perf(ctx: click.Context, device_index: int, transport: str, port: int, inter
 
     with SwitchDevice(t) as sw:
         sw.open(device_index)
-        monitor = PerfMonitor(sw._device_obj)
+        monitor = PerfMonitor(sw._device_obj, sw._device_key)
         monitor.start()
 
         try:

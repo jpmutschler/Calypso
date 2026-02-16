@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import time
 
-from calypso.bindings.constants import PEX_MAX_PORT
-from calypso.bindings.types import PLX_DEVICE_OBJECT, PLX_PERF_PROP
+from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT, PLX_PERF_PROP
 from calypso.models.performance import PerfSnapshot, PerfStats
+from calypso.sdk import device as sdk_device
 from calypso.sdk import performance as sdk_perf
 from calypso.utils.logging import get_logger
 
@@ -14,10 +14,17 @@ logger = get_logger(__name__)
 
 
 class PerfMonitor:
-    """Manages performance counter monitoring for a switch device."""
+    """Manages performance counter monitoring for a switch device.
 
-    def __init__(self, device: PLX_DEVICE_OBJECT) -> None:
+    Uses multi-port enumeration to initialize performance properties
+    for all discovered ports, matching the SDK's intended flow:
+    per-port DeviceFind -> DeviceOpen -> InitProperties -> DeviceClose,
+    then a single device handle for MonitorControl and GetCounters.
+    """
+
+    def __init__(self, device: PLX_DEVICE_OBJECT, device_key: PLX_DEVICE_KEY) -> None:
         self._device = device
+        self._key = device_key
         self._perf_props: list[PLX_PERF_PROP] = []
         self._num_ports: int = 0
         self._is_running: bool = False
@@ -32,23 +39,57 @@ class PerfMonitor:
         return self._num_ports
 
     def initialize(self) -> int:
-        """Initialize performance properties for all ports.
+        """Initialize performance properties for all ports via multi-port enumeration.
+
+        Discovers all device ports using the same API mode as the connected device,
+        opens each one individually to call init_properties (which fills in
+        Station, StationPort, LinkWidth, LinkSpeed, etc.), then closes it.
 
         Returns:
-            Number of valid port entries found.
+            Number of valid port entries initialized.
         """
-        perf_array = (PLX_PERF_PROP * PEX_MAX_PORT)()
-        sdk_perf.init_properties(self._device, perf_array[0])
+        from calypso.bindings.constants import PlxApiMode
+        from calypso.bindings.types import PLX_MODE_PROP
 
-        valid_ports: list[PLX_PERF_PROP] = []
-        for i in range(PEX_MAX_PORT):
-            if perf_array[i].IsValidTag != 0:
-                valid_ports.append(perf_array[i])
+        api_mode = PlxApiMode(self._key.ApiMode)
+        mode_prop = PLX_MODE_PROP() if api_mode != PlxApiMode.PCI else None
 
-        self._perf_props = valid_ports
-        self._num_ports = len(valid_ports)
+        all_keys = sdk_device.find_devices(api_mode=api_mode, mode_prop=mode_prop)
+        logger.info("perf_enumerate_ports", discovered=len(all_keys))
+
+        valid_props: list[PLX_PERF_PROP] = []
+        for key in all_keys:
+            try:
+                dev = sdk_device.open_device(key)
+                try:
+                    prop = PLX_PERF_PROP()
+                    sdk_perf.init_properties(dev, prop)
+                    if prop.IsValidTag != 0:
+                        valid_props.append(prop)
+                finally:
+                    sdk_device.close_device(dev)
+            except Exception as exc:
+                logger.warning("perf_init_port_failed", port=key.PlxPort, error=str(exc))
+
+        if not valid_props:
+            logger.warning("perf_no_valid_ports_multi", fallback="single_port")
+            valid_props = self._single_port_fallback()
+
+        self._perf_props = valid_props
+        self._num_ports = len(valid_props)
         logger.info("perf_initialized", port_count=self._num_ports)
         return self._num_ports
+
+    def _single_port_fallback(self) -> list[PLX_PERF_PROP]:
+        """Fall back to single-port init using the connected device handle."""
+        try:
+            prop = PLX_PERF_PROP()
+            sdk_perf.init_properties(self._device, prop)
+            if prop.IsValidTag != 0:
+                return [prop]
+        except Exception:
+            logger.warning("perf_single_port_fallback_failed")
+        return []
 
     def start(self) -> None:
         """Start performance counter collection."""
@@ -86,7 +127,12 @@ class PerfMonitor:
         port_stats: list[PerfStats] = []
         for i in range(len(self._perf_props)):
             prop = perf_array[i]
-            stats = sdk_perf.calc_statistics(prop, elapsed_ms)
+            try:
+                stats = sdk_perf.calc_statistics(prop, elapsed_ms)
+            except Exception:
+                logger.debug("perf_calc_failed", port=prop.PortNumber)
+                port_stats.append(PerfStats(port_number=prop.PortNumber))
+                continue
 
             port_stats.append(PerfStats(
                 port_number=prop.PortNumber,

@@ -1,7 +1,8 @@
-"""Performance monitor page with live WebSocket streaming and charts."""
+"""Performance monitor page with live streaming and charts."""
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from nicegui import ui
@@ -9,6 +10,9 @@ from nicegui_highcharts import highchart
 
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
+from calypso.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 _MAX_CHART_POINTS = 60
 
@@ -26,7 +30,6 @@ def _performance_content(device_id: str) -> None:
     """Build the performance page content inside page_layout."""
     from calypso.api.app import get_device_registry
 
-    # Check if device exists
     registry = get_device_registry()
     device = registry.get(device_id)
 
@@ -34,164 +37,134 @@ def _performance_content(device_id: str) -> None:
         ui.label("Device not found. Please reconnect.").style(f"color: {COLORS.red}")
         return
 
-    # Check if performance monitoring is supported
-    perf_supported = True
-    perf_error_msg = ""
-    try:
-        from calypso.core.perf_monitor import PerfMonitor
-        test_monitor = PerfMonitor(device._device_obj)
-        test_monitor.initialize()
-    except Exception as e:
-        perf_supported = False
-        perf_error_msg = str(e)
-
-    if not perf_supported:
-        with ui.card().classes("w-full p-6").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.yellow}"
-        ):
-            with ui.row().classes("items-center gap-4"):
-                ui.icon("info").style(f"color: {COLORS.yellow}; font-size: 2rem;")
-                with ui.column().classes("gap-2"):
-                    ui.label("Performance Monitoring Not Available").style(
-                        f"color: {COLORS.text_primary}; font-weight: 600; font-size: 1.1rem;"
-                    )
-                    ui.label(
-                        "The PLX SDK performance counters are not accessible via the current "
-                        "PCIe connection. This is a limitation of how the switch is enumerated "
-                        "by the host system."
-                    ).style(f"color: {COLORS.text_secondary};")
-
-                    with ui.expansion("Technical Details", icon="code").classes("w-full"):
-                        ui.label(f"Error: {perf_error_msg}").style(
-                            f"color: {COLORS.text_muted}; font-family: monospace; font-size: 0.85rem;"
-                        )
-
-            ui.separator().classes("my-4")
-
-            ui.label("Alternative Options:").style(
-                f"color: {COLORS.text_primary}; font-weight: 600;"
-            )
-            with ui.column().classes("gap-2 ml-4"):
-                ui.label("• Use the MCU interface for thermal and power monitoring").style(
-                    f"color: {COLORS.text_secondary};"
-                )
-                ui.label("• Check Port Status page for link statistics").style(
-                    f"color: {COLORS.text_secondary};"
-                )
-                ui.label("• Use PCIe Registers page to read raw counter values").style(
-                    f"color: {COLORS.text_secondary};"
-                )
-        return
-
+    # --- State ---
     snapshot_data: dict = {}
-    stream_state: dict = {"active": False, "ws_id": None}
+    monitor_state: dict = {"monitor": None}
+    stream_state: dict = {"active": False}
     chart_series: dict[str, list] = {}
 
-    # --- Actions ---
+    # --- Loading state ---
+    loading_container = ui.column().classes("w-full items-center py-8")
+    with loading_container:
+        ui.spinner("dots", size="xl").style(f"color: {COLORS.cyan}")
+        ui.label("Initializing performance monitoring...").style(
+            f"color: {COLORS.text_secondary}"
+        )
 
-    async def start_monitoring():
-        import asyncio
-        from calypso.api.app import get_device_registry
-        from calypso.core.perf_monitor import PerfMonitor
+    # --- Main content (hidden until init completes) ---
+    main_container = ui.column().classes("w-full gap-4")
+    main_container.visible = False
 
-        try:
-            registry = get_device_registry()
-            sw = registry.get(device_id)
-            if sw is None:
-                ui.notify("Device not found", type="negative")
-                return
+    # --- Error container (hidden unless init fails) ---
+    error_container = ui.column().classes("w-full")
+    error_container.visible = False
 
-            def _start():
-                monitor = PerfMonitor(sw._device_obj)
-                monitor.start()
-                return monitor
-
-            monitor = await asyncio.to_thread(_start)
-            # Store monitor for later use
-            snapshot_data["_monitor"] = monitor
-            ui.notify(f"Monitoring started ({monitor.num_ports} ports)", type="positive")
-        except Exception as e:
-            error_msg = str(e)
-            if "UNSUPPORTED" in error_msg:
-                ui.notify(
-                    "Performance monitoring not supported via this port. "
-                    "Try connecting via the switch management port.",
-                    type="warning"
+    # Build the main content structure (hidden until loaded)
+    with main_container:
+        # Controls card
+        with ui.card().classes("w-full p-4").style(
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+        ):
+            with ui.row().classes("items-center gap-4"):
+                stream_btn = ui.button("Start Stream", icon="play_arrow").props(
+                    "flat color=positive"
                 )
-            else:
-                ui.notify(f"Error: {e}", type="negative")
+                snapshot_btn = ui.button("Snapshot", icon="camera").props(
+                    "flat color=primary"
+                )
+                ui.separator().props("vertical").classes("h-8")
+                reset_btn = ui.button("Reset Counters", icon="restart_alt").props(
+                    "flat"
+                )
+                clear_btn = ui.button("Clear Chart", icon="delete_sweep").props("flat")
 
-    async def stop_monitoring():
-        try:
-            monitor = snapshot_data.get("_monitor")
-            if monitor is not None and hasattr(monitor, "stop"):
-                monitor.stop()
-                snapshot_data.pop("_monitor", None)
-            ui.notify("Monitoring stopped", type="info")
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
+            stream_status_container = ui.row().classes("items-center gap-2 mt-2")
 
-    async def take_snapshot():
-        import asyncio
+        # Summary row
+        summary_container = ui.row().classes("w-full gap-4")
 
-        try:
-            monitor = snapshot_data.get("_monitor")
-            if monitor is None:
-                ui.notify("Start monitoring first", type="warning")
-                return
+        # Charts row
+        with ui.row().classes("w-full gap-4"):
+            # Bandwidth chart
+            with ui.card().classes("flex-1 p-4").style(
+                f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+            ):
+                ui.label("Bandwidth (MB/s)").classes("text-h6").style(
+                    f"color: {COLORS.text_primary}"
+                )
+                bw_chart = highchart({
+                    "title": False,
+                    "chart": {
+                        "type": "line",
+                        "backgroundColor": COLORS.bg_secondary,
+                        "animation": False,
+                    },
+                    "xAxis": {
+                        "type": "datetime",
+                        "labels": {"style": {"color": COLORS.text_secondary}},
+                    },
+                    "yAxis": {
+                        "title": {
+                            "text": "MB/s",
+                            "style": {"color": COLORS.text_secondary},
+                        },
+                        "labels": {"style": {"color": COLORS.text_secondary}},
+                        "gridLineColor": COLORS.border,
+                        "min": 0,
+                    },
+                    "legend": {
+                        "itemStyle": {"color": COLORS.text_secondary},
+                    },
+                    "plotOptions": {
+                        "line": {"marker": {"enabled": False}},
+                    },
+                    "series": [],
+                }).classes("w-full").style("height: 350px")
 
-            def _read():
-                return monitor.read_snapshot()
+            # Utilization chart
+            with ui.card().classes("flex-1 p-4").style(
+                f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+            ):
+                ui.label("Link Utilization (%)").classes("text-h6").style(
+                    f"color: {COLORS.text_primary}"
+                )
+                util_chart = highchart({
+                    "title": False,
+                    "chart": {
+                        "type": "bar",
+                        "backgroundColor": COLORS.bg_secondary,
+                        "animation": False,
+                    },
+                    "xAxis": {
+                        "categories": [],
+                        "labels": {"style": {"color": COLORS.text_secondary}},
+                    },
+                    "yAxis": {
+                        "title": {
+                            "text": "%",
+                            "style": {"color": COLORS.text_secondary},
+                        },
+                        "labels": {"style": {"color": COLORS.text_secondary}},
+                        "gridLineColor": COLORS.border,
+                        "min": 0,
+                        "max": 100,
+                    },
+                    "legend": {
+                        "itemStyle": {"color": COLORS.text_secondary},
+                    },
+                    "series": [],
+                }).classes("w-full").style("height: 350px")
 
-            snapshot = await asyncio.to_thread(_read)
-            _process_snapshot(snapshot.model_dump())
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
+        # Port statistics table
+        with ui.card().classes("w-full p-4").style(
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+        ):
+            ui.label("Port Statistics").classes("text-h6").style(
+                f"color: {COLORS.text_primary}"
+            )
+            stats_container = ui.column().classes("w-full")
 
-    async def start_stream():
-        import asyncio
-
-        if stream_state["active"]:
-            return
-
-        # Make sure monitoring is started
-        monitor = snapshot_data.get("_monitor")
-        if monitor is None:
-            await start_monitoring()
-            monitor = snapshot_data.get("_monitor")
-            if monitor is None:
-                ui.notify("Failed to start monitoring", type="negative")
-                return
-
-        stream_state["active"] = True
-        refresh_stream_status()
-
-        async def _stream_loop():
-            while stream_state["active"]:
-                try:
-                    def _read():
-                        return monitor.read_snapshot()
-
-                    snapshot = await asyncio.to_thread(_read)
-                    _process_snapshot(snapshot.model_dump())
-                    await asyncio.sleep(1.0)
-                except Exception as e:
-                    ui.notify(f"Stream error: {e}", type="negative")
-                    break
-
-            stream_state["active"] = False
-            refresh_stream_status()
-
-        # Start streaming in background
-        asyncio.create_task(_stream_loop())
-        ui.notify("Streaming started", type="positive")
-
-    async def stop_stream():
-        if not stream_state["active"]:
-            return
-        stream_state["active"] = False
-        refresh_stream_status()
-        ui.notify("Streaming stopped", type="info")
+    # --- Actions ---
 
     def _process_snapshot(data: dict):
         snapshot_data.clear()
@@ -237,8 +210,12 @@ def _performance_content(device_id: str) -> None:
         # Update utilization chart
         if port_stats:
             util_categories = [f"P{ps.get('port_number', 0)}" for ps in port_stats]
-            in_util = [round(ps.get("ingress_link_utilization", 0) * 100, 1) for ps in port_stats]
-            out_util = [round(ps.get("egress_link_utilization", 0) * 100, 1) for ps in port_stats]
+            in_util = [
+                round(ps.get("ingress_link_utilization", 0) * 100, 1) for ps in port_stats
+            ]
+            out_util = [
+                round(ps.get("egress_link_utilization", 0) * 100, 1) for ps in port_stats
+            ]
 
             util_chart.options["xAxis"]["categories"] = util_categories
             util_chart.options["series"] = [
@@ -257,49 +234,92 @@ def _performance_content(device_id: str) -> None:
         util_chart.options["series"] = []
         util_chart.update()
 
-    # --- Page layout ---
+    async def toggle_stream():
+        if stream_state["active"]:
+            stream_state["active"] = False
+            stream_btn.props("color=positive")
+            stream_btn.text = "Start Stream"
+            stream_btn.props(remove="icon=stop")
+            stream_btn.props(add="icon=play_arrow")
+            refresh_stream_status()
+            ui.notify("Stream stopped", type="info")
+        else:
+            monitor = monitor_state["monitor"]
+            if monitor is None:
+                ui.notify("Monitoring not initialized", type="warning")
+                return
+            stream_state["active"] = True
+            stream_btn.props("color=negative")
+            stream_btn.text = "Stop Stream"
+            stream_btn.props(remove="icon=play_arrow")
+            stream_btn.props(add="icon=stop")
+            refresh_stream_status()
 
-    # Controls card
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-    ):
-        with ui.row().classes("items-center gap-4"):
-            ui.button("Start Monitor", on_click=start_monitoring).props(
-                "flat color=positive"
-            )
-            ui.button("Stop Monitor", on_click=stop_monitoring).props(
-                "flat color=negative"
-            )
-            ui.separator().props("vertical").classes("h-8")
-            ui.button("Stream", on_click=start_stream).props(
-                "flat color=primary"
-            ).tooltip("Connect WebSocket for live 1s updates")
-            ui.button("Stop Stream", on_click=stop_stream).props("flat")
-            ui.button("Snapshot", on_click=take_snapshot).props("flat color=primary")
-            ui.separator().props("vertical").classes("h-8")
-            ui.button("Clear Chart", on_click=clear_chart).props("flat")
+            async def _stream_loop():
+                while stream_state["active"]:
+                    try:
+                        snapshot = await asyncio.to_thread(monitor.read_snapshot)
+                        _process_snapshot(snapshot.model_dump())
+                        await asyncio.sleep(1.0)
+                    except Exception as e:
+                        ui.notify(f"Stream error: {e}", type="negative")
+                        break
 
-        stream_status_container = ui.row().classes("items-center gap-2 mt-2")
+                stream_state["active"] = False
+                stream_btn.props("color=positive")
+                stream_btn.text = "Start Stream"
+                stream_btn.props(remove="icon=stop")
+                stream_btn.props(add="icon=play_arrow")
+                refresh_stream_status()
 
-        @ui.refreshable
-        def refresh_stream_status():
-            stream_status_container.clear()
-            with stream_status_container:
-                if stream_state["active"]:
-                    ui.icon("sensors").style(f"color: {COLORS.green}")
-                    ui.label("WebSocket streaming").style(
-                        f"color: {COLORS.green}; font-size: 13px"
-                    )
-                else:
-                    ui.icon("sensors_off").style(f"color: {COLORS.text_muted}")
-                    ui.label("Not streaming").style(
-                        f"color: {COLORS.text_muted}; font-size: 13px"
-                    )
+            asyncio.create_task(_stream_loop())
+            ui.notify("Streaming started", type="positive")
 
-        refresh_stream_status()
+    async def take_snapshot():
+        monitor = monitor_state["monitor"]
+        if monitor is None:
+            ui.notify("Monitoring not initialized", type="warning")
+            return
+        try:
+            snapshot = await asyncio.to_thread(monitor.read_snapshot)
+            _process_snapshot(snapshot.model_dump())
+        except Exception as e:
+            ui.notify(f"Snapshot error: {e}", type="negative")
 
-    # Aggregate summary
-    summary_container = ui.row().classes("w-full gap-4")
+    async def reset_counters():
+        monitor = monitor_state["monitor"]
+        if monitor is None:
+            return
+        try:
+            await asyncio.to_thread(monitor.reset)
+            ui.notify("Counters reset", type="info")
+        except Exception as e:
+            ui.notify(f"Reset error: {e}", type="negative")
+
+    # Wire up button handlers
+    stream_btn.on_click(toggle_stream)
+    snapshot_btn.on_click(take_snapshot)
+    reset_btn.on_click(reset_counters)
+    clear_btn.on_click(clear_chart)
+
+    # --- Refreshable sections ---
+
+    @ui.refreshable
+    def refresh_stream_status():
+        stream_status_container.clear()
+        with stream_status_container:
+            if stream_state["active"]:
+                ui.icon("sensors").style(f"color: {COLORS.green}")
+                ui.label("Streaming (1s interval)").style(
+                    f"color: {COLORS.green}; font-size: 13px"
+                )
+            else:
+                ui.icon("sensors_off").style(f"color: {COLORS.text_muted}")
+                ui.label("Not streaming").style(
+                    f"color: {COLORS.text_muted}; font-size: 13px"
+                )
+
+    refresh_stream_status()
 
     @ui.refreshable
     def refresh_summary():
@@ -329,159 +349,141 @@ def _performance_content(device_id: str) -> None:
                 f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
             ):
                 with ui.row().classes("justify-between items-center"):
-                    _summary_stat(
-                        "Total Ingress", f"{total_in:.1f} MB/s",
-                        COLORS.blue,
-                    )
-                    _summary_stat(
-                        "Total Egress", f"{total_out:.1f} MB/s",
-                        COLORS.green,
-                    )
-                    _summary_stat(
-                        "Avg In Util", f"{avg_in_util:.1f}%",
-                        COLORS.blue,
-                    )
-                    _summary_stat(
-                        "Avg Out Util", f"{avg_out_util:.1f}%",
-                        COLORS.green,
-                    )
-                    _summary_stat(
-                        "Ports", str(len(port_stats)),
-                        COLORS.text_primary,
-                    )
-                    _summary_stat(
-                        "Interval", f"{elapsed} ms",
-                        COLORS.text_muted,
-                    )
+                    _summary_stat("Total Ingress", f"{total_in:.1f} MB/s", COLORS.blue)
+                    _summary_stat("Total Egress", f"{total_out:.1f} MB/s", COLORS.green)
+                    _summary_stat("Avg In Util", f"{avg_in_util:.1f}%", COLORS.blue)
+                    _summary_stat("Avg Out Util", f"{avg_out_util:.1f}%", COLORS.green)
+                    _summary_stat("Ports", str(len(port_stats)), COLORS.text_primary)
+                    _summary_stat("Interval", f"{elapsed} ms", COLORS.text_muted)
 
     refresh_summary()
 
-    # Charts row
-    with ui.row().classes("w-full gap-4"):
-        # Bandwidth chart
-        with ui.card().classes("flex-1 p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Bandwidth (MB/s)").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
-            bw_chart = highchart({
-                "title": False,
-                "chart": {
-                    "type": "line",
-                    "backgroundColor": COLORS.bg_secondary,
-                    "animation": False,
+    @ui.refreshable
+    def refresh_stats_table():
+        stats_container.clear()
+        with stats_container:
+            port_stats = snapshot_data.get("port_stats", [])
+            if not port_stats:
+                ui.label("Waiting for data...").style(f"color: {COLORS.text_muted}")
+                return
+            rows = []
+            for ps in port_stats:
+                in_bw = ps.get("ingress_payload_byte_rate", 0) / (1024 * 1024)
+                out_bw = ps.get("egress_payload_byte_rate", 0) / (1024 * 1024)
+                in_util = ps.get("ingress_link_utilization", 0) * 100
+                out_util = ps.get("egress_link_utilization", 0) * 100
+                in_total = ps.get("ingress_payload_total_bytes", 0)
+                out_total = ps.get("egress_payload_total_bytes", 0)
+                in_avg_tlp = ps.get("ingress_payload_avg_per_tlp", 0)
+                out_avg_tlp = ps.get("egress_payload_avg_per_tlp", 0)
+                rows.append({
+                    "port": ps.get("port_number", 0),
+                    "in_mbps": f"{in_bw:.1f}",
+                    "in_util": f"{in_util:.1f}%",
+                    "in_total": _format_bytes(in_total),
+                    "in_avg_tlp": f"{in_avg_tlp:.0f}",
+                    "out_mbps": f"{out_bw:.1f}",
+                    "out_util": f"{out_util:.1f}%",
+                    "out_total": _format_bytes(out_total),
+                    "out_avg_tlp": f"{out_avg_tlp:.0f}",
+                })
+            columns = [
+                {"name": "port", "label": "Port", "field": "port", "align": "left"},
+                {"name": "in_mbps", "label": "In MB/s", "field": "in_mbps", "align": "right"},
+                {"name": "in_util", "label": "In Util", "field": "in_util", "align": "right"},
+                {"name": "in_total", "label": "In Total", "field": "in_total", "align": "right"},
+                {
+                    "name": "in_avg_tlp", "label": "In Avg/TLP",
+                    "field": "in_avg_tlp", "align": "right",
                 },
-                "xAxis": {
-                    "type": "datetime",
-                    "labels": {"style": {"color": COLORS.text_secondary}},
+                {"name": "out_mbps", "label": "Out MB/s", "field": "out_mbps", "align": "right"},
+                {
+                    "name": "out_util", "label": "Out Util",
+                    "field": "out_util", "align": "right",
                 },
-                "yAxis": {
-                    "title": {
-                        "text": "MB/s",
-                        "style": {"color": COLORS.text_secondary},
-                    },
-                    "labels": {"style": {"color": COLORS.text_secondary}},
-                    "gridLineColor": COLORS.border,
-                    "min": 0,
+                {
+                    "name": "out_total", "label": "Out Total",
+                    "field": "out_total", "align": "right",
                 },
-                "legend": {
-                    "itemStyle": {"color": COLORS.text_secondary},
+                {
+                    "name": "out_avg_tlp", "label": "Out Avg/TLP",
+                    "field": "out_avg_tlp", "align": "right",
                 },
-                "plotOptions": {
-                    "line": {"marker": {"enabled": False}},
-                },
-                "series": [],
-            }).classes("w-full").style("height: 350px")
+            ]
+            ui.table(columns=columns, rows=rows, row_key="port").classes("w-full")
 
-        # Utilization chart
-        with ui.card().classes("flex-1 p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Link Utilization (%)").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
-            util_chart = highchart({
-                "title": False,
-                "chart": {
-                    "type": "bar",
-                    "backgroundColor": COLORS.bg_secondary,
-                    "animation": False,
-                },
-                "xAxis": {
-                    "categories": [],
-                    "labels": {"style": {"color": COLORS.text_secondary}},
-                },
-                "yAxis": {
-                    "title": {
-                        "text": "%",
-                        "style": {"color": COLORS.text_secondary},
-                    },
-                    "labels": {"style": {"color": COLORS.text_secondary}},
-                    "gridLineColor": COLORS.border,
-                    "min": 0,
-                    "max": 100,
-                },
-                "legend": {
-                    "itemStyle": {"color": COLORS.text_secondary},
-                },
-                "series": [],
-            }).classes("w-full").style("height: 350px")
+    refresh_stats_table()
 
-    # Port statistics table
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-    ):
-        ui.label("Port Statistics").classes("text-h6").style(
-            f"color: {COLORS.text_primary}"
-        )
-        stats_container = ui.column().classes("w-full")
+    # --- Async init + auto-start ---
 
-        @ui.refreshable
-        def refresh_stats_table():
-            stats_container.clear()
-            with stats_container:
-                port_stats = snapshot_data.get("port_stats", [])
-                if not port_stats:
-                    ui.label("Start monitoring and take a snapshot.").style(
-                        f"color: {COLORS.text_muted}"
+    async def _init_and_start():
+        """Initialize perf monitoring in background thread, then auto-start."""
+        from calypso.core.perf_monitor import PerfMonitor
+
+        try:
+            def _setup():
+                monitor = PerfMonitor(device._device_obj, device._device_key)
+                num_ports = monitor.initialize()
+                monitor.start()
+                first_snapshot = monitor.read_snapshot()
+                return monitor, num_ports, first_snapshot
+
+            monitor, num_ports, first_snapshot = await asyncio.to_thread(_setup)
+
+            monitor_state["monitor"] = monitor
+            loading_container.visible = False
+            main_container.visible = True
+
+            _process_snapshot(first_snapshot.model_dump())
+            ui.notify(f"Monitoring active ({num_ports} ports)", type="positive")
+
+        except Exception as e:
+            logger.warning("perf_init_failed", error=str(e))
+            loading_container.visible = False
+            error_container.visible = True
+            error_container.clear()
+            with error_container:
+                with ui.card().classes("w-full p-6").style(
+                    f"background: {COLORS.bg_secondary}; "
+                    f"border: 1px solid {COLORS.yellow}"
+                ):
+                    with ui.row().classes("items-center gap-4"):
+                        ui.icon("warning").style(
+                            f"color: {COLORS.yellow}; font-size: 2rem;"
+                        )
+                        with ui.column().classes("gap-2"):
+                            ui.label("Performance Monitoring Initialization Failed").style(
+                                f"color: {COLORS.text_primary}; "
+                                f"font-weight: 600; font-size: 1.1rem;"
+                            )
+                            ui.label(
+                                "Could not initialize performance counters. "
+                                "This may be a limitation of the current PCIe enumeration."
+                            ).style(f"color: {COLORS.text_secondary};")
+
+                            with ui.expansion("Error Details", icon="code").classes("w-full"):
+                                ui.label(f"Error: {e}").style(
+                                    f"color: {COLORS.text_muted}; "
+                                    f"font-family: monospace; font-size: 0.85rem;"
+                                )
+
+                    ui.separator().classes("my-4")
+
+                    ui.label("Alternative Options:").style(
+                        f"color: {COLORS.text_primary}; font-weight: 600;"
                     )
-                    return
-                rows = []
-                for ps in port_stats:
-                    in_bw = ps.get("ingress_payload_byte_rate", 0) / (1024 * 1024)
-                    out_bw = ps.get("egress_payload_byte_rate", 0) / (1024 * 1024)
-                    in_util = ps.get("ingress_link_utilization", 0) * 100
-                    out_util = ps.get("egress_link_utilization", 0) * 100
-                    in_total = ps.get("ingress_payload_total_bytes", 0)
-                    out_total = ps.get("egress_payload_total_bytes", 0)
-                    in_avg_tlp = ps.get("ingress_payload_avg_per_tlp", 0)
-                    out_avg_tlp = ps.get("egress_payload_avg_per_tlp", 0)
-                    rows.append({
-                        "port": ps.get("port_number", 0),
-                        "in_mbps": f"{in_bw:.1f}",
-                        "in_util": f"{in_util:.1f}%",
-                        "in_total": _format_bytes(in_total),
-                        "in_avg_tlp": f"{in_avg_tlp:.0f}",
-                        "out_mbps": f"{out_bw:.1f}",
-                        "out_util": f"{out_util:.1f}%",
-                        "out_total": _format_bytes(out_total),
-                        "out_avg_tlp": f"{out_avg_tlp:.0f}",
-                    })
-                columns = [
-                    {"name": "port", "label": "Port", "field": "port", "align": "left"},
-                    {"name": "in_mbps", "label": "In MB/s", "field": "in_mbps", "align": "right"},
-                    {"name": "in_util", "label": "In Util", "field": "in_util", "align": "right"},
-                    {"name": "in_total", "label": "In Total", "field": "in_total", "align": "right"},
-                    {"name": "in_avg_tlp", "label": "In Avg/TLP", "field": "in_avg_tlp", "align": "right"},
-                    {"name": "out_mbps", "label": "Out MB/s", "field": "out_mbps", "align": "right"},
-                    {"name": "out_util", "label": "Out Util", "field": "out_util", "align": "right"},
-                    {"name": "out_total", "label": "Out Total", "field": "out_total", "align": "right"},
-                    {"name": "out_avg_tlp", "label": "Out Avg/TLP", "field": "out_avg_tlp", "align": "right"},
-                ]
-                ui.table(columns=columns, rows=rows, row_key="port").classes("w-full")
+                    with ui.column().classes("gap-2 ml-4"):
+                        ui.label(
+                            "Use the MCU interface for thermal and power monitoring"
+                        ).style(f"color: {COLORS.text_secondary};")
+                        ui.label(
+                            "Check Port Status page for link statistics"
+                        ).style(f"color: {COLORS.text_secondary};")
+                        ui.label(
+                            "Use PCIe Registers page to read raw counter values"
+                        ).style(f"color: {COLORS.text_secondary};")
 
-        refresh_stats_table()
+    ui.timer(0.1, _init_and_start, once=True)
 
 
 def _summary_stat(label: str, value: str, color: str) -> None:

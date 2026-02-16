@@ -28,8 +28,14 @@ async def start_perf(device_id: str) -> dict[str, str]:
     """Start performance monitoring."""
     from calypso.core.perf_monitor import PerfMonitor
     sw = _get_switch(device_id)
-    monitor = PerfMonitor(sw._device_obj)
-    monitor.start()
+
+    def _start():
+        monitor = PerfMonitor(sw._device_obj, sw._device_key)
+        monitor.initialize()
+        monitor.start()
+        return monitor
+
+    monitor = await asyncio.to_thread(_start)
     _monitors[device_id] = monitor
     return {"status": "started", "ports": str(monitor.num_ports)}
 
@@ -49,7 +55,7 @@ async def get_perf_snapshot(device_id: str) -> PerfSnapshot:
     monitor = _monitors.get(device_id)
     if monitor is None or not hasattr(monitor, "read_snapshot"):
         raise HTTPException(status_code=400, detail="Performance monitoring not started")
-    return monitor.read_snapshot()
+    return await asyncio.to_thread(monitor.read_snapshot)
 
 
 @router.websocket("/devices/{device_id}/perf/stream")
@@ -75,14 +81,20 @@ async def perf_stream(websocket: WebSocket, device_id: str) -> None:
 
     monitor = _monitors.get(device_id)
     if monitor is None:
-        monitor = PerfMonitor(sw._device_obj)
-        monitor.start()
+
+        def _start():
+            m = PerfMonitor(sw._device_obj, sw._device_key)
+            m.initialize()
+            m.start()
+            return m
+
+        monitor = await asyncio.to_thread(_start)
         _monitors[device_id] = monitor
 
     try:
         while True:
             await asyncio.sleep(1.0)
-            snapshot = monitor.read_snapshot()
+            snapshot = await asyncio.to_thread(monitor.read_snapshot)
             await websocket.send_json(snapshot.model_dump())
     except WebSocketDisconnect:
         pass

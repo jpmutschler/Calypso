@@ -192,7 +192,7 @@ def _setup_switch_monitor(transport: str, port: int, device_index: int):
     sw = SwitchDevice(t)
     sw.open(device_index)
 
-    monitor = PerfMonitor(sw._device_obj)
+    monitor = PerfMonitor(sw._device_obj, sw._device_key)
     monitor.start()
     return monitor, sw
 
