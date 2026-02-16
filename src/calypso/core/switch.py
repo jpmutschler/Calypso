@@ -58,7 +58,7 @@ class SwitchDevice:
         if self.is_open:
             return
 
-        from calypso.core.discovery import ATLAS3_CHIP_IDS
+        from calypso.core.discovery import _is_atlas3
 
         self._transport.connect()
 
@@ -69,7 +69,7 @@ class SwitchDevice:
         )
 
         # Filter to Atlas3 devices so device_index matches scan results
-        atlas3_keys = [k for k in all_keys if k.ChipID in ATLAS3_CHIP_IDS]
+        atlas3_keys = [k for k in all_keys if _is_atlas3(k)]
 
         if not atlas3_keys:
             self._transport.disconnect()

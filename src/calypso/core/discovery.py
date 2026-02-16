@@ -13,11 +13,16 @@ logger = get_logger(__name__)
 # Broadcom vendor ID
 BROADCOM_VENDOR_ID = 0x10B5
 
-# Atlas3 switch chip IDs
-ATLAS3_CHIP_IDS = {
-    0x0144,  # PEX90144 (144-lane switch)
-    0x0080,  # PEX90080 (80-lane switch)
-}
+# Atlas3 chip families (covers both A0 and B0 silicon, all lane variants)
+ATLAS3_FAMILIES = {PlxChipFamily.ATLAS_3, PlxChipFamily.ATLAS3_LLC}
+
+
+def _is_atlas3(key: object) -> bool:
+    """Check if a device key belongs to an Atlas3 family."""
+    try:
+        return PlxChipFamily(key.PlxFamily) in ATLAS3_FAMILIES
+    except ValueError:
+        return False
 
 
 def scan_devices(transport: Transport, include_downstream: bool = False) -> list[DeviceInfo]:
@@ -44,15 +49,15 @@ def scan_devices(transport: Transport, include_downstream: bool = False) -> list
     # Upstream ports are on a lower bus number than their downstream ports
     bus_groups: dict[int, list] = {}
     for key in keys:
-        if key.ChipID in ATLAS3_CHIP_IDS:
+        if _is_atlas3(key):
             if key.bus not in bus_groups:
                 bus_groups[key.bus] = []
             bus_groups[key.bus].append(key)
 
     devices: list[DeviceInfo] = []
     for key in keys:
-        # Filter: Only include Atlas3 switches
-        if key.ChipID not in ATLAS3_CHIP_IDS:
+        # Filter: Only include Atlas3 switches (A0 and B0/LLC families)
+        if not _is_atlas3(key):
             continue
 
         family_name = "unknown"
