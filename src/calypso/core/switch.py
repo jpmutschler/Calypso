@@ -52,28 +52,40 @@ class SwitchDevice:
         """Open a connection to the switch device.
 
         Args:
-            device_index: Index of device to open if multiple found.
+            device_index: Index within the filtered Atlas3 device list
+                (matching the order returned by discovery scan).
         """
         if self.is_open:
             return
 
+        from calypso.core.discovery import ATLAS3_CHIP_IDS
+
         self._transport.connect()
 
         mode_prop = self._transport.build_mode_prop()
-        devices = sdk_device.find_devices(
+        all_keys = sdk_device.find_devices(
             api_mode=self._transport.api_mode,
             mode_prop=mode_prop,
         )
 
-        if not devices:
-            raise CalypsoError("No PLX devices found on this transport")
+        # Filter to Atlas3 devices so device_index matches scan results
+        atlas3_keys = [k for k in all_keys if k.ChipID in ATLAS3_CHIP_IDS]
 
-        if device_index >= len(devices):
+        if not atlas3_keys:
+            self._transport.disconnect()
             raise CalypsoError(
-                f"Device index {device_index} out of range (found {len(devices)} devices)"
+                f"No Atlas3 devices found on this transport "
+                f"({len(all_keys)} non-Atlas3 device(s) detected)"
             )
 
-        self._device_key = devices[device_index]
+        if device_index < 0 or device_index >= len(atlas3_keys):
+            self._transport.disconnect()
+            raise CalypsoError(
+                f"Device index {device_index} out of range "
+                f"(found {len(atlas3_keys)} Atlas3 device(s))"
+            )
+
+        self._device_key = atlas3_keys[device_index]
         self._device_obj = sdk_device.open_device(self._device_key)
 
         chip_type, chip_rev = sdk_device.get_chip_type(self._device_obj)
