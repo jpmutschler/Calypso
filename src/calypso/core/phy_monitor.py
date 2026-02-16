@@ -31,7 +31,7 @@ from calypso.models.phy import (
     LaneEqualizationControl,
     PhysLayer16GT,
 )
-from calypso.sdk.registers import read_pci_register_fast, write_pci_register_fast
+from calypso.sdk.registers import read_mapped_register, write_mapped_register
 from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,12 +64,12 @@ class PhyMonitor:
     def _read_vendor_reg(self, offset: int) -> int:
         """Read a vendor-specific register relative to port register base."""
         abs_offset = self._port_reg_base + offset
-        return read_pci_register_fast(self._device, abs_offset)
+        return read_mapped_register(self._device, abs_offset)
 
     def _write_vendor_reg(self, offset: int, value: int) -> None:
         """Write a vendor-specific register relative to port register base."""
         abs_offset = self._port_reg_base + offset
-        write_pci_register_fast(self._device, abs_offset, value)
+        write_mapped_register(self._device, abs_offset, value)
 
     # -----------------------------------------------------------------
     # Standard PCIe capability reads (delegated to PcieConfigReader)
