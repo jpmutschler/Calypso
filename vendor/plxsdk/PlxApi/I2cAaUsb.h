@@ -67,7 +67,7 @@ extern "C" {
 #define I2C_MAX_DEVICES             10          // Max number of I2C USB devices supported
 #define I2C_MAX_NT_PORTS            2           // Max number of NT ports in single switch
 #define I2C_DEFAULT_CLOCK_RATE      100         // I2C default clock rate in Khz
-#define I2C_CMD_REG_READ            0x04        // I2C read command code
+#define I2C_CMD_REG_READ            0x06        // I2C read command code
 #define I2C_CMD_REG_WRITE           0x03        // I2C write command code
 #define I2C_CMD_ERROR               ((U32)-1)   // Reserved command value to denote error
 #define I2C_CMD_SKIP                ((U32)-2)   // Reserved command value to denote skip operation
