@@ -1,4 +1,4 @@
-"""Switch configuration page."""
+"""Switch configuration page - multi-host mode, virtual switches, port mapping."""
 
 from __future__ import annotations
 
@@ -6,8 +6,12 @@ import asyncio
 
 from nicegui import ui
 
+from calypso.ui.components.common import SWITCH_MODE_NAMES, bitmask_to_ports, kv_pair
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
+from calypso.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def configuration_page(device_id: str) -> None:
@@ -37,85 +41,15 @@ def configuration_page(device_id: str) -> None:
         config_container.visible = False
 
         async def load_config():
-            from calypso.core.pcie_config import PcieConfigReader
-
             try:
-                def _read_config():
-                    reader = PcieConfigReader(device._device_obj, device._device_key)
-
-                    config = {
-                        "capabilities": [],
-                        "ext_capabilities": [],
-                        "device_caps": None,
-                        "device_control": None,
-                        "link_caps": None,
-                        "link_status": None,
-                        "supported_speeds": None,
-                        "aer_status": None,
-                        "header_regs": {},
-                    }
-
-                    # Read basic config space header
-                    try:
-                        config["header_regs"]["vendor_device"] = reader.read_config_register(0x00)
-                        config["header_regs"]["status_command"] = reader.read_config_register(0x04)
-                        config["header_regs"]["class_rev"] = reader.read_config_register(0x08)
-                        config["header_regs"]["cap_pointer"] = reader.read_config_register(0x34)
-                    except Exception:
-                        pass
-
-                    # Walk capabilities
-                    try:
-                        config["capabilities"] = reader.walk_capabilities()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["ext_capabilities"] = reader.walk_extended_capabilities()
-                    except Exception:
-                        pass
-
-                    # Try to read PCIe-specific data (may fail if no PCIe cap)
-                    try:
-                        config["device_caps"] = reader.get_device_capabilities()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["device_control"] = reader.get_device_control()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["link_caps"] = reader.get_link_capabilities()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["link_status"] = reader.get_link_status()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["supported_speeds"] = reader.get_supported_speeds()
-                    except Exception:
-                        pass
-
-                    try:
-                        config["aer_status"] = reader.get_aer_status()
-                    except Exception:
-                        pass
-
-                    return config
-
-                config = await asyncio.to_thread(_read_config)
+                data = await asyncio.to_thread(_collect_config_data, device)
 
                 loading_container.visible = False
                 config_container.visible = True
                 config_container.clear()
 
                 with config_container:
-                    _render_config(config, device, device_id)
+                    _render_config(data)
 
             except Exception as e:
                 loading_container.visible = False
@@ -131,258 +65,262 @@ def configuration_page(device_id: str) -> None:
     page_layout("Switch Configuration", content, device_id=device_id)
 
 
-def _render_config(config: dict, device, device_id: str) -> None:
-    """Render the configuration data."""
-    device_caps = config.get("device_caps")
-    device_control = config.get("device_control")
-    link_caps = config.get("link_caps")
-    link_status = config.get("link_status")
-    supported_speeds = config.get("supported_speeds")
-    aer_status = config.get("aer_status")
-    capabilities = config.get("capabilities", [])
-    ext_capabilities = config.get("ext_capabilities", [])
-    header_regs = config.get("header_regs", {})
+def _collect_config_data(device) -> dict:
+    """Collect all switch configuration data in a background thread."""
+    from calypso.sdk import multi_host
 
-    # Device Info Card (always show this)
+    data: dict = {
+        "device_info": device.device_info,
+        "multi_host": None,
+        "port_properties": None,
+        "chip_features": None,
+    }
+
+    try:
+        data["multi_host"] = multi_host.get_properties(device._device_obj)
+    except Exception as exc:
+        logger.warning("config_multi_host_failed", error=str(exc))
+
+    try:
+        data["port_properties"] = device.get_port_properties()
+    except Exception as exc:
+        logger.warning("config_port_properties_failed", error=str(exc))
+
+    try:
+        data["chip_features"] = device.get_chip_features()
+    except Exception as exc:
+        logger.warning("config_chip_features_failed", error=str(exc))
+
+    return data
+
+
+def _render_config(data: dict) -> None:
+    """Render all configuration sections."""
+    device_info = data["device_info"]
+    mh_props = data["multi_host"]
+    port_props = data["port_properties"]
+    chip_features = data["chip_features"]
+
+    # Switch Mode card
+    _render_switch_mode(mh_props)
+
+    # Virtual Switches card
+    _render_virtual_switches(mh_props)
+
+    # Management Port card
+    _render_management_port(mh_props)
+
+    # Current Port Properties card
+    _render_port_properties(port_props, device_info)
+
+    # Chip Port Map card
+    _render_chip_port_map(chip_features)
+
+
+def _render_switch_mode(mh_props) -> None:
+    """Render switch mode card."""
     with ui.card().classes("w-full p-4").style(
         f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
     ):
-        ui.label("Device Information").classes("text-h6 mb-3").style(
+        ui.label("Switch Mode").classes("text-h6 mb-3").style(
             f"color: {COLORS.text_primary}"
         )
 
-        device_info = device.device_info
-        if device_info:
-            with ui.row().classes("w-full gap-8"):
-                with ui.column().classes("gap-2"):
-                    _config_item("Chip", f"{device_info.chip_family.upper()} ({device_info.chip_id:#06x})")
-                    bdf = f"{device_info.domain:04X}:{device_info.bus:02X}:{device_info.slot:02X}.{device_info.function}"
-                    _config_item("Location", bdf)
-                with ui.column().classes("gap-2"):
-                    _config_item("Vendor ID", f"{device_info.vendor_id:#06x}")
-                    _config_item("Device ID", f"{device_info.device_id:#06x}")
-                with ui.column().classes("gap-2"):
-                    _config_item("Revision", f"{device_info.chip_revision:#04x}")
-                    _config_item("Port", str(device_info.port_number))
-
-    # Capabilities Card
-    if capabilities or ext_capabilities:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("PCI Capabilities").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
+        if mh_props is None:
+            ui.label("Multi-host properties unavailable.").style(
+                f"color: {COLORS.text_muted}; font-size: 0.85rem;"
             )
+            return
 
-            if capabilities:
-                ui.label("Standard Capabilities:").style(
-                    f"color: {COLORS.text_secondary}; font-weight: 600;"
+        mode = mh_props.SwitchMode
+        mode_name = SWITCH_MODE_NAMES.get(mode, f"Unknown ({mode})")
+
+        with ui.row().classes("items-center gap-4"):
+            ui.icon("settings_ethernet").style(
+                f"color: {COLORS.cyan}; font-size: 2rem;"
+            )
+            with ui.column().classes("gap-1"):
+                ui.label(mode_name).style(
+                    f"color: {COLORS.text_primary}; font-weight: 600; font-size: 1.2rem;"
                 )
-                with ui.row().classes("gap-2 flex-wrap mt-1 mb-3"):
-                    for cap in capabilities:
-                        ui.badge(f"{cap.cap_name} @ 0x{cap.offset:02X}").style(
-                            f"background: {COLORS.blue};"
-                        )
-
-            if ext_capabilities:
-                ui.label("Extended Capabilities:").style(
-                    f"color: {COLORS.text_secondary}; font-weight: 600;"
+                ui.label(f"Mode value: {mode}").style(
+                    f"color: {COLORS.text_muted}; font-size: 0.8rem;"
                 )
-                with ui.row().classes("gap-2 flex-wrap mt-1"):
-                    for cap in ext_capabilities:
-                        ui.badge(f"{cap.cap_name} @ 0x{cap.offset:03X}").style(
-                            f"background: {COLORS.purple};"
-                        )
-
-    # Check if PCIe capability data is available
-    has_pcie_data = any([link_status, link_caps, device_control, device_caps])
-
-    if not has_pcie_data:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.yellow}"
-        ):
-            with ui.row().classes("items-center gap-3"):
-                ui.icon("info").style(f"color: {COLORS.yellow}; font-size: 1.5rem;")
-                ui.label(
-                    "PCIe capability registers not accessible via this connection. "
-                    "Basic device information is shown above."
-                ).style(f"color: {COLORS.text_secondary};")
-        return
-
-    # Link Status Card
-    if link_status:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Link Status").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
-            )
-
-            with ui.row().classes("w-full gap-8"):
-                with ui.column().classes("gap-2"):
-                    _config_item("Current Speed", link_status.current_speed, COLORS.green)
-                    _config_item("Current Width", f"x{link_status.current_width}", COLORS.green)
-                    _config_item("Target Speed", link_status.target_speed)
-                with ui.column().classes("gap-2"):
-                    _config_item("DLL Active", "Yes" if link_status.dll_link_active else "No",
-                               COLORS.green if link_status.dll_link_active else COLORS.red)
-                    _config_item("Link Training", "Yes" if link_status.link_training else "No")
-                    _config_item("ASPM Control", link_status.aspm_control)
-
-    # Link Capabilities Card
-    if link_caps:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Link Capabilities").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
-            )
-
-            with ui.row().classes("w-full gap-8"):
-                with ui.column().classes("gap-2"):
-                    _config_item("Max Link Speed", link_caps.max_link_speed)
-                    _config_item("Max Link Width", f"x{link_caps.max_link_width}")
-                    _config_item("Port Number", str(link_caps.port_number))
-                with ui.column().classes("gap-2"):
-                    _config_item("ASPM Support", link_caps.aspm_support)
-                    _config_item("DLL Active Capable", "Yes" if link_caps.dll_link_active_capable else "No")
-                    _config_item("Surprise Down", "Yes" if link_caps.surprise_down_capable else "No")
-
-            # Supported speeds
-            if supported_speeds:
-                ui.label("Supported Speeds:").classes("mt-3").style(
-                    f"color: {COLORS.text_secondary}; font-weight: 600;"
-                )
-                with ui.row().classes("gap-2 mt-1"):
-                    speeds = [
-                        ("Gen1", supported_speeds.gen1),
-                        ("Gen2", supported_speeds.gen2),
-                        ("Gen3", supported_speeds.gen3),
-                        ("Gen4", supported_speeds.gen4),
-                        ("Gen5", supported_speeds.gen5),
-                        ("Gen6", supported_speeds.gen6),
-                    ]
-                    for name, supported in speeds:
-                        color = COLORS.green if supported else COLORS.text_muted
-                        with ui.badge(name).style(
-                            f"background: {'transparent' if not supported else color}; "
-                            f"color: {color}; border: 1px solid {color};"
-                        ):
-                            pass
-
-    # Device Control Card (with controls)
-    if device_control:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Device Control").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
-            )
-
-            with ui.row().classes("w-full gap-8"):
-                with ui.column().classes("gap-2"):
-                    _config_item("Max Payload Size (MPS)", f"{device_control.max_payload_size} bytes")
-                    _config_item("Max Read Request (MRRS)", f"{device_control.max_read_request_size} bytes")
-                    _config_item("Relaxed Ordering", "Enabled" if device_control.relaxed_ordering else "Disabled")
-                with ui.column().classes("gap-2"):
-                    _config_item("No Snoop", "Enabled" if device_control.no_snoop else "Disabled")
-                    _config_item("Extended Tag", "Enabled" if device_control.extended_tag_enabled else "Disabled")
-
-            ui.separator().classes("my-3")
-
-            ui.label("Error Reporting:").style(
-                f"color: {COLORS.text_secondary}; font-weight: 600;"
-            )
-            with ui.row().classes("gap-4 mt-1"):
-                _error_badge("Correctable", device_control.correctable_error_reporting)
-                _error_badge("Non-Fatal", device_control.non_fatal_error_reporting)
-                _error_badge("Fatal", device_control.fatal_error_reporting)
-                _error_badge("Unsupported Req", device_control.unsupported_request_reporting)
-
-    # Device Capabilities Card
-    if device_caps:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Device Capabilities").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
-            )
-
-            with ui.row().classes("w-full gap-8"):
-                with ui.column().classes("gap-2"):
-                    _config_item("Max Payload Supported", f"{device_caps.max_payload_supported} bytes")
-                    _config_item("FLR Capable", "Yes" if device_caps.flr_capable else "No")
-                with ui.column().classes("gap-2"):
-                    _config_item("Extended Tag", "Supported" if device_caps.extended_tag_supported else "Not Supported")
-                    _config_item("Role-Based Error Reporting", "Yes" if device_caps.role_based_error_reporting else "No")
-
-    # AER Status Card
-    if aer_status:
-        with ui.card().classes("w-full p-4").style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
-        ):
-            ui.label("Advanced Error Reporting (AER)").classes("text-h6 mb-3").style(
-                f"color: {COLORS.text_primary}"
-            )
-
-            has_uncorr = aer_status.uncorrectable.raw_value != 0
-            has_corr = aer_status.correctable.raw_value != 0
-
-            if not has_uncorr and not has_corr:
-                ui.label("No errors recorded").style(f"color: {COLORS.green}")
-            else:
-                if has_uncorr:
-                    ui.label("Uncorrectable Errors:").style(
-                        f"color: {COLORS.red}; font-weight: 600;"
-                    )
-                    with ui.row().classes("gap-2 flex-wrap mt-1 mb-2"):
-                        uncorr = aer_status.uncorrectable
-                        if uncorr.data_link_protocol:
-                            ui.badge("DL Protocol").style(f"background: {COLORS.red}")
-                        if uncorr.poisoned_tlp:
-                            ui.badge("Poisoned TLP").style(f"background: {COLORS.red}")
-                        if uncorr.completion_timeout:
-                            ui.badge("Completion Timeout").style(f"background: {COLORS.red}")
-                        if uncorr.unexpected_completion:
-                            ui.badge("Unexpected Completion").style(f"background: {COLORS.red}")
-                        if uncorr.malformed_tlp:
-                            ui.badge("Malformed TLP").style(f"background: {COLORS.red}")
-                        if uncorr.ecrc_error:
-                            ui.badge("ECRC Error").style(f"background: {COLORS.red}")
-                        if uncorr.unsupported_request:
-                            ui.badge("Unsupported Request").style(f"background: {COLORS.red}")
-
-                if has_corr:
-                    ui.label("Correctable Errors:").style(
-                        f"color: {COLORS.yellow}; font-weight: 600;"
-                    )
-                    with ui.row().classes("gap-2 flex-wrap mt-1"):
-                        corr = aer_status.correctable
-                        if corr.receiver_error:
-                            ui.badge("Receiver Error").style(f"background: {COLORS.yellow}")
-                        if corr.bad_tlp:
-                            ui.badge("Bad TLP").style(f"background: {COLORS.yellow}")
-                        if corr.bad_dllp:
-                            ui.badge("Bad DLLP").style(f"background: {COLORS.yellow}")
-                        if corr.replay_num_rollover:
-                            ui.badge("Replay Rollover").style(f"background: {COLORS.yellow}")
-                        if corr.replay_timer_timeout:
-                            ui.badge("Replay Timeout").style(f"background: {COLORS.yellow}")
 
 
-def _config_item(label: str, value: str, value_color: str | None = None) -> None:
-    """Render a single configuration item."""
-    with ui.row().classes("items-center gap-2"):
-        ui.label(f"{label}:").style(f"color: {COLORS.text_secondary};")
-        ui.label(value).style(
-            f"color: {value_color or COLORS.text_primary}; font-weight: 600;"
+def _render_virtual_switches(mh_props) -> None:
+    """Render virtual switch configuration table."""
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    ):
+        ui.label("Virtual Switches").classes("text-h6 mb-3").style(
+            f"color: {COLORS.text_primary}"
         )
 
+        if mh_props is None:
+            ui.label("Virtual switch data unavailable.").style(
+                f"color: {COLORS.text_muted}; font-size: 0.85rem;"
+            )
+            return
 
-def _error_badge(label: str, enabled: bool) -> None:
-    """Render an error reporting badge."""
-    color = COLORS.green if enabled else COLORS.text_muted
-    with ui.badge(label).style(
-        f"background: transparent; color: {color}; border: 1px solid {color};"
+        vs_mask = mh_props.VS_EnabledMask
+        if vs_mask == 0:
+            ui.label("No virtual switches enabled (standard single-host mode).").style(
+                f"color: {COLORS.text_secondary};"
+            )
+            return
+
+        kv_pair("Enabled Mask", f"{vs_mask:#06x}")
+
+        # Build table rows for each enabled VS
+        rows = []
+        for vs_idx in range(8):
+            if not (vs_mask & (1 << vs_idx)):
+                continue
+
+            upstream_port = mh_props.VS_UpstreamPortNum[vs_idx]
+            ds_mask = mh_props.VS_DownstreamPorts[vs_idx]
+            ds_ports = bitmask_to_ports(ds_mask)
+            ds_text = ", ".join(str(p) for p in ds_ports) if ds_ports else "None"
+
+            rows.append({
+                "vs": vs_idx,
+                "upstream": upstream_port,
+                "downstream": ds_text,
+                "ds_count": len(ds_ports),
+            })
+
+        if rows:
+            columns = [
+                {"name": "vs", "label": "VS Index", "field": "vs", "align": "center"},
+                {"name": "upstream", "label": "Upstream Port", "field": "upstream", "align": "center"},
+                {"name": "ds_count", "label": "DS Ports", "field": "ds_count", "align": "center"},
+                {"name": "downstream", "label": "Downstream Port List", "field": "downstream"},
+            ]
+            ui.table(columns=columns, rows=rows).classes("w-full mt-2").style(
+                f"background: {COLORS.bg_card};"
+            )
+
+
+def _render_management_port(mh_props) -> None:
+    """Render management port configuration card."""
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
     ):
-        pass
+        ui.label("Management Port").classes("text-h6 mb-3").style(
+            f"color: {COLORS.text_primary}"
+        )
+
+        if mh_props is None:
+            ui.label("Management port data unavailable.").style(
+                f"color: {COLORS.text_muted}; font-size: 0.85rem;"
+            )
+            return
+
+        is_mgmt = bool(mh_props.bIsMgmtPort)
+        mgmt_color = COLORS.green if is_mgmt else COLORS.text_muted
+
+        with ui.row().classes("gap-8"):
+            with ui.column().classes("gap-1"):
+                kv_pair("Is Management Port", "Yes" if is_mgmt else "No", mgmt_color)
+
+                active_en = bool(mh_props.bMgmtPortActiveEn)
+                kv_pair("Active Enabled", "Yes" if active_en else "No")
+                if active_en:
+                    kv_pair("Active Port", str(mh_props.MgmtPortNumActive))
+
+            with ui.column().classes("gap-1"):
+                redundant_en = bool(mh_props.bMgmtPortRedundantEn)
+                kv_pair("Redundant Enabled", "Yes" if redundant_en else "No")
+                if redundant_en:
+                    kv_pair("Redundant Port", str(mh_props.MgmtPortNumRedundant))
+
+
+def _render_port_properties(port_props, device_info) -> None:
+    """Render current port properties card."""
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    ):
+        port_label = ""
+        if device_info:
+            port_label = f" (Port {device_info.port_number})"
+        ui.label(f"Current Port Properties{port_label}").classes("text-h6 mb-3").style(
+            f"color: {COLORS.text_primary}"
+        )
+
+        if port_props is None:
+            ui.label("Port properties unavailable.").style(
+                f"color: {COLORS.text_muted}; font-size: 0.85rem;"
+            )
+            return
+
+        with ui.row().classes("w-full gap-8"):
+            with ui.column().classes("gap-1"):
+                kv_pair("Port Number", str(port_props.port_number))
+                kv_pair("Port Type", f"{port_props.port_type}")
+                pcie_color = COLORS.green if port_props.is_pcie else COLORS.text_muted
+                kv_pair("PCIe Device", "Yes" if port_props.is_pcie else "No", pcie_color)
+
+            with ui.column().classes("gap-1"):
+                speed_text = port_props.max_link_speed.value.replace("_", " ").upper()
+                kv_pair("Max Link Speed", speed_text)
+                kv_pair("Max Link Width", f"x{port_props.max_link_width}")
+
+            with ui.column().classes("gap-1"):
+                kv_pair("Max Read Request", f"{port_props.max_read_req_size} bytes")
+                kv_pair("Max Payload Supported", f"{port_props.max_payload_supported} bytes")
+
+
+def _render_chip_port_map(chip_features) -> None:
+    """Render chip port map with station visualization."""
+    with ui.card().classes("w-full p-4").style(
+        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    ):
+        ui.label("Chip Port Map").classes("text-h6 mb-3").style(
+            f"color: {COLORS.text_primary}"
+        )
+
+        if chip_features is None:
+            ui.label("Chip features unavailable.").style(
+                f"color: {COLORS.text_muted}; font-size: 0.85rem;"
+            )
+            return
+
+        with ui.row().classes("gap-8 mb-3"):
+            kv_pair("Stations", str(chip_features.station_count))
+            kv_pair("Ports per Station", str(chip_features.ports_per_station))
+            kv_pair("Station Mask", f"{chip_features.station_mask:#06x}")
+
+        if not chip_features.port_mask:
+            return
+
+        # Visual grid of stations and their ports
+        for stn_idx in range(chip_features.station_count):
+            if stn_idx >= len(chip_features.port_mask):
+                break
+
+            mask = chip_features.port_mask[stn_idx]
+            ports = bitmask_to_ports(mask)
+            port_count = len(ports)
+
+            with ui.expansion(
+                f"Station {stn_idx} — {port_count} ports",
+                icon="developer_board",
+            ).classes("w-full").style(
+                f"background: {COLORS.bg_card}; color: {COLORS.text_primary};"
+            ):
+                if not ports:
+                    ui.label("No ports in this station").style(
+                        f"color: {COLORS.text_muted}; font-size: 0.85rem;"
+                    )
+                else:
+                    with ui.row().classes("gap-2 flex-wrap"):
+                        for port_num in ports:
+                            ui.badge(f"P{port_num}").style(
+                                f"background: {COLORS.bg_elevated}; color: {COLORS.cyan};"
+                            )
+                    ui.label(f"Port mask: {mask:#010x}").style(
+                        f"color: {COLORS.text_muted}; font-size: 0.8rem; margin-top: 4px;"
+                    )
+
+
