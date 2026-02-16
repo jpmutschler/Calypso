@@ -51,7 +51,7 @@ def _get_config_reader(device_id: str):
 async def get_supported_speeds(device_id: str) -> SupportedSpeedsVector:
     """Read supported link speeds vector from Link Capabilities 2."""
     reader = _get_config_reader(device_id)
-    return reader.get_supported_speeds()
+    return await asyncio.to_thread(reader.get_supported_speeds)
 
 
 # --- Equalization Status ---
@@ -69,10 +69,14 @@ class EqStatusResponse(BaseModel):
 async def get_eq_status(device_id: str) -> EqStatusResponse:
     """Read equalization status from 16 GT/s and 32 GT/s PHY layer capabilities."""
     reader = _get_config_reader(device_id)
-    return EqStatusResponse(
-        eq_16gt=reader.get_eq_status_16gt(),
-        eq_32gt=reader.get_eq_status_32gt(),
-    )
+
+    def _read():
+        return EqStatusResponse(
+            eq_16gt=reader.get_eq_status_16gt(),
+            eq_32gt=reader.get_eq_status_32gt(),
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 # --- Lane EQ Settings ---
@@ -101,19 +105,23 @@ async def get_lane_eq(
 ) -> LaneEqResponse:
     """Read per-lane equalization control settings from 16 GT/s PHY capability."""
     monitor = _get_phy_monitor(device_id, port_number)
-    settings = monitor.get_lane_eq_settings_16gt(num_lanes=num_lanes)
-    return LaneEqResponse(
-        lanes=[
-            LaneEqEntry(
-                lane=s.lane,
-                downstream_tx_preset=int(s.downstream_tx_preset),
-                downstream_rx_hint=int(s.downstream_rx_hint),
-                upstream_tx_preset=int(s.upstream_tx_preset),
-                upstream_rx_hint=int(s.upstream_rx_hint),
-            )
-            for s in settings
-        ]
-    )
+
+    def _read():
+        settings = monitor.get_lane_eq_settings_16gt(num_lanes=num_lanes)
+        return LaneEqResponse(
+            lanes=[
+                LaneEqEntry(
+                    lane=s.lane,
+                    downstream_tx_preset=int(s.downstream_tx_preset),
+                    downstream_rx_hint=int(s.downstream_rx_hint),
+                    upstream_tx_preset=int(s.upstream_tx_preset),
+                    upstream_rx_hint=int(s.upstream_rx_hint),
+                )
+                for s in settings
+            ]
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 # --- SerDes Diagnostics ---
@@ -143,20 +151,24 @@ async def get_serdes_diag(
 ) -> SerDesDiagResponse:
     """Read SerDes diagnostic data (sync status, error counts) for all lanes."""
     monitor = _get_phy_monitor(device_id, port_number)
-    diags = monitor.get_all_serdes_diag(num_lanes=num_lanes)
-    return SerDesDiagResponse(
-        port_number=port_number,
-        lanes=[
-            SerDesDiagEntry(
-                lane=i,
-                synced=d.utp_sync,
-                error_count=d.utp_error_count,
-                expected_data=d.utp_expected_data,
-                actual_data=d.utp_actual_data,
-            )
-            for i, d in enumerate(diags)
-        ],
-    )
+
+    def _read():
+        diags = monitor.get_all_serdes_diag(num_lanes=num_lanes)
+        return SerDesDiagResponse(
+            port_number=port_number,
+            lanes=[
+                SerDesDiagEntry(
+                    lane=i,
+                    synced=d.utp_sync,
+                    error_count=d.utp_error_count,
+                    expected_data=d.utp_expected_data,
+                    actual_data=d.utp_actual_data,
+                )
+                for i, d in enumerate(diags)
+            ],
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 class ClearSerDesRequest(BaseModel):
@@ -171,7 +183,7 @@ async def clear_serdes_errors(
 ) -> dict[str, str]:
     """Clear SerDes error counter for a specific lane."""
     monitor = _get_phy_monitor(device_id, port_number)
-    monitor.clear_serdes_errors(body.lane)
+    await asyncio.to_thread(monitor.clear_serdes_errors, body.lane)
     return {"status": "cleared", "lane": str(body.lane)}
 
 
@@ -197,15 +209,19 @@ async def get_port_control(
 ) -> PortControlResponse:
     """Read the vendor-specific Port Control Register (0x3208)."""
     monitor = _get_phy_monitor(device_id, port_number)
-    ctrl = monitor.get_port_control()
-    return PortControlResponse(
-        disable_port=ctrl.disable_port,
-        port_quiet=ctrl.port_quiet,
-        lock_down_fe_preset=ctrl.lock_down_fe_preset,
-        test_pattern_rate=int(ctrl.test_pattern_rate),
-        bypass_utp_alignment=ctrl.bypass_utp_alignment,
-        port_select=ctrl.port_select,
-    )
+
+    def _read():
+        ctrl = monitor.get_port_control()
+        return PortControlResponse(
+            disable_port=ctrl.disable_port,
+            port_quiet=ctrl.port_quiet,
+            lock_down_fe_preset=ctrl.lock_down_fe_preset,
+            test_pattern_rate=int(ctrl.test_pattern_rate),
+            bypass_utp_alignment=ctrl.bypass_utp_alignment,
+            port_select=ctrl.port_select,
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 # --- PHY Command/Status ---
@@ -231,16 +247,20 @@ async def get_phy_cmd_status(
 ) -> PhyCmdStatusResponse:
     """Read the PHY Command/Status Register (0x321C)."""
     monitor = _get_phy_monitor(device_id, port_number)
-    status = monitor.get_phy_cmd_status()
-    return PhyCmdStatusResponse(
-        num_ports=status.num_ports,
-        upstream_crosslink_enable=status.upstream_crosslink_enable,
-        downstream_crosslink_enable=status.downstream_crosslink_enable,
-        lane_reversal_disable=status.lane_reversal_disable,
-        ltssm_wdt_disable=status.ltssm_wdt_disable,
-        ltssm_wdt_port_select=status.ltssm_wdt_port_select,
-        utp_kcode_flags=status.utp_kcode_flags,
-    )
+
+    def _read():
+        status = monitor.get_phy_cmd_status()
+        return PhyCmdStatusResponse(
+            num_ports=status.num_ports,
+            upstream_crosslink_enable=status.upstream_crosslink_enable,
+            downstream_crosslink_enable=status.downstream_crosslink_enable,
+            lane_reversal_disable=status.lane_reversal_disable,
+            ltssm_wdt_disable=status.ltssm_wdt_disable,
+            ltssm_wdt_port_select=status.ltssm_wdt_port_select,
+            utp_kcode_flags=status.utp_kcode_flags,
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 # --- Lane Margining Detection ---
@@ -250,7 +270,7 @@ async def get_phy_cmd_status(
 async def get_lane_margining(device_id: str) -> dict[str, bool | int | None]:
     """Check if Lane Margining at Receiver capability is present."""
     reader = _get_config_reader(device_id)
-    offset = reader.get_lane_margining_offset()
+    offset = await asyncio.to_thread(reader.get_lane_margining_offset)
     return {
         "supported": offset is not None,
         "capability_offset": offset,
@@ -310,7 +330,7 @@ async def load_utp(
         raise HTTPException(status_code=400, detail="Provide either 'preset' or 'pattern_hex'")
 
     monitor = _get_phy_monitor(device_id, port_number)
-    monitor.load_utp(pattern)
+    await asyncio.to_thread(monitor.load_utp, pattern)
     return {"status": "loaded", "pattern": pattern.pattern.hex()}
 
 
@@ -325,22 +345,26 @@ async def get_utp_results(
 ) -> UTPResultsResponse:
     """Collect UTP test results from SerDes diagnostic registers."""
     monitor = _get_phy_monitor(device_id, port_number)
-    results = monitor.collect_utp_results(num_lanes=num_lanes)
-    return UTPResultsResponse(
-        port_number=port_number,
-        results=[
-            UTPResultEntry(
-                lane=r.lane,
-                synced=r.synced,
-                error_count=r.error_count,
-                passed=r.passed,
-                error_rate=r.error_rate,
-                expected_on_error=r.expected_on_error,
-                actual_on_error=r.actual_on_error,
-            )
-            for r in results
-        ],
-    )
+
+    def _read():
+        results = monitor.collect_utp_results(num_lanes=num_lanes)
+        return UTPResultsResponse(
+            port_number=port_number,
+            results=[
+                UTPResultEntry(
+                    lane=r.lane,
+                    synced=r.synced,
+                    error_count=r.error_count,
+                    passed=r.passed,
+                    error_rate=r.error_rate,
+                    expected_on_error=r.expected_on_error,
+                    actual_on_error=r.actual_on_error,
+                )
+                for r in results
+            ],
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 class UTPPrepareRequest(BaseModel):
@@ -369,17 +393,13 @@ async def prepare_utp_test(
     rate = TestPatternRate(body.rate)
 
     monitor = _get_phy_monitor(device_id, port_number)
-    monitor.prepare_utp_test(pattern=pattern, rate=rate, port_select=body.port_select)
+    await asyncio.to_thread(
+        monitor.prepare_utp_test, pattern=pattern, rate=rate, port_select=body.port_select,
+    )
     return {"status": "prepared", "pattern": body.preset, "rate": rate.name}
 
 
 # --- Lane Margining Sweep (Eye Diagram) ---
-
-
-def _get_margining_engine(device_id: str, port_number: int):
-    from calypso.core.lane_margining import LaneMarginingEngine
-    sw = _get_switch(device_id)
-    return LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
 
 
 @router.get(
@@ -391,19 +411,25 @@ async def get_margining_capabilities(
     port_number: int = Query(0, ge=0, le=143),
 ) -> LaneMarginCapabilitiesResponse:
     """Read lane margining capabilities for a port."""
+    sw = _get_switch(device_id)
+
+    def _read():
+        from calypso.core.lane_margining import LaneMarginingEngine
+        engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
+        caps = engine.get_capabilities()
+        return LaneMarginCapabilitiesResponse(
+            max_timing_offset=caps.max_timing_offset,
+            max_voltage_offset=caps.max_voltage_offset,
+            num_timing_steps=caps.num_timing_steps,
+            num_voltage_steps=caps.num_voltage_steps,
+            ind_up_down_voltage=caps.ind_up_down_voltage,
+            ind_left_right_timing=caps.ind_left_right_timing,
+        )
+
     try:
-        engine = _get_margining_engine(device_id, port_number)
+        return await asyncio.to_thread(_read)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    caps = engine.get_capabilities()
-    return LaneMarginCapabilitiesResponse(
-        max_timing_offset=caps.max_timing_offset,
-        max_voltage_offset=caps.max_voltage_offset,
-        num_timing_steps=caps.num_timing_steps,
-        num_voltage_steps=caps.num_voltage_steps,
-        ind_up_down_voltage=caps.ind_up_down_voltage,
-        ind_left_right_timing=caps.ind_left_right_timing,
-    )
 
 
 class SweepRequest(BaseModel):
@@ -425,20 +451,20 @@ async def start_margining_sweep(
     if progress.status == "running":
         raise HTTPException(status_code=409, detail="Sweep already running on this lane")
 
-    try:
-        engine = _get_margining_engine(device_id, body.port_number)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
+    sw = _get_switch(device_id)
     receiver = MarginingReceiverNumber(body.receiver)
 
     def _run_sweep():
+        from calypso.core.lane_margining import LaneMarginingEngine
         try:
+            engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
             engine.sweep_lane(body.lane, device_id, receiver)
         except Exception:
             logger.exception("Background sweep failed for lane %d", body.lane)
 
-    asyncio.get_event_loop().run_in_executor(None, _run_sweep)
+    # Fire-and-forget: run_in_executor returns immediately so the HTTP response
+    # is sent before the sweep finishes. Use get_margining_progress to poll.
+    asyncio.get_running_loop().run_in_executor(None, _run_sweep)
 
     return {"status": "started", "lane": str(body.lane)}
 
@@ -483,9 +509,15 @@ async def reset_margining(
     body: ResetRequest,
 ) -> dict[str, str]:
     """Send GO_TO_NORMAL_SETTINGS to reset a lane after margining."""
+    sw = _get_switch(device_id)
+
+    def _reset():
+        from calypso.core.lane_margining import LaneMarginingEngine
+        engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
+        engine.reset_lane(body.lane)
+
     try:
-        engine = _get_margining_engine(device_id, body.port_number)
+        await asyncio.to_thread(_reset)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    engine.reset_lane(body.lane)
     return {"status": "reset", "lane": str(body.lane)}

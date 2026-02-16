@@ -53,7 +53,7 @@ async def get_ltssm_snapshot(
 ) -> PortLtssmSnapshot:
     """Read current LTSSM state, recovery count, and link status."""
     tracer = _get_tracer(device_id, port_number)
-    return tracer.get_snapshot(port_select)
+    return await asyncio.to_thread(tracer.get_snapshot, port_select)
 
 
 class ClearCountersRequest(BaseModel):
@@ -68,7 +68,7 @@ async def clear_ltssm_counters(
 ) -> dict[str, str]:
     """Clear recovery count for a port."""
     tracer = _get_tracer(device_id, body.port_number)
-    tracer.clear_recovery_count(body.port_select)
+    await asyncio.to_thread(tracer.clear_recovery_count, body.port_select)
     return {"status": "cleared", "port_number": str(body.port_number)}
 
 
@@ -171,7 +171,7 @@ async def configure_ptrace(
         trigger_on_ltssm=body.trigger_on_ltssm,
         ltssm_trigger_state=body.ltssm_trigger_state,
     )
-    tracer.configure_ptrace(config)
+    await asyncio.to_thread(tracer.configure_ptrace, config)
     return {"status": "configured"}
 
 
@@ -186,7 +186,7 @@ async def start_ptrace(
 ) -> dict[str, str]:
     """Start Ptrace capture."""
     tracer = _get_tracer(device_id, body.port_number)
-    tracer.start_ptrace()
+    await asyncio.to_thread(tracer.start_ptrace)
     return {"status": "started"}
 
 
@@ -197,7 +197,7 @@ async def stop_ptrace(
 ) -> dict[str, str]:
     """Stop Ptrace capture."""
     tracer = _get_tracer(device_id, body.port_number)
-    tracer.stop_ptrace()
+    await asyncio.to_thread(tracer.stop_ptrace)
     return {"status": "stopped"}
 
 
@@ -211,7 +211,7 @@ async def get_ptrace_status(
 ) -> PtraceStatusResponse:
     """Read current Ptrace capture status."""
     tracer = _get_tracer(device_id, port_number)
-    return tracer.read_ptrace_status()
+    return await asyncio.to_thread(tracer.read_ptrace_status)
 
 
 @router.get(
@@ -228,6 +228,4 @@ async def get_ptrace_buffer(
     Runs in executor to avoid blocking the event loop on large reads.
     """
     tracer = _get_tracer(device_id, port_number)
-    return await asyncio.get_running_loop().run_in_executor(
-        None, tracer.read_ptrace_buffer, max_entries,
-    )
+    return await asyncio.to_thread(tracer.read_ptrace_buffer, max_entries)
