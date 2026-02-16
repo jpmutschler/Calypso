@@ -1,12 +1,16 @@
 # Calypso
 
-PCIe Gen6 Atlas3 Host Card (PEX90144/PEX90080) configuration and monitoring tool. Provides CLI, REST API, and web dashboard interfaces for switch management, PCIe link diagnostics, performance monitoring, compliance testing, and MCU communication.
+PCIe Gen6 Atlas3 Host Card configuration and monitoring tool. Supports A0 silicon (PEX90144/PEX90080) and B0 silicon (PEX90024 through PEX90096). Provides CLI, REST API, and web dashboard interfaces for switch management, PCIe link diagnostics, performance monitoring, compliance testing, and MCU communication.
 
 ## Hardware
 
-Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables Atlas3 Host Card (Rev 1.1). Both variants share 5 physical connectors (CN0-CN4) but map them to different stations.
+Targets **Broadcom Atlas3** PCIe Gen6 switches on the Serial Cables Atlas3 Host Card. Supports both A0 and B0 silicon revisions.
 
-### PCI6-AD-X16HI-BG6-144 (PEX90144) -- 144 lanes, 6 stations
+### A0 Silicon
+
+A0 boards share 5 physical connectors (CN0-CN4) mapped to different stations per variant.
+
+#### PCI6-AD-X16HI-BG6-144 (PEX90144) -- 144 lanes, 6 stations
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|
@@ -17,7 +21,7 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 | STN7 | 112-127 | CN0/CN1 (Ext MCIO) | External MCIO |
 | STN8 | 128-143 | CN2/CN3 (Int MCIO) | Internal MCIO |
 
-### PCI6-AD-X16HI-BG6-80 (PEX90080) -- 80 lanes, 4 stations
+#### PCI6-AD-X16HI-BG6-80 (PEX90080) -- 80 lanes, 4 stations
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|
@@ -26,7 +30,7 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 | STN2 | 32-47 | CN0/CN1 (Ext MCIO) | External MCIO |
 | STN6 | 96-111 | CN4 (Straddle) | PCIe straddle connector |
 
-### Connector Pinout (CN0-CN4)
+#### Connector Pinout (CN0-CN4)
 
 | Connector | PEX90144 Lanes (Station) | PEX90080 Lanes (Station) | Type |
 |-----------|-------------------------|-------------------------|------|
@@ -35,6 +39,19 @@ Targets the **Broadcom PEX90144/PEX90080** PCIe Gen6 switch on the Serial Cables
 | CN2 | 136-143 (STN8) | 8-15 (STN0) | Int MCIO |
 | CN3 | 128-135 (STN8) | 0-7 (STN0) | Int MCIO |
 | CN4 | 80-95 (STN5) | 96-111 (STN6) | Straddle |
+
+### B0 Silicon
+
+B0 variants are identified by ChipID (0xA024-0xA096). All use 16 ports per station. Connector maps are pending from Broadcom.
+
+| Variant | ChipID | Data Stations | Port Ranges |
+|---------|--------|---------------|-------------|
+| PEX90024 | 0xA024 | 0, 1 | 0-15, 24-31 |
+| PEX90032 | 0xA032 | 0, 1 | 0-15, 16-31 |
+| PEX90048 | 0xA048 | 0, 1, 2 | 0-47 |
+| PEX90064 | 0xA064 | 0, 1, 3, 4 | 0-31, 48-79 (skips stn 2) |
+| PEX90080-B0 | 0xA080 | 0-4 | 0-79 |
+| PEX90096 | 0xA096 | 0-5 | 0-95 |
 
 ## Requirements
 
