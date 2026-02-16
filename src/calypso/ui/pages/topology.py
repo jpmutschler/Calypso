@@ -53,18 +53,26 @@ def _build_block_diagram(profile: BoardProfile) -> str:
             "                  CN2[8:15]x8     CN0[40:47]x8     CN4[96:111]x16\n"
             "                  CN3[0:7]x8      CN1[32:39]x8"
         )
-    # Default: PEX90144
+    if profile.chip_name == "PEX90144":
+        return (
+            "  [Host CPU] &lt;--x16--&gt; [Golden Finger / STN2]\n"
+            "                               |\n"
+            "                      [Atlas3 PEX90144 Switch]\n"
+            "                        /      |       \\\n"
+            "                  STN0(RC)   STN1(Rsvd)  STN5(Straddle/CN4)\n"
+            "                                          x16\n"
+            "                        /               \\\n"
+            "           STN7(Ext MCIO)            STN8(Int MCIO)\n"
+            "           CN1[112:119]x8            CN3[128:135]x8\n"
+            "           CN0[120:127]x8            CN2[136:143]x8"
+        )
+    # B0 variants -- connector layout TBD from Broadcom
+    stns = sorted(profile.station_map.keys())
+    stn_labels = "  ".join(f"STN{s}" for s in stns)
     return (
-        "  [Host CPU] &lt;--x16--&gt; [Golden Finger / STN2]\n"
-        "                               |\n"
-        "                      [Atlas3 PEX90144 Switch]\n"
-        "                        /      |       \\\n"
-        "                  STN0(RC)   STN1(Rsvd)  STN5(Straddle/CN4)\n"
-        "                                          x16\n"
-        "                        /               \\\n"
-        "           STN7(Ext MCIO)            STN8(Int MCIO)\n"
-        "           CN1[112:119]x8            CN3[128:135]x8\n"
-        "           CN0[120:127]x8            CN2[136:143]x8"
+        f"  [Atlas3 {profile.chip_name} Switch]\n"
+        f"  {len(stns)} active stations: {stn_labels}\n"
+        f"  Connector layout TBD"
     )
 
 
@@ -84,8 +92,9 @@ def topology_page(device_id: str) -> None:
                 topo_data.clear()
                 topo_data.update(resp)
 
-                chip_id = topo_data.get("chip_id", 0)
-                detected = get_board_profile(chip_id)
+                chip_type = topo_data.get("chip_id", 0)
+                real_chip_id = topo_data.get("real_chip_id", 0)
+                detected = get_board_profile(chip_type, chip_id=real_chip_id)
                 if detected.chip_name != active_profile[0].chip_name:
                     active_profile[0] = detected
                     refresh_hw_reference()

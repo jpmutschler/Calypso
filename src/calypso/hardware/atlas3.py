@@ -1,11 +1,12 @@
 """Atlas3 Host Card hardware layout: station, connector, and lane mapping.
 
-Supports two board variants:
+Supports two A0 board variants:
   - PCI6-AD-X16HI-BG6-144 (PEX90144) -- 144 lanes, 6 stations
   - PCI6-AD-X16HI-BG6-80  (PEX90080) -- 80 lanes, 4 stations
 
-Both share 5 physical connectors (CN0-CN4) but map them to different
-stations and port ranges.
+And six B0 silicon variants (ChipID 0xA024–0xA096) with varying station
+counts.  B0 connector maps are TBD from Broadcom — profiles provide
+station/port topology only.
 """
 
 from __future__ import annotations
@@ -132,6 +133,102 @@ PROFILE_80 = BoardProfile(
 )
 
 # ---------------------------------------------------------------------------
+# B0 silicon profiles -- derived from SDK PlxChipGetPortMask() port masks.
+# All B0 variants use 16 ports/station.  Connector maps are empty (board
+# layout TBD from Broadcom).
+# ---------------------------------------------------------------------------
+
+_EMPTY_CONNECTOR_MAP: Mapping[str, ConnectorInfo] = MappingProxyType({})
+
+# PEX90024 (ChipID 0xA024) -- 3 stations, ports 0-15 + 24-31
+_STATION_MAP_A024: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(24, 31), connector=None, label="Station 1 (partial)"),
+}
+
+PROFILE_A024 = BoardProfile(
+    name="PEX90024",
+    chip_name="PEX90024",
+    station_map=MappingProxyType(_STATION_MAP_A024),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# PEX90032 (ChipID 0xA032) -- 3 stations, ports 0-31
+_STATION_MAP_A032: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
+}
+
+PROFILE_A032 = BoardProfile(
+    name="PEX90032",
+    chip_name="PEX90032",
+    station_map=MappingProxyType(_STATION_MAP_A032),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# PEX90048 (ChipID 0xA048) -- 4 stations, ports 0-47
+_STATION_MAP_A048: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
+    2: StationInfo(id=2, port_range=(32, 47), connector=None, label="Station 2"),
+}
+
+PROFILE_A048 = BoardProfile(
+    name="PEX90048",
+    chip_name="PEX90048",
+    station_map=MappingProxyType(_STATION_MAP_A048),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# PEX90064 (ChipID 0xA064) -- 5 stations, ports 0-31 + 48-79
+_STATION_MAP_A064: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
+    3: StationInfo(id=3, port_range=(48, 63), connector=None, label="Station 3"),
+    4: StationInfo(id=4, port_range=(64, 79), connector=None, label="Station 4"),
+}
+
+PROFILE_A064 = BoardProfile(
+    name="PEX90064",
+    chip_name="PEX90064",
+    station_map=MappingProxyType(_STATION_MAP_A064),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# PEX90080-B0 (ChipID 0xA080) -- 6 stations, ports 0-79
+_STATION_MAP_A080: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
+    2: StationInfo(id=2, port_range=(32, 47), connector=None, label="Station 2"),
+    3: StationInfo(id=3, port_range=(48, 63), connector=None, label="Station 3"),
+    4: StationInfo(id=4, port_range=(64, 79), connector=None, label="Station 4"),
+}
+
+PROFILE_A080 = BoardProfile(
+    name="PEX90080-B0",
+    chip_name="PEX90080-B0",
+    station_map=MappingProxyType(_STATION_MAP_A080),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# PEX90096 (ChipID 0xA096) -- 7 stations, ports 0-95
+_STATION_MAP_A096: dict[int, StationInfo] = {
+    0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
+    1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
+    2: StationInfo(id=2, port_range=(32, 47), connector=None, label="Station 2"),
+    3: StationInfo(id=3, port_range=(48, 63), connector=None, label="Station 3"),
+    4: StationInfo(id=4, port_range=(64, 79), connector=None, label="Station 4"),
+    5: StationInfo(id=5, port_range=(80, 95), connector=None, label="Station 5"),
+}
+
+PROFILE_A096 = BoardProfile(
+    name="PEX90096",
+    chip_name="PEX90096",
+    station_map=MappingProxyType(_STATION_MAP_A096),
+    connector_map=_EMPTY_CONNECTOR_MAP,
+)
+
+# ---------------------------------------------------------------------------
 # Profile lookup
 # ---------------------------------------------------------------------------
 # Broadcom chip-type IDs (from PLX SDK headers).  The SDK returns these as
@@ -142,24 +239,44 @@ _CHIP_TYPE_TO_PROFILE: dict[int, BoardProfile] = {
     0x90A0: PROFILE_80,   # engineering sample alias
 }
 
+# B0 silicon: keyed by real ChipID (from PLX_DEVICE_KEY.ChipID).
+_CHIP_ID_TO_PROFILE: dict[int, BoardProfile] = {
+    0xA024: PROFILE_A024,
+    0xA032: PROFILE_A032,
+    0xA048: PROFILE_A048,
+    0xA064: PROFILE_A064,
+    0xA080: PROFILE_A080,
+    0xA096: PROFILE_A096,
+}
+
 _DEFAULT_PROFILE = PROFILE_144
 
 
-def get_board_profile(chip_type: int) -> BoardProfile:
-    """Return the board profile for a given chip type ID.
+def get_board_profile(chip_type: int, *, chip_id: int = 0) -> BoardProfile:
+    """Return the board profile for a given chip type / chip ID.
 
-    Falls back to PEX90144 for unknown chip types, since that is the
-    more common Atlas3 variant.  The PEX90144 chip type ID is not
-    explicitly registered because all Atlas3 boards that are not
-    PEX90080 use the 144-lane layout.
+    Lookup order:
+      1. ``chip_id`` (most specific — B0 real ChipID)
+      2. ``chip_type`` (A0 PlxChip value)
+      3. Default to PEX90144 (most common Atlas3 variant)
+
+    Args:
+        chip_type: PlxChip value from ``PlxPci_ChipTypeGet``.
+        chip_id: Real ChipID from ``PLX_DEVICE_KEY.ChipID`` (B0 silicon).
     """
+    if chip_id:
+        profile = _CHIP_ID_TO_PROFILE.get(chip_id)
+        if profile is not None:
+            return profile
+
     profile = _CHIP_TYPE_TO_PROFILE.get(chip_type)
     if profile is not None:
         return profile
+
     if chip_type != 0:
         logger.warning(
-            "unknown chip_type 0x%04X, defaulting to %s",
-            chip_type, _DEFAULT_PROFILE.chip_name,
+            "unknown chip_type 0x%04X (chip_id=0x%04X), defaulting to %s",
+            chip_type, chip_id, _DEFAULT_PROFILE.chip_name,
         )
     return _DEFAULT_PROFILE
 

@@ -78,6 +78,7 @@ class TopologyMap(BaseModel):
     model_config = {"frozen": False}
 
     chip_id: int = 0
+    real_chip_id: int = 0
     chip_family: str = "unknown"
     station_count: int = 0
     total_ports: int = 0

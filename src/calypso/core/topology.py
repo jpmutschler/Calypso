@@ -36,7 +36,8 @@ class TopologyMapper:
         chip_type, revision = sdk_device.get_chip_type(self._device)
         feat = sdk_device.get_chip_port_mask(chip_type, revision)
 
-        profile = get_board_profile(chip_type)
+        real_chip_id = getattr(self._key, "ChipID", 0)
+        profile = get_board_profile(chip_type, chip_id=real_chip_id)
 
         from calypso.bindings.constants import PlxChipFamily
         family_name = "unknown"
@@ -114,6 +115,7 @@ class TopologyMapper:
 
         return TopologyMap(
             chip_id=chip_type,
+            real_chip_id=real_chip_id,
             chip_family=family_name,
             station_count=feat.StnCount,
             total_ports=total_ports,
