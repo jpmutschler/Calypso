@@ -196,7 +196,7 @@ def perf(ctx: click.Context, device_index: int, transport: str, port: int, inter
 
 
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Bind address")
+@click.option("--host", default="0.0.0.0", help="Bind address (0.0.0.0 for network access)")
 @click.option("--port", type=int, default=8000, help="HTTP port")
 @click.option("--no-ui", is_flag=True, help="API only, no web dashboard")
 def serve(host: str, port: int, no_ui: bool) -> None:

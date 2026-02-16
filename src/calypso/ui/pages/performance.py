@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from nicegui import ui
+from nicegui_highcharts import highchart
 
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
@@ -23,6 +24,64 @@ def performance_page(device_id: str) -> None:
 
 def _performance_content(device_id: str) -> None:
     """Build the performance page content inside page_layout."""
+    from calypso.api.app import get_device_registry
+
+    # Check if device exists
+    registry = get_device_registry()
+    device = registry.get(device_id)
+
+    if device is None:
+        ui.label("Device not found. Please reconnect.").style(f"color: {COLORS.red}")
+        return
+
+    # Check if performance monitoring is supported
+    perf_supported = True
+    perf_error_msg = ""
+    try:
+        from calypso.core.perf_monitor import PerfMonitor
+        test_monitor = PerfMonitor(device._device_obj)
+        test_monitor.initialize()
+    except Exception as e:
+        perf_supported = False
+        perf_error_msg = str(e)
+
+    if not perf_supported:
+        with ui.card().classes("w-full p-6").style(
+            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.yellow}"
+        ):
+            with ui.row().classes("items-center gap-4"):
+                ui.icon("info").style(f"color: {COLORS.yellow}; font-size: 2rem;")
+                with ui.column().classes("gap-2"):
+                    ui.label("Performance Monitoring Not Available").style(
+                        f"color: {COLORS.text_primary}; font-weight: 600; font-size: 1.1rem;"
+                    )
+                    ui.label(
+                        "The PLX SDK performance counters are not accessible via the current "
+                        "PCIe connection. This is a limitation of how the switch is enumerated "
+                        "by the host system."
+                    ).style(f"color: {COLORS.text_secondary};")
+
+                    with ui.expansion("Technical Details", icon="code").classes("w-full"):
+                        ui.label(f"Error: {perf_error_msg}").style(
+                            f"color: {COLORS.text_muted}; font-family: monospace; font-size: 0.85rem;"
+                        )
+
+            ui.separator().classes("my-4")
+
+            ui.label("Alternative Options:").style(
+                f"color: {COLORS.text_primary}; font-weight: 600;"
+            )
+            with ui.column().classes("gap-2 ml-4"):
+                ui.label("• Use the MCU interface for thermal and power monitoring").style(
+                    f"color: {COLORS.text_secondary};"
+                )
+                ui.label("• Check Port Status page for link statistics").style(
+                    f"color: {COLORS.text_secondary};"
+                )
+                ui.label("• Use PCIe Registers page to read raw counter values").style(
+                    f"color: {COLORS.text_secondary};"
+                )
+        return
 
     snapshot_data: dict = {}
     stream_state: dict = {"active": False, "ws_id": None}
@@ -31,80 +90,108 @@ def _performance_content(device_id: str) -> None:
     # --- Actions ---
 
     async def start_monitoring():
+        import asyncio
+        from calypso.api.app import get_device_registry
+        from calypso.core.perf_monitor import PerfMonitor
+
         try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/perf/start", '
-                f'{{method:"POST"}})).json()'
-            )
-            ports = resp.get("ports", "0")
-            ui.notify(f"Monitoring started ({ports} ports)", type="positive")
+            registry = get_device_registry()
+            sw = registry.get(device_id)
+            if sw is None:
+                ui.notify("Device not found", type="negative")
+                return
+
+            def _start():
+                monitor = PerfMonitor(sw._device_obj)
+                monitor.start()
+                return monitor
+
+            monitor = await asyncio.to_thread(_start)
+            # Store monitor for later use
+            snapshot_data["_monitor"] = monitor
+            ui.notify(f"Monitoring started ({monitor.num_ports} ports)", type="positive")
         except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
+            error_msg = str(e)
+            if "UNSUPPORTED" in error_msg:
+                ui.notify(
+                    "Performance monitoring not supported via this port. "
+                    "Try connecting via the switch management port.",
+                    type="warning"
+                )
+            else:
+                ui.notify(f"Error: {e}", type="negative")
 
     async def stop_monitoring():
         try:
-            await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/perf/stop", '
-                f'{{method:"POST"}})).json()'
-            )
+            monitor = snapshot_data.get("_monitor")
+            if monitor is not None and hasattr(monitor, "stop"):
+                monitor.stop()
+                snapshot_data.pop("_monitor", None)
             ui.notify("Monitoring stopped", type="info")
         except Exception as e:
             ui.notify(f"Error: {e}", type="negative")
 
     async def take_snapshot():
+        import asyncio
+
         try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/perf/snapshot")).json()'
-            )
-            _process_snapshot(resp)
+            monitor = snapshot_data.get("_monitor")
+            if monitor is None:
+                ui.notify("Start monitoring first", type="warning")
+                return
+
+            def _read():
+                return monitor.read_snapshot()
+
+            snapshot = await asyncio.to_thread(_read)
+            _process_snapshot(snapshot.model_dump())
         except Exception as e:
             ui.notify(f"Error: {e}", type="negative")
 
     async def start_stream():
+        import asyncio
+
         if stream_state["active"]:
             return
-        # Connect WebSocket via JavaScript and set up message handler
-        ws_js = (
-            f'(() => {{'
-            f'  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";'
-            f'  const ws = new WebSocket(`${{proto}}//${{window.location.host}}/api/devices/{device_id}/perf/stream`);'
-            f'  window._calypso_perf_ws = ws;'
-            f'  ws.onmessage = (e) => {{'
-            f'    const data = JSON.parse(e.data);'
-            f'    if (data.error) {{ console.error(data.error); return; }}'
-            f'    emitEvent("perf_snapshot", data);'
-            f'  }};'
-            f'  ws.onclose = () => {{ emitEvent("perf_ws_closed", {{}}); }};'
-            f'  ws.onerror = () => {{ emitEvent("perf_ws_closed", {{}}); }};'
-            f'  return "connected";'
-            f'}})()'
-        )
-        try:
-            await ui.run_javascript(ws_js)
-            stream_state["active"] = True
+
+        # Make sure monitoring is started
+        monitor = snapshot_data.get("_monitor")
+        if monitor is None:
+            await start_monitoring()
+            monitor = snapshot_data.get("_monitor")
+            if monitor is None:
+                ui.notify("Failed to start monitoring", type="negative")
+                return
+
+        stream_state["active"] = True
+        refresh_stream_status()
+
+        async def _stream_loop():
+            while stream_state["active"]:
+                try:
+                    def _read():
+                        return monitor.read_snapshot()
+
+                    snapshot = await asyncio.to_thread(_read)
+                    _process_snapshot(snapshot.model_dump())
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    ui.notify(f"Stream error: {e}", type="negative")
+                    break
+
+            stream_state["active"] = False
             refresh_stream_status()
-        except Exception as e:
-            ui.notify(f"WebSocket error: {e}", type="negative")
+
+        # Start streaming in background
+        asyncio.create_task(_stream_loop())
+        ui.notify("Streaming started", type="positive")
 
     async def stop_stream():
         if not stream_state["active"]:
             return
-        try:
-            await ui.run_javascript(
-                'if (window._calypso_perf_ws) { window._calypso_perf_ws.close(); '
-                'window._calypso_perf_ws = null; }'
-            )
-        except Exception:
-            pass
         stream_state["active"] = False
         refresh_stream_status()
-
-    def on_ws_snapshot(e):
-        _process_snapshot(e.args)
-
-    def on_ws_closed(_e):
-        stream_state["active"] = False
-        refresh_stream_status()
+        ui.notify("Streaming stopped", type="info")
 
     def _process_snapshot(data: dict):
         snapshot_data.clear()
@@ -171,10 +258,6 @@ def _performance_content(device_id: str) -> None:
         util_chart.update()
 
     # --- Page layout ---
-
-    # Register WebSocket event handlers
-    ui.on("perf_snapshot", on_ws_snapshot)
-    ui.on("perf_ws_closed", on_ws_closed)
 
     # Controls card
     with ui.card().classes("w-full p-4").style(
@@ -282,7 +365,7 @@ def _performance_content(device_id: str) -> None:
             ui.label("Bandwidth (MB/s)").classes("text-h6").style(
                 f"color: {COLORS.text_primary}"
             )
-            bw_chart = ui.chart({
+            bw_chart = highchart({
                 "title": False,
                 "chart": {
                     "type": "line",
@@ -318,7 +401,7 @@ def _performance_content(device_id: str) -> None:
             ui.label("Link Utilization (%)").classes("text-h6").style(
                 f"color: {COLORS.text_primary}"
             )
-            util_chart = ui.chart({
+            util_chart = highchart({
                 "title": False,
                 "chart": {
                     "type": "bar",

@@ -13,15 +13,24 @@ logger = get_logger(__name__)
 # Broadcom vendor ID
 BROADCOM_VENDOR_ID = 0x10B5
 
+# Atlas3 switch chip IDs
+ATLAS3_CHIP_IDS = {
+    0x0144,  # PEX90144 (144-lane switch)
+    0x0080,  # PEX90080 (80-lane switch)
+}
 
-def scan_devices(transport: Transport) -> list[DeviceInfo]:
+
+def scan_devices(transport: Transport, include_downstream: bool = False) -> list[DeviceInfo]:
     """Scan for Atlas3 devices on the given transport.
 
     Args:
         transport: Transport to scan on.
+        include_downstream: If False (default), only return upstream ports.
+                          If True, return all ports including downstream.
 
     Returns:
-        List of DeviceInfo for each device found.
+        List of DeviceInfo for each device found. Filters to Atlas3 chips only
+        and excludes downstream virtual ports by default.
     """
     transport.connect()
 
@@ -31,15 +40,39 @@ def scan_devices(transport: Transport) -> list[DeviceInfo]:
         mode_prop=mode_prop,
     )
 
+    # Group devices by bus to identify upstream vs downstream ports
+    # Upstream ports are on a lower bus number than their downstream ports
+    bus_groups: dict[int, list] = {}
+    for key in keys:
+        if key.ChipID in ATLAS3_CHIP_IDS:
+            if key.bus not in bus_groups:
+                bus_groups[key.bus] = []
+            bus_groups[key.bus].append(key)
+
     devices: list[DeviceInfo] = []
     for key in keys:
+        # Filter: Only include Atlas3 switches
+        if key.ChipID not in ATLAS3_CHIP_IDS:
+            continue
+
         family_name = "unknown"
         try:
             family_name = PlxChipFamily(key.PlxFamily).name.lower()
         except ValueError:
             pass
 
-        devices.append(DeviceInfo(
+        # Filter: Exclude downstream ports unless requested
+        # Downstream ports are identified by having the same chip on a higher bus
+        if not include_downstream:
+            is_downstream = any(
+                other_bus < key.bus and len(bus_groups[other_bus]) > 0
+                for other_bus in bus_groups.keys()
+                if other_bus != key.bus
+            )
+            if is_downstream:
+                continue
+
+        device_info = DeviceInfo(
             device_id=key.DeviceId,
             vendor_id=key.VendorId,
             sub_vendor_id=key.SubVendorId,
@@ -54,9 +87,11 @@ def scan_devices(transport: Transport) -> list[DeviceInfo]:
             chip_revision=key.PlxRevision,
             chip_family=family_name,
             port_number=key.PlxPort,
-        ))
+        )
 
-    logger.info("scan_complete", transport=transport.config.mode, found=len(devices))
+        devices.append(device_info)
+
+    logger.info("scan_complete", transport=transport.config.mode, found=len(devices), total_atlas3=len(bus_groups.get(min(bus_groups.keys()), [])) if bus_groups else 0)
     return devices
 
 

@@ -26,6 +26,11 @@ DRIVER_NAME = "PlxSvc"
 DEVICE_NODE_DIR = Path("/dev/plx")
 PROC_MODULES = Path("/proc/modules")
 
+
+def _get_sign_file_script() -> Path:
+    """Get the kernel's sign-file script path for the current kernel."""
+    return Path("/lib/modules") / platform.release() / "build" / "scripts" / "sign-file"
+
 # Only these environment variables are forwarded to subprocess calls.
 # Prevents privilege escalation via LD_PRELOAD, BASH_ENV, etc.
 _SAFE_ENV_KEYS = frozenset({
@@ -129,7 +134,7 @@ class DriverManager:
 
     @property
     def driver_module_path(self) -> Path:
-        return self.driver_source_dir / f"Source.{DRIVER_NAME}" / f"{DRIVER_NAME}.ko"
+        return self.driver_source_dir / f"Source.{DRIVER_NAME}" / "Output" / f"{DRIVER_NAME}.ko"
 
     @property
     def driver_sys_path(self) -> Path:
@@ -329,6 +334,23 @@ class DriverManager:
             ),
         ))
 
+        # Check Secure Boot and signing keys
+        secureboot_enabled = self._is_secureboot_enabled()
+        if secureboot_enabled:
+            priv_key, pub_cert = self._find_signing_keys()
+            has_keys = priv_key is not None and pub_cert is not None
+            items.append(Prerequisite(
+                name="Module Signing",
+                description="Required for Secure Boot",
+                satisfied=has_keys,
+                detail=f"Keys found: {priv_key.parent if priv_key else 'NOT FOUND'}" if has_keys else (
+                    "MOK.priv and MOK.der not found. Generate with: "
+                    "openssl req -new -x509 -newkey rsa:2048 -keyout MOK.priv "
+                    "-outform DER -out MOK.der -days 36500 -subj '/CN=PLX Module/' && "
+                    "sudo mokutil --import MOK.der"
+                ),
+            ))
+
         return PrerequisiteReport(items=tuple(items), is_supported_platform=True)
 
     def _get_status_linux(self) -> DriverStatus:
@@ -377,11 +399,26 @@ class DriverManager:
             return_code=result.returncode,
         )
 
+        if not success:
+            return BuildResult(
+                success=False,
+                output=result.stdout,
+                error=result.stderr,
+            )
+
+        # Sign the module if Secure Boot is enabled
+        sign_result = self._sign_module(self.driver_module_path)
+        if not sign_result.success:
+            return sign_result
+
+        combined_output = result.stdout
+        if sign_result.output:
+            combined_output += f"\n{sign_result.output}"
+
         return BuildResult(
-            success=success,
-            artifact=str(self.driver_module_path) if success else "",
-            output=result.stdout,
-            error=result.stderr if not success else "",
+            success=True,
+            artifact=str(self.driver_module_path),
+            output=combined_output,
         )
 
     def _build_library_linux(self) -> BuildResult:
@@ -446,7 +483,7 @@ class DriverManager:
             )
 
         logger.info("driver_install_start", driver=DRIVER_NAME)
-        cmd = self._sudo_wrap(["bash", str(self.plx_load_script), "Svc"])
+        cmd = self._sudo_wrap(["bash", str(self.plx_load_script), "Svc"], preserve_env=True)
 
         try:
             result = subprocess.run(
@@ -490,7 +527,7 @@ class DriverManager:
             )
 
         logger.info("driver_uninstall_start", driver=DRIVER_NAME)
-        cmd = self._sudo_wrap(["bash", str(self.plx_unload_script), "Svc"])
+        cmd = self._sudo_wrap(["bash", str(self.plx_unload_script), "Svc"], preserve_env=True)
 
         try:
             result = subprocess.run(
@@ -546,11 +583,129 @@ class DriverManager:
             return False
         return os.getuid() == 0
 
-    def _sudo_wrap(self, cmd: list[str]) -> list[str]:
-        """Prepend sudo if not running as root."""
+    def _sudo_wrap(self, cmd: list[str], preserve_env: bool = False) -> list[str]:
+        """Prepend sudo if not running as root.
+
+        Args:
+            cmd: Command to wrap
+            preserve_env: If True, use sudo -E to preserve environment variables
+        """
         if self._is_root():
             return cmd
+        if preserve_env:
+            return ["sudo", "-E"] + cmd
         return ["sudo"] + cmd
+
+    def _is_secureboot_enabled(self) -> bool:
+        """Check if Secure Boot is enabled on the system."""
+        mokutil = shutil.which("mokutil")
+        if not mokutil:
+            return False
+        try:
+            result = subprocess.run(
+                [mokutil, "--sb-state"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return "SecureBoot enabled" in result.stdout
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def _find_signing_keys(self) -> tuple[Path | None, Path | None]:
+        """Find MOK signing keys. Returns (private_key, public_cert) or (None, None)."""
+        # Look in project root and common locations
+        search_paths = [
+            self._sdk_dir.parent.parent,  # Calypso project root
+            Path.home(),
+            Path("/root"),
+        ]
+
+        for base in search_paths:
+            priv_key = base / "MOK.priv"
+            pub_cert = base / "MOK.der"
+            if priv_key.exists() and pub_cert.exists():
+                return (priv_key, pub_cert)
+
+        return (None, None)
+
+    def _sign_module(self, module_path: Path) -> BuildResult:
+        """Sign a kernel module with MOK keys for Secure Boot."""
+        if not self._is_secureboot_enabled():
+            return BuildResult(
+                success=True,
+                output="Secure Boot not enabled, skipping module signing.",
+            )
+
+        priv_key, pub_cert = self._find_signing_keys()
+        if not priv_key or not pub_cert:
+            return BuildResult(
+                success=False,
+                error=(
+                    "Secure Boot is enabled but signing keys not found. "
+                    "Expected MOK.priv and MOK.der in project root or home directory. "
+                    "Generate keys with: sudo openssl req -new -x509 -newkey rsa:2048 "
+                    "-keyout MOK.priv -outform DER -out MOK.der -days 36500 -subj '/CN=PLX Module/' "
+                    "&& sudo mokutil --import MOK.der"
+                ),
+            )
+
+        # Prefer kernel's sign-file script, fallback to kmodsign
+        sign_file_script = _get_sign_file_script()
+        kmodsign = shutil.which("kmodsign")
+
+        if sign_file_script.exists():
+            sign_cmd = [
+                str(sign_file_script),
+                "sha256",
+                str(priv_key),
+                str(pub_cert),
+                str(module_path),
+            ]
+        elif kmodsign:
+            sign_cmd = [
+                kmodsign,
+                "sha256",
+                str(priv_key),
+                str(pub_cert),
+                str(module_path),
+            ]
+        else:
+            return BuildResult(
+                success=False,
+                error="Module signing tools not found (sign-file or kmodsign required).",
+            )
+
+        logger.info("module_sign_start", module=str(module_path))
+
+        try:
+            result = subprocess.run(
+                sign_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return BuildResult(
+                success=False,
+                error="Module signing timed out after 30 seconds.",
+            )
+
+        success = result.returncode == 0
+        logger.info("module_sign_complete", success=success, return_code=result.returncode)
+
+        if not success:
+            return BuildResult(
+                success=False,
+                output=result.stdout,
+                error=f"Module signing failed: {result.stderr}",
+            )
+
+        return BuildResult(
+            success=True,
+            artifact=str(module_path),
+            output=f"Module signed successfully with {pub_cert.name}",
+        )
 
     # ------------------------------------------------------------------
     # Windows implementation
