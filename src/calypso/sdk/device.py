@@ -135,15 +135,19 @@ def get_port_properties(device: PLX_DEVICE_OBJECT) -> PLX_PORT_PROP:
     return props
 
 
-def get_chip_port_mask(chip_id: int, revision: int) -> PEX_CHIP_FEAT:
+def get_chip_port_mask(chip_type: int, revision: int) -> PEX_CHIP_FEAT:
     """Get chip feature information including port mask.
+
+    Args:
+        chip_type: PlxChip value from ``get_chip_type()``.
+        revision: Chip revision.
 
     Returns:
         Chip features structure with station/port info.
     """
     lib = get_library()
     feat = PEX_CHIP_FEAT()
-    status = lib.PlxPci_ChipGetPortMask(chip_id, revision, byref(feat))
+    status = lib.PlxPci_ChipGetPortMask(chip_type, revision, byref(feat))
     check_status(status, "ChipGetPortMask")
     return feat
 

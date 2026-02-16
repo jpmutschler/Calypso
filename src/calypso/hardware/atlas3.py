@@ -136,11 +136,15 @@ PROFILE_80 = BoardProfile(
 # B0 silicon profiles -- derived from SDK PlxChipGetPortMask() port masks.
 # All B0 variants use 16 ports/station.  Connector maps are empty (board
 # layout TBD from Broadcom).
+#
+# Note: SDK StnCount includes management station 7 in its count, but we
+# only map user-facing data stations here.  The "N stations" comments
+# below refer to the number of mapped entries, not StnCount.
 # ---------------------------------------------------------------------------
 
 _EMPTY_CONNECTOR_MAP: Mapping[str, ConnectorInfo] = MappingProxyType({})
 
-# PEX90024 (ChipID 0xA024) -- 3 stations, ports 0-15 + 24-31
+# PEX90024 (ChipID 0xA024) -- 2 data stations, ports 0-15 + 24-31
 _STATION_MAP_A024: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(24, 31), connector=None, label="Station 1 (partial)"),
@@ -153,7 +157,7 @@ PROFILE_A024 = BoardProfile(
     connector_map=_EMPTY_CONNECTOR_MAP,
 )
 
-# PEX90032 (ChipID 0xA032) -- 3 stations, ports 0-31
+# PEX90032 (ChipID 0xA032) -- 2 data stations, ports 0-31
 _STATION_MAP_A032: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
@@ -166,7 +170,7 @@ PROFILE_A032 = BoardProfile(
     connector_map=_EMPTY_CONNECTOR_MAP,
 )
 
-# PEX90048 (ChipID 0xA048) -- 4 stations, ports 0-47
+# PEX90048 (ChipID 0xA048) -- 3 data stations, ports 0-47
 _STATION_MAP_A048: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
@@ -180,7 +184,7 @@ PROFILE_A048 = BoardProfile(
     connector_map=_EMPTY_CONNECTOR_MAP,
 )
 
-# PEX90064 (ChipID 0xA064) -- 5 stations, ports 0-31 + 48-79
+# PEX90064 (ChipID 0xA064) -- 4 data stations, ports 0-31 + 48-79 (skips stn 2)
 _STATION_MAP_A064: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
@@ -195,7 +199,7 @@ PROFILE_A064 = BoardProfile(
     connector_map=_EMPTY_CONNECTOR_MAP,
 )
 
-# PEX90080-B0 (ChipID 0xA080) -- 6 stations, ports 0-79
+# PEX90080-B0 (ChipID 0xA080) -- 5 data stations, ports 0-79
 _STATION_MAP_A080: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
@@ -211,7 +215,7 @@ PROFILE_A080 = BoardProfile(
     connector_map=_EMPTY_CONNECTOR_MAP,
 )
 
-# PEX90096 (ChipID 0xA096) -- 7 stations, ports 0-95
+# PEX90096 (ChipID 0xA096) -- 6 data stations, ports 0-95
 _STATION_MAP_A096: dict[int, StationInfo] = {
     0: StationInfo(id=0, port_range=(0, 15), connector=None, label="Station 0"),
     1: StationInfo(id=1, port_range=(16, 31), connector=None, label="Station 1"),
@@ -237,6 +241,8 @@ PROFILE_A096 = BoardProfile(
 _CHIP_TYPE_TO_PROFILE: dict[int, BoardProfile] = {
     0x9080: PROFILE_80,
     0x90A0: PROFILE_80,   # engineering sample alias
+    0xC040: PROFILE_144,  # PLX_FAMILY_ATLAS_3
+    0xC044: PROFILE_144,  # PLX_FAMILY_ATLAS3_LLC
 }
 
 # B0 silicon: keyed by real ChipID (from PLX_DEVICE_KEY.ChipID).
@@ -282,10 +288,10 @@ def get_board_profile(chip_type: int, *, chip_id: int = 0) -> BoardProfile:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible aliases (default to PEX90144)
+# Deprecated aliases (always PEX90144 — use get_board_profile() instead)
 # ---------------------------------------------------------------------------
-STATION_MAP: Mapping[int, StationInfo] = PROFILE_144.station_map
-CONNECTOR_MAP: Mapping[str, ConnectorInfo] = PROFILE_144.connector_map
+STATION_MAP: Mapping[int, StationInfo] = PROFILE_144.station_map  # deprecated
+CONNECTOR_MAP: Mapping[str, ConnectorInfo] = PROFILE_144.connector_map  # deprecated
 
 # Per-port register base address formula (chip-agnostic)
 _PORT_REGISTER_BASE = 0x60800000

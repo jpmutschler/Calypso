@@ -77,8 +77,8 @@ class TopologyMap(BaseModel):
     """Complete switch fabric topology."""
     model_config = {"frozen": False}
 
-    chip_id: int = 0
-    real_chip_id: int = 0
+    chip_id: int = 0  # NOTE: stores PlxChip (chip_type), not ChipID. Kept for API compat.
+    real_chip_id: int = 0  # Actual ChipID from PLX_DEVICE_KEY (identifies B0 variants)
     chip_family: str = "unknown"
     station_count: int = 0
     total_ports: int = 0

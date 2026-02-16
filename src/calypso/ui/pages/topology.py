@@ -161,17 +161,22 @@ def _render_hardware_reference(profile: BoardProfile) -> None:
                 ui.label("Physical Connectors").style(
                     f"color: {COLORS.text_primary}; font-weight: bold"
                 )
-                columns = [
-                    {"name": "name", "label": "Connector", "field": "name", "align": "left"},
-                    {"name": "type", "label": "Type", "field": "type", "align": "left"},
-                    {"name": "station", "label": "Station", "field": "station", "align": "center"},
-                    {"name": "lanes", "label": "Lanes", "field": "lanes", "align": "center"},
-                    {"name": "width", "label": "Width", "field": "width", "align": "center"},
-                    {"name": "con_id", "label": "CON ID", "field": "con_id", "align": "center"},
-                ]
-                ui.table(
-                    columns=columns, rows=connector_ref, row_key="name"
-                ).classes("w-full")
+                if connector_ref:
+                    columns = [
+                        {"name": "name", "label": "Connector", "field": "name", "align": "left"},
+                        {"name": "type", "label": "Type", "field": "type", "align": "left"},
+                        {"name": "station", "label": "Station", "field": "station", "align": "center"},
+                        {"name": "lanes", "label": "Lanes", "field": "lanes", "align": "center"},
+                        {"name": "width", "label": "Width", "field": "width", "align": "center"},
+                        {"name": "con_id", "label": "CON ID", "field": "con_id", "align": "center"},
+                    ]
+                    ui.table(
+                        columns=columns, rows=connector_ref, row_key="name"
+                    ).classes("w-full")
+                else:
+                    ui.label(
+                        "Connector layout pending from Broadcom."
+                    ).style(f"color: {COLORS.text_muted}; font-style: italic;")
 
             # Station reference table
             with ui.column().classes("flex-1"):
@@ -262,6 +267,16 @@ def _render_connector_health(topo_data: dict, profile: BoardProfile) -> None:
     connector_ref = _build_connector_ref(profile)
     connector_stats = _build_connector_stats(stations, connector_ref)
     if not connector_stats:
+        if not profile.connector_map:
+            with ui.card().classes("w-full p-4").style(
+                f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+            ):
+                ui.label("Connector Health").classes("text-h6 mb-2").style(
+                    f"color: {COLORS.text_primary}"
+                )
+                ui.label(
+                    f"Connector layout for {profile.chip_name} is pending from Broadcom."
+                ).style(f"color: {COLORS.text_muted}; font-style: italic;")
         return
 
     with ui.card().classes("w-full p-4").style(

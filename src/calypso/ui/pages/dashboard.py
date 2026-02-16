@@ -377,20 +377,23 @@ def _render_chip_layout(chip_features) -> None:
             kv_pair("Ports/Station", str(chip_features.ports_per_station))
             kv_pair("Station Mask", f"{chip_features.station_mask:#06x}")
 
-        # Show port mask per station as a visual grid
+        # Show port mask per DWORD (each covers 32 ports).  PortMask is indexed
+        # by port_number/32, NOT by station index.
         if chip_features.port_mask:
             ui.separator().classes("my-2")
-            ui.label("Port Mask per Station").style(
+            ui.label("Port Mask").style(
                 f"color: {COLORS.text_secondary}; font-size: 0.85rem; font-weight: 600;"
             )
             with ui.row().classes("gap-4 flex-wrap mt-1"):
-                for stn_idx in range(chip_features.station_count):
-                    if stn_idx < len(chip_features.port_mask):
-                        mask = chip_features.port_mask[stn_idx]
-                        port_count = bin(mask).count("1")
-                        ui.badge(
-                            f"Stn {stn_idx}: {port_count} ports ({mask:#010x})"
-                        ).style(f"background: {COLORS.bg_elevated}; color: {COLORS.cyan};")
+                for dw_idx, mask in enumerate(chip_features.port_mask):
+                    if mask == 0:
+                        continue
+                    port_lo = dw_idx * 32
+                    port_hi = port_lo + 31
+                    port_count = bin(mask).count("1")
+                    ui.badge(
+                        f"Ports {port_lo}-{port_hi}: {port_count} active ({mask:#010x})"
+                    ).style(f"background: {COLORS.bg_elevated}; color: {COLORS.cyan};")
 
 
 def _render_quick_actions(device_id: str) -> None:
