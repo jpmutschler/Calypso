@@ -60,10 +60,10 @@ class McuPortInfo(BaseModel):
     station: int = 0
     connector: str = ""
     port_number: int = 0
-    negotiated_speed: str = ""
-    negotiated_width: int = 0
-    max_speed: str = ""
-    max_width: int = 0
+    negotiated_speed: str | None = None
+    negotiated_width: int | None = None
+    max_speed: str | None = None
+    max_width: int | None = None
     status: str = ""
     port_type: str = ""
 

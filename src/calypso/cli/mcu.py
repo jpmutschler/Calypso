@@ -147,7 +147,7 @@ def port_status(ctx: click.Context) -> None:
             for p in ps.all_ports:
                 click.echo(
                     f"{p.port_number:>4}  {p.station:>7}  {p.connector:<12}  "
-                    f"{p.negotiated_speed:<8}  x{p.negotiated_width:<4}  "
+                    f"{(p.negotiated_speed or '--'):<8}  x{p.negotiated_width or 0:<4}  "
                     f"{p.status:<8}  {p.port_type:<10}"
                 )
 
