@@ -35,7 +35,8 @@ def _eye_diagram_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/phy/margining/capabilities?port_number={port}")).json()'
+                f'/phy/margining/capabilities?port_number={port}")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -55,7 +56,8 @@ def _eye_diagram_content(device_id: str) -> None:
                 f'/phy/margining/sweep", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{lane: {lane}, port_number: {port}, receiver: 0}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -76,7 +78,8 @@ def _eye_diagram_content(device_id: str) -> None:
                 f'/phy/margining/reset", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{lane: {lane}, port_number: {port}}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -95,7 +98,8 @@ def _eye_diagram_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/phy/margining/progress?lane={lane}")).json()'
+                f'/phy/margining/progress?lane={lane}")).json()',
+                timeout=10.0,
             )
         except Exception:
             return
@@ -129,7 +133,8 @@ def _eye_diagram_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/phy/margining/result?lane={lane}")).json()'
+                f'/phy/margining/result?lane={lane}")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")

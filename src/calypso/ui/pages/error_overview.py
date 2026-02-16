@@ -64,7 +64,8 @@ def _error_overview_content(device_id: str) -> None:
             try:
                 await ui.run_javascript(
                     f'return await (await fetch("/api/devices/{device_id}'
-                    f'/errors/clear-aer", {{method: "POST"}})).json()'
+                    f'/errors/clear-aer", {{method: "POST"}})).json()',
+                    timeout=10.0,
                 )
                 ui.notify("AER errors cleared", type="positive")
                 await refresh()
@@ -128,7 +129,8 @@ def _error_overview_content(device_id: str) -> None:
 
         try:
             data = await ui.run_javascript(
-                f'return await (await fetch("{url}")).json()'
+                f'return await (await fetch("{url}")).json()',
+                timeout=10.0,
             )
             state["data"] = data
             _update_ui(data)
@@ -213,7 +215,8 @@ def _error_overview_content(device_id: str) -> None:
                         await ui.run_javascript(
                             f'return await (await fetch("/api/devices/{device_id}'
                             f'/errors/clear-mcu?mcu_port={encoded_port}",'
-                            f' {{method: "POST"}})).json()'
+                            f' {{method: "POST"}})).json()',
+                            timeout=10.0,
                         )
                         ui.notify("MCU counters cleared", type="positive")
                         await refresh()

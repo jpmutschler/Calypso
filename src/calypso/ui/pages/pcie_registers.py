@@ -30,7 +30,8 @@ def _pcie_registers_content(device_id: str) -> None:
         count = int(count_input.value or 64)
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/config-space?offset={offset}&count={count}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/config-space?offset={offset}&count={count}")).json()',
+                timeout=10.0,
             )
             config_data["registers"] = resp.get("registers", [])
             config_data["capabilities"] = resp.get("capabilities", [])
@@ -42,7 +43,8 @@ def _pcie_registers_content(device_id: str) -> None:
     async def load_device_control():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/device-control")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/device-control")).json()',
+                timeout=10.0,
             )
             device_ctrl.update(resp)
             refresh_device_ctrl()
@@ -61,7 +63,8 @@ def _pcie_registers_content(device_id: str) -> None:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/device-control", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({body})}})).json()'
+                f'body:JSON.stringify({body})}})).json()',
+                timeout=10.0,
             )
             device_ctrl.update(resp)
             refresh_device_ctrl()
@@ -72,7 +75,8 @@ def _pcie_registers_content(device_id: str) -> None:
     async def load_link():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/link")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/link")).json()',
+                timeout=10.0,
             )
             link_info["capabilities"] = resp.get("capabilities", {})
             link_info["status"] = resp.get("status", {})
@@ -84,7 +88,8 @@ def _pcie_registers_content(device_id: str) -> None:
         try:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/link/retrain", '
-                f'{{method:"POST"}})).json()'
+                f'{{method:"POST"}})).json()',
+                timeout=10.0,
             )
             ui.notify("Link retraining initiated", type="positive")
         except Exception as e:
@@ -96,7 +101,8 @@ def _pcie_registers_content(device_id: str) -> None:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/link/target-speed", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({{speed:{speed}}})}})).json()'
+                f'body:JSON.stringify({{speed:{speed}}})}})).json()',
+                timeout=10.0,
             )
             ui.notify(f"Target speed set to Gen{speed}", type="positive")
         except Exception as e:
@@ -105,7 +111,8 @@ def _pcie_registers_content(device_id: str) -> None:
     async def load_aer():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/aer")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/aer")).json()',
+                timeout=10.0,
             )
             aer_data["status"] = resp
             refresh_aer()
@@ -116,7 +123,8 @@ def _pcie_registers_content(device_id: str) -> None:
         try:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/aer/clear", '
-                f'{{method:"POST"}})).json()'
+                f'{{method:"POST"}})).json()',
+                timeout=10.0,
             )
             ui.notify("AER errors cleared", type="positive")
             await load_aer()

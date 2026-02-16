@@ -124,7 +124,7 @@ async def download_compliance_report(device_id: str) -> HTMLResponse:
     if result is None:
         raise HTTPException(status_code=404, detail="No compliance result available")
 
-    html_content = generate_report(result)
+    html_content = await asyncio.to_thread(generate_report, result)
     return HTMLResponse(
         content=html_content,
         headers={

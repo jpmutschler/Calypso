@@ -31,12 +31,59 @@ def _phy_monitor_content(device_id: str) -> None:
     utp_results_data: dict = {"results": []}
     margining_data: dict = {}
 
+    # --- Helpers ---
+
+    def _selected_port() -> int:
+        val = port_select.value
+        if val is None:
+            return 0
+        return int(val)
+
+    def _selected_lanes() -> int:
+        return int(lanes_input.value or 16)
+
     # --- Data loaders ---
+
+    async def load_ports():
+        """Fetch active ports and populate the port dropdown."""
+        try:
+            resp = await ui.run_javascript(
+                f'return await (await fetch("/api/devices/{device_id}/ports")).json()',
+                timeout=15.0,
+            )
+            active = [p for p in resp if p.get("is_link_up")]
+            options: dict[str, str] = {}
+            for p in active:
+                pn = p["port_number"]
+                role = p.get("role", "unknown")
+                speed = p.get("link_speed", "unknown")
+                width = p.get("link_width", 0)
+                options[str(pn)] = f"Port {pn} ({role}, x{width} @ {speed})"
+
+            port_select.options = options
+            port_select.update()
+
+            if active:
+                first = active[0]
+                port_select.set_value(str(first["port_number"]))
+                lanes_input.set_value(min(first.get("link_width", 16), 16))
+        except Exception as e:
+            ui.notify(f"Error loading ports: {e}", type="negative")
+
+    async def on_port_changed(_e=None):
+        """When port selection changes, refresh the main sections."""
+        if port_select.value is not None:
+            await asyncio.gather(
+                load_speeds(),
+                load_eq_status(),
+                load_lane_eq(),
+            )
 
     async def load_speeds():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/speeds")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/speeds")).json()',
+                timeout=10.0,
             )
             speeds_data.clear()
             speeds_data.update(resp)
@@ -47,7 +94,8 @@ def _phy_monitor_content(device_id: str) -> None:
     async def load_eq_status():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/eq-status")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/eq-status")).json()',
+                timeout=10.0,
             )
             eq_data.clear()
             eq_data.update(resp)
@@ -56,11 +104,12 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error loading EQ status: {e}", type="negative")
 
     async def load_lane_eq():
-        pn = int(port_input.value or 0)
-        nl = int(lanes_input.value or 16)
+        pn = _selected_port()
+        nl = _selected_lanes()
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/lane-eq?port_number={pn}&num_lanes={nl}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/lane-eq?port_number={pn}&num_lanes={nl}")).json()',
+                timeout=10.0,
             )
             lane_eq_data["lanes"] = resp.get("lanes", [])
             refresh_lane_eq()
@@ -68,11 +117,12 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error loading lane EQ: {e}", type="negative")
 
     async def load_serdes():
-        pn = int(port_input.value or 0)
-        nl = int(lanes_input.value or 16)
+        pn = _selected_port()
+        nl = _selected_lanes()
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/serdes-diag?port_number={pn}&num_lanes={nl}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/serdes-diag?port_number={pn}&num_lanes={nl}")).json()',
+                timeout=10.0,
             )
             serdes_data["lanes"] = resp.get("lanes", [])
             refresh_serdes()
@@ -80,13 +130,14 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error loading SerDes diag: {e}", type="negative")
 
     async def clear_serdes_lane():
-        pn = int(port_input.value or 0)
+        pn = _selected_port()
         lane = int(clear_lane_input.value or 0)
         try:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/phy/serdes-diag/clear?port_number={pn}", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({{lane:{lane}}})}})).json()'
+                f'body:JSON.stringify({{lane:{lane}}})}})).json()',
+                timeout=10.0,
             )
             ui.notify(f"Lane {lane} errors cleared", type="positive")
             await load_serdes()
@@ -94,10 +145,11 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error clearing lane: {e}", type="negative")
 
     async def load_port_control():
-        pn = int(port_input.value or 0)
+        pn = _selected_port()
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/port-control?port_number={pn}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/port-control?port_number={pn}")).json()',
+                timeout=10.0,
             )
             port_ctrl_data.clear()
             port_ctrl_data.update(resp)
@@ -106,10 +158,11 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error loading port control: {e}", type="negative")
 
     async def load_cmd_status():
-        pn = int(port_input.value or 0)
+        pn = _selected_port()
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/cmd-status?port_number={pn}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/cmd-status?port_number={pn}")).json()',
+                timeout=10.0,
             )
             cmd_status_data.clear()
             cmd_status_data.update(resp)
@@ -120,7 +173,8 @@ def _phy_monitor_content(device_id: str) -> None:
     async def load_margining():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/lane-margining")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/lane-margining")).json()',
+                timeout=10.0,
             )
             margining_data.clear()
             margining_data.update(resp)
@@ -129,7 +183,7 @@ def _phy_monitor_content(device_id: str) -> None:
             ui.notify(f"Error loading margining: {e}", type="negative")
 
     async def prepare_utp():
-        pn = int(port_input.value or 0)
+        pn = _selected_port()
         preset = utp_preset_select.value or "prbs7"
         rate = int(utp_rate_select.value or 2)
         ps = int(utp_port_select.value or 0)
@@ -137,18 +191,20 @@ def _phy_monitor_content(device_id: str) -> None:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/phy/utp/prepare?port_number={pn}", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({{preset:"{preset}",rate:{rate},port_select:{ps}}})}})).json()'
+                f'body:JSON.stringify({{preset:"{preset}",rate:{rate},port_select:{ps}}})}})).json()',
+                timeout=10.0,
             )
             ui.notify(f"UTP prepared: {resp.get('pattern', '')} @ {resp.get('rate', '')}", type="positive")
         except Exception as e:
             ui.notify(f"Error preparing UTP: {e}", type="negative")
 
     async def load_utp_results():
-        pn = int(port_input.value or 0)
-        nl = int(lanes_input.value or 16)
+        pn = _selected_port()
+        nl = _selected_lanes()
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/phy/utp/results?port_number={pn}&num_lanes={nl}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/phy/utp/results?port_number={pn}&num_lanes={nl}")).json()',
+                timeout=10.0,
             )
             utp_results_data["results"] = resp.get("results", [])
             refresh_utp_results()
@@ -174,9 +230,11 @@ def _phy_monitor_content(device_id: str) -> None:
         f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
     ):
         with ui.row().classes("items-end gap-4"):
-            port_input = ui.number(
-                "Port Number", value=0, min=0, max=143, step=1
-            ).classes("w-28")
+            port_select = ui.select(
+                options={},
+                label="Active Port",
+                on_change=on_port_changed,
+            ).classes("w-72")
             lanes_input = ui.number(
                 "Num Lanes", value=16, min=1, max=16, step=1
             ).classes("w-28")
@@ -199,7 +257,7 @@ def _phy_monitor_content(device_id: str) -> None:
             speeds_container.clear()
             with speeds_container:
                 if not speeds_data:
-                    ui.label("Click Refresh to load.").style(
+                    ui.label("Select a port to load.").style(
                         f"color: {COLORS.text_muted}"
                     )
                     return
@@ -243,7 +301,7 @@ def _phy_monitor_content(device_id: str) -> None:
                 eq16 = eq_data.get("eq_16gt")
                 eq32 = eq_data.get("eq_32gt")
                 if eq16 is None and eq32 is None:
-                    ui.label("Click Refresh to load.").style(
+                    ui.label("Select a port to load.").style(
                         f"color: {COLORS.text_muted}"
                     )
                     return
@@ -315,7 +373,7 @@ def _phy_monitor_content(device_id: str) -> None:
             with lane_eq_container:
                 lanes = lane_eq_data.get("lanes", [])
                 if not lanes:
-                    ui.label("Click Refresh to load.").style(
+                    ui.label("Select a port to load.").style(
                         f"color: {COLORS.text_muted}"
                     )
                     return
@@ -362,7 +420,7 @@ def _phy_monitor_content(device_id: str) -> None:
             with serdes_container:
                 lanes = serdes_data.get("lanes", [])
                 if not lanes:
-                    ui.label("Click Refresh to load.").style(
+                    ui.label("Select a port to load.").style(
                         f"color: {COLORS.text_muted}"
                     )
                     return
@@ -412,7 +470,7 @@ def _phy_monitor_content(device_id: str) -> None:
                 port_ctrl_container.clear()
                 with port_ctrl_container:
                     if not port_ctrl_data:
-                        ui.label("Click Refresh to load.").style(
+                        ui.label("Select a port to load.").style(
                             f"color: {COLORS.text_muted}"
                         )
                         return
@@ -461,7 +519,7 @@ def _phy_monitor_content(device_id: str) -> None:
                 cmd_status_container.clear()
                 with cmd_status_container:
                     if not cmd_status_data:
-                        ui.label("Click Refresh to load.").style(
+                        ui.label("Select a port to load.").style(
                             f"color: {COLORS.text_muted}"
                         )
                         return
@@ -541,7 +599,6 @@ def _phy_monitor_content(device_id: str) -> None:
                     return
                 rows = []
                 for r in results:
-                    passed = r.get("passed", False)
                     rows.append({
                         "lane": r["lane"],
                         "synced": "Yes" if r.get("synced", False) else "No",
@@ -557,7 +614,7 @@ def _phy_monitor_content(device_id: str) -> None:
                             if r.get("actual_on_error") is not None
                             else "-"
                         ),
-                        "_passed": passed,
+                        "_passed": r.get("passed", False),
                     })
                 columns = [
                     {"name": "lane", "label": "Lane", "field": "lane", "align": "center"},
@@ -615,6 +672,9 @@ def _phy_monitor_content(device_id: str) -> None:
                     )
 
         refresh_margining()
+
+    # Load active ports on page init
+    ui.timer(0.1, load_ports, once=True)
 
 
 def _eq_flag(label: str, value: bool) -> None:

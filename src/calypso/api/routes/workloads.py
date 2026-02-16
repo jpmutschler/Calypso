@@ -53,7 +53,7 @@ async def start_workload(config: WorkloadConfig) -> WorkloadStatus:
     """Start a new workload."""
     mgr = _get_manager()
     try:
-        return mgr.start_workload(config)
+        return await asyncio.to_thread(mgr.start_workload, config)
     except WorkloadBackendUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except WorkloadAlreadyRunning as exc:
@@ -67,7 +67,7 @@ async def stop_workload(workload_id: str) -> WorkloadStatus:
     """Stop a running workload."""
     mgr = _get_manager()
     try:
-        return mgr.stop_workload(workload_id)
+        return await asyncio.to_thread(mgr.stop_workload, workload_id)
     except WorkloadNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except WorkloadError as exc:
@@ -79,7 +79,7 @@ async def get_workload(workload_id: str) -> WorkloadStatus:
     """Get the status of a workload."""
     mgr = _get_manager()
     try:
-        return mgr.get_status(workload_id)
+        return await asyncio.to_thread(mgr.get_status, workload_id)
     except WorkloadNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -88,7 +88,7 @@ async def get_workload(workload_id: str) -> WorkloadStatus:
 async def list_workloads() -> list[WorkloadStatus]:
     """List all workloads."""
     mgr = _get_manager()
-    return mgr.list_workloads()
+    return await asyncio.to_thread(mgr.list_workloads)
 
 
 @router.get(
@@ -99,7 +99,7 @@ async def combined_view(workload_id: str, device_id: str) -> CombinedPerfView:
     """Get host workload stats combined with switch-side performance snapshot."""
     mgr = _get_manager()
     try:
-        status = mgr.get_status(workload_id)
+        status = await asyncio.to_thread(mgr.get_status, workload_id)
     except WorkloadNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -113,7 +113,7 @@ async def combined_view(workload_id: str, device_id: str) -> CombinedPerfView:
         from calypso.api.routes.performance import _monitors
         monitor = _monitors.get(device_id)
         if monitor is not None and hasattr(monitor, "read_snapshot"):
-            snapshot = monitor.read_snapshot()
+            snapshot = await asyncio.to_thread(monitor.read_snapshot)
             switch_snapshot = snapshot.model_dump()
     except ImportError:
         pass
@@ -133,7 +133,7 @@ async def workload_stream(websocket: WebSocket, workload_id: str) -> None:
 
     mgr = _get_manager()
     try:
-        mgr.get_status(workload_id)
+        await asyncio.to_thread(mgr.get_status, workload_id)
     except WorkloadNotFoundError:
         await websocket.send_json({"error": f"Workload {workload_id} not found"})
         await websocket.close()
@@ -143,7 +143,7 @@ async def workload_stream(websocket: WebSocket, workload_id: str) -> None:
         while True:
             await asyncio.sleep(1.0)
             try:
-                status = mgr.get_status(workload_id)
+                status = await asyncio.to_thread(mgr.get_status, workload_id)
             except WorkloadNotFoundError:
                 await websocket.send_json({"error": "Workload no longer exists"})
                 break

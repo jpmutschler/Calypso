@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from calypso.models.configuration import MultiHostConfig, SwitchConfig, VirtualSwitchConfig
@@ -24,7 +26,7 @@ async def get_config(device_id: str) -> SwitchConfig:
     from calypso.sdk import multi_host
     sw = _get_switch(device_id)
 
-    try:
+    def _read_config() -> SwitchConfig:
         mh_props = multi_host.get_properties(sw._device_obj)
         vs_list = []
         for i in range(8):
@@ -48,5 +50,8 @@ async def get_config(device_id: str) -> SwitchConfig:
         )
 
         return SwitchConfig(multi_host=mh_config)
+
+    try:
+        return await asyncio.to_thread(_read_config)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

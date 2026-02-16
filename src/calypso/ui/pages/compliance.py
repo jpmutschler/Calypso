@@ -63,7 +63,8 @@ def _compliance_content(device_id: str) -> None:
                 f'/compliance/start", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({json.dumps(body)})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -81,7 +82,8 @@ def _compliance_content(device_id: str) -> None:
         try:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/compliance/cancel", {{method: "POST"}})).json()'
+                f'/compliance/cancel", {{method: "POST"}})).json()',
+                timeout=10.0,
             )
             ui.notify("Cancellation requested", type="info")
         except Exception as e:
@@ -96,7 +98,8 @@ def _compliance_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/compliance/progress")).json()'
+                f'/compliance/progress")).json()',
+                timeout=10.0,
             )
         except Exception:
             return
@@ -138,7 +141,8 @@ def _compliance_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/compliance/result")).json()'
+                f'/compliance/result")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 return

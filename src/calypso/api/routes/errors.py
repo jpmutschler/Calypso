@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query
 
 from calypso.models.errors import ErrorOverview
@@ -48,12 +50,16 @@ async def get_error_overview(
     from calypso.core.error_aggregator import ErrorAggregator
 
     sw = _get_switch(device_id)
-    active_ports = _active_downstream_ports(sw)
-    aggregator = ErrorAggregator(sw._device_obj, sw._device_key)
-    return aggregator.get_overview(
-        mcu_port=mcu_port,
-        active_ports=active_ports,
-    )
+
+    def _read() -> ErrorOverview:
+        active_ports = _active_downstream_ports(sw)
+        aggregator = ErrorAggregator(sw._device_obj, sw._device_key)
+        return aggregator.get_overview(
+            mcu_port=mcu_port,
+            active_ports=active_ports,
+        )
+
+    return await asyncio.to_thread(_read)
 
 
 @router.post("/devices/{device_id}/errors/clear-aer")
@@ -63,7 +69,7 @@ async def clear_aer_errors(device_id: str) -> dict[str, str]:
 
     sw = _get_switch(device_id)
     reader = PcieConfigReader(sw._device_obj, sw._device_key)
-    reader.clear_aer_errors()
+    await asyncio.to_thread(reader.clear_aer_errors)
     return {"status": "cleared"}
 
 
@@ -79,7 +85,7 @@ async def clear_mcu_errors(
     from calypso.mcu import pool
     try:
         client = pool.get_client(mcu_port)
-        client.clear_error_counters()
+        await asyncio.to_thread(client.clear_error_counters)
         return {"status": "cleared"}
     except Exception:
         logger.exception("clear_mcu_failed", extra={"mcu_port": mcu_port})

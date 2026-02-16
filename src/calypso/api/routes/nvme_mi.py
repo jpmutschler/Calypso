@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query
 
 from calypso.mcu import pool
@@ -24,7 +26,7 @@ async def discover_drives(port: str = Query(...)) -> NVMeDiscoveryResult:
     from calypso.nvme_mi.discovery import discover_nvme_drives
 
     client = _get_client(port)
-    return discover_nvme_drives(client)
+    return await asyncio.to_thread(discover_nvme_drives, client)
 
 
 @router.get("/health")
@@ -40,10 +42,14 @@ async def health_poll(
     from calypso.nvme_mi.client import NVMeMIClient
 
     client = _get_client(port)
-    bus = I2cBus(client, connector, channel)
-    transport = MCTPOverI2C(bus)
-    nvme = NVMeMIClient(transport)
-    return nvme.health_poll(slave_addr=address)
+
+    def _poll() -> NVMeHealthStatus:
+        bus = I2cBus(client, connector, channel)
+        transport = MCTPOverI2C(bus)
+        nvme = NVMeMIClient(transport)
+        return nvme.health_poll(slave_addr=address)
+
+    return await asyncio.to_thread(_poll)
 
 
 @router.get("/drive")
@@ -59,11 +65,15 @@ async def drive_info(
     from calypso.nvme_mi.client import NVMeMIClient
 
     client = _get_client(port)
-    bus = I2cBus(client, connector, channel)
-    transport = MCTPOverI2C(bus)
-    nvme = NVMeMIClient(transport)
-    return nvme.get_drive_info(
-        connector=connector,
-        channel=channel,
-        slave_addr=address,
-    )
+
+    def _read() -> NVMeDriveInfo:
+        bus = I2cBus(client, connector, channel)
+        transport = MCTPOverI2C(bus)
+        nvme = NVMeMIClient(transport)
+        return nvme.get_drive_info(
+            connector=connector,
+            channel=channel,
+            slave_addr=address,
+        )
+
+    return await asyncio.to_thread(_read)

@@ -29,7 +29,8 @@ def _eeprom_viewer_content(device_id: str) -> None:
     async def load_info():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/eeprom/info")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/eeprom/info")).json()',
+                timeout=10.0,
             )
             eeprom_info.clear()
             eeprom_info.update(resp)
@@ -42,7 +43,8 @@ def _eeprom_viewer_content(device_id: str) -> None:
         count = int(read_count_input.value or 16)
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/eeprom/read?offset={offset}&count={count}")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/eeprom/read?offset={offset}&count={count}")).json()',
+                timeout=30.0,
             )
             eeprom_data.clear()
             eeprom_data.update(resp)
@@ -62,7 +64,8 @@ def _eeprom_viewer_content(device_id: str) -> None:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/eeprom/write", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({{offset:{offset},value:{value}}})}})).json()'
+                f'body:JSON.stringify({{offset:{offset},value:{value}}})}})).json()',
+                timeout=10.0,
             )
             ui.notify(f"Written 0x{value:08X} at offset 0x{offset:04X}", type="positive")
         except Exception as e:
@@ -102,7 +105,8 @@ def _eeprom_viewer_content(device_id: str) -> None:
     async def load_crc():
         try:
             resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}/eeprom/crc")).json()'
+                f'return await (await fetch("/api/devices/{device_id}/eeprom/crc")).json()',
+                timeout=10.0,
             )
             crc_data.clear()
             crc_data.update(resp)
@@ -114,7 +118,8 @@ def _eeprom_viewer_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/eeprom/crc/update", '
-                f'{{method:"POST"}})).json()'
+                f'{{method:"POST"}})).json()',
+                timeout=10.0,
             )
             crc_val = resp.get("crc_value") or 0
             ui.notify(f"CRC updated: 0x{crc_val:08X}", type="positive")

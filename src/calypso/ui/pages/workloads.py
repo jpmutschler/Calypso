@@ -50,7 +50,8 @@ def _workloads_content(device_id: str) -> None:
     async def load_backends():
         try:
             resp = await ui.run_javascript(
-                'return await (await fetch("/api/workloads/backends")).json()'
+                'return await (await fetch("/api/workloads/backends")).json()',
+                timeout=10.0,
             )
             state["backends"] = resp.get("available", [])
             refresh_backend_status()
@@ -76,7 +77,8 @@ def _workloads_content(device_id: str) -> None:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/workloads/start", '
                 f'{{method:"POST", headers:{{"Content-Type":"application/json"}}, '
-                f"body: {json.dumps(body)}}})).json()"
+                f"body: {json.dumps(body)}}})).json()",
+                timeout=10.0,
             )
             if "detail" in resp:
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -98,7 +100,8 @@ def _workloads_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/workloads/{wl_id}/stop", '
-                f'{{method:"POST"}})).json()'
+                f'{{method:"POST"}})).json()',
+                timeout=10.0,
             )
             state["running"] = False
             state["result"] = resp
@@ -566,7 +569,8 @@ def _workloads_content(device_id: str) -> None:
                 resp = await ui.run_javascript(
                     f"return await (await fetch("
                     f'"/api/workloads/{wl_id}/combined/{device_id}"'
-                    f")).json()"
+                    f")).json()",
+                    timeout=10.0,
                 )
                 _render_combined(resp)
             except Exception as e:
@@ -644,7 +648,8 @@ def _workloads_content(device_id: str) -> None:
         async def load_history():
             try:
                 resp = await ui.run_javascript(
-                    'return await (await fetch("/api/workloads")).json()'
+                    'return await (await fetch("/api/workloads")).json()',
+                    timeout=10.0,
                 )
                 _render_history(resp)
             except Exception as e:

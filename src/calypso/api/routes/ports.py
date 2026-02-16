@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from calypso.models.port import PortStatus
@@ -24,7 +26,7 @@ async def get_all_ports(device_id: str) -> list[PortStatus]:
     from calypso.core.port_manager import PortManager
     sw = _get_switch(device_id)
     pm = PortManager(sw._device_obj, sw._device_key)
-    return pm.get_all_port_statuses()
+    return await asyncio.to_thread(pm.get_all_port_statuses)
 
 
 @router.get("/devices/{device_id}/ports/{port_number}", response_model=PortStatus)
@@ -33,7 +35,7 @@ async def get_port(device_id: str, port_number: int) -> PortStatus:
     from calypso.core.port_manager import PortManager
     sw = _get_switch(device_id)
     pm = PortManager(sw._device_obj, sw._device_key)
-    status = pm.get_port_status(port_number)
+    status = await asyncio.to_thread(pm.get_port_status, port_number)
     if status is None:
         raise HTTPException(status_code=404, detail=f"Port {port_number} not found")
     return status

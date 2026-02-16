@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query
 
 from calypso.mcu import pool
@@ -41,7 +43,7 @@ async def discover_devices() -> list[str]:
     """Scan for available Atlas3 serial devices."""
     from calypso.mcu.client import McuClient
 
-    return McuClient.find_devices()
+    return await asyncio.to_thread(McuClient.find_devices)
 
 
 @router.post("/connect")
@@ -61,56 +63,65 @@ async def disconnect(port: str = Query(..., description="Serial port path")) -> 
 @router.get("/version")
 async def get_version(port: str = Query(...)) -> McuVersionInfo:
     """Get firmware and hardware version info."""
-    return _get_client(port).get_version()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_version)
 
 
 @router.get("/info")
 async def get_device_info(port: str = Query(...)) -> McuDeviceInfo:
     """Get combined device information."""
-    return _get_client(port).get_device_info()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_device_info)
 
 
 @router.get("/health")
 async def get_health(port: str = Query(...)) -> McuThermalStatus:
     """Get thermal, fan, voltage, and power status."""
-    return _get_client(port).get_thermal_status()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_thermal_status)
 
 
 @router.get("/ports")
 async def get_ports(port: str = Query(...)) -> McuPortStatus:
     """Get port status for all stations."""
-    return _get_client(port).get_port_status()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_port_status)
 
 
 @router.get("/errors")
 async def get_errors(port: str = Query(...)) -> McuErrorSnapshot:
     """Get error counters for all ports."""
-    return _get_client(port).get_error_counters()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_error_counters)
 
 
 @router.post("/errors/clear")
 async def clear_errors(port: str = Query(...)) -> dict:
     """Clear error counters."""
-    result = _get_client(port).clear_error_counters()
+    client = _get_client(port)
+    result = await asyncio.to_thread(client.clear_error_counters)
     return {"cleared": result}
 
 
 @router.get("/config/clock")
 async def get_clock(port: str = Query(...)) -> McuClockStatus:
     """Get clock output status."""
-    return _get_client(port).get_clock_status()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_clock_status)
 
 
 @router.get("/config/spread")
 async def get_spread(port: str = Query(...)) -> McuSpreadStatus:
     """Get spread spectrum status."""
-    return _get_client(port).get_spread_status()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_spread_status)
 
 
 @router.get("/config/flit")
 async def get_flit(port: str = Query(...)) -> McuFlitStatus:
     """Get FLIT mode status."""
-    return _get_client(port).get_flit_status()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.get_flit_status)
 
 
 @router.post("/config/mode")
@@ -119,14 +130,16 @@ async def set_mode(
     mode: int = Query(..., ge=1, le=4),
 ) -> dict:
     """Set operation mode (1-4)."""
-    result = _get_client(port).set_mode(mode)
+    client = _get_client(port)
+    result = await asyncio.to_thread(client.set_mode, mode)
     return {"mode": mode, "success": result}
 
 
 @router.post("/bist")
 async def run_bist(port: str = Query(...)) -> McuBistResult:
     """Run Built-In Self Test."""
-    return _get_client(port).run_bist()
+    client = _get_client(port)
+    return await asyncio.to_thread(client.run_bist)
 
 
 # --- I2C Endpoints ---
@@ -136,12 +149,13 @@ async def run_bist(port: str = Query(...)) -> McuBistResult:
 async def i2c_read(req: I2cReadRequest, port: str = Query(...)) -> I2cReadResponse:
     """Read bytes from an I2C device."""
     client = _get_client(port)
-    data = client.i2c_read(
-        address=req.address,
-        connector=req.connector,
-        channel=req.channel,
-        read_bytes=req.count,
-        register=req.reg_offset,
+    data = await asyncio.to_thread(
+        client.i2c_read,
+        req.address,
+        req.connector,
+        req.channel,
+        req.count,
+        req.reg_offset,
     )
     return I2cReadResponse(
         connector=req.connector,
@@ -156,11 +170,12 @@ async def i2c_read(req: I2cReadRequest, port: str = Query(...)) -> I2cReadRespon
 async def i2c_write(req: I2cWriteRequest, port: str = Query(...)) -> dict:
     """Write bytes to an I2C device."""
     client = _get_client(port)
-    success = client.i2c_write(
-        address=req.address,
-        connector=req.connector,
-        channel=req.channel,
-        data=req.data,
+    success = await asyncio.to_thread(
+        client.i2c_write,
+        req.address,
+        req.connector,
+        req.channel,
+        req.data,
     )
     return {"success": success}
 
@@ -172,7 +187,8 @@ async def i2c_scan(
     channel: str = Query(..., pattern=r"^[ab]$"),
 ) -> I2cScanResult:
     """Scan an I2C bus for responding devices."""
-    return _get_client(port).i2c_scan(connector=connector, channel=channel)
+    client = _get_client(port)
+    return await asyncio.to_thread(client.i2c_scan, connector, channel)
 
 
 # --- I3C Endpoints ---
@@ -182,12 +198,13 @@ async def i2c_scan(
 async def i3c_read(req: I3cReadRequest, port: str = Query(...)) -> I3cReadResponse:
     """Read bytes from an I3C target device."""
     client = _get_client(port)
-    return client.i3c_read(
-        address=req.address,
-        connector=req.connector,
-        channel=req.channel,
-        read_bytes=req.count,
-        register=req.reg_offset,
+    return await asyncio.to_thread(
+        client.i3c_read,
+        req.address,
+        req.connector,
+        req.channel,
+        req.count,
+        req.reg_offset,
     )
 
 
@@ -195,12 +212,13 @@ async def i3c_read(req: I3cReadRequest, port: str = Query(...)) -> I3cReadRespon
 async def i3c_write(req: I3cWriteRequest, port: str = Query(...)) -> dict:
     """Write bytes to an I3C target device."""
     client = _get_client(port)
-    success = client.i3c_write(
-        address=req.address,
-        connector=req.connector,
-        channel=req.channel,
-        data=req.data,
-        register=req.reg_offset,
+    success = await asyncio.to_thread(
+        client.i3c_write,
+        req.address,
+        req.connector,
+        req.channel,
+        req.data,
+        req.reg_offset,
     )
     return {"success": success}
 
@@ -212,4 +230,5 @@ async def i3c_entdaa(
     channel: str = Query(..., pattern=r"^[ab]$"),
 ) -> I3cEntdaaResult:
     """Run I3C ENTDAA to discover and assign dynamic addresses."""
-    return _get_client(port).i3c_entdaa(connector=connector, channel=channel)
+    client = _get_client(port)
+    return await asyncio.to_thread(client.i3c_entdaa, connector, channel)

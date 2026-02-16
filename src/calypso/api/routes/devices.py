@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -35,26 +37,29 @@ class ConnectResponse(BaseModel):
 @router.post("/devices/scan", response_model=ScanResponse)
 async def scan_devices(request: ScanRequest) -> ScanResponse:
     """Scan for Atlas3 devices on the specified transport."""
+    from calypso.bindings.functions import initialize
+    from calypso.bindings.library import load_library
     from calypso.core.discovery import scan_devices as do_scan
     from calypso.transport import (
         PcieConfig, PcieTransport,
         SdbConfig, SdbTransport,
         UartConfig, UartTransport,
     )
-    from calypso.bindings.library import load_library
-    from calypso.bindings.functions import initialize
 
-    load_library()
-    initialize()
+    def _scan() -> list:
+        load_library()
+        initialize()
 
-    if request.transport == TransportMode.UART_MCU:
-        t = UartTransport(UartConfig(port=request.port))
-    elif request.transport == TransportMode.SDB_USB:
-        t = SdbTransport(SdbConfig(port=request.port))
-    else:
-        t = PcieTransport(PcieConfig())
+        if request.transport == TransportMode.UART_MCU:
+            t = UartTransport(UartConfig(port=request.port))
+        elif request.transport == TransportMode.SDB_USB:
+            t = SdbTransport(SdbConfig(port=request.port))
+        else:
+            t = PcieTransport(PcieConfig())
 
-    devices = do_scan(t)
+        return do_scan(t)
+
+    devices = await asyncio.to_thread(_scan)
     return ScanResponse(devices=devices, transport=request.transport)
 
 
@@ -69,8 +74,8 @@ async def list_devices() -> list[str]:
 async def connect_device(request: ConnectRequest) -> ConnectResponse:
     """Connect to a specific device."""
     from calypso.api.app import get_device_registry
-    from calypso.bindings.library import load_library
     from calypso.bindings.functions import initialize
+    from calypso.bindings.library import load_library
     from calypso.core.switch import SwitchDevice
     from calypso.transport import (
         PcieConfig, PcieTransport,
@@ -78,19 +83,23 @@ async def connect_device(request: ConnectRequest) -> ConnectResponse:
         UartConfig, UartTransport,
     )
 
-    load_library()
-    initialize()
+    def _connect() -> SwitchDevice:
+        load_library()
+        initialize()
 
-    if request.transport == TransportMode.UART_MCU:
-        t = UartTransport(UartConfig(port=request.port))
-    elif request.transport == TransportMode.SDB_USB:
-        t = SdbTransport(SdbConfig(port=request.port))
-    else:
-        t = PcieTransport(PcieConfig())
+        if request.transport == TransportMode.UART_MCU:
+            t = UartTransport(UartConfig(port=request.port))
+        elif request.transport == TransportMode.SDB_USB:
+            t = SdbTransport(SdbConfig(port=request.port))
+        else:
+            t = PcieTransport(PcieConfig())
 
-    try:
         sw = SwitchDevice(t)
         sw.open(request.device_index)
+        return sw
+
+    try:
+        sw = await asyncio.to_thread(_connect)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -110,7 +119,7 @@ async def disconnect_device(device_id: str) -> dict[str, str]:
     if sw is None:
         raise HTTPException(status_code=404, detail="Device not found")
     if hasattr(sw, "close"):
-        sw.close()
+        await asyncio.to_thread(sw.close)
     return {"status": "disconnected", "device_id": device_id}
 
 
@@ -136,7 +145,7 @@ async def reset_device(device_id: str) -> dict[str, str]:
     if sw is None:
         raise HTTPException(status_code=404, detail="Device not found")
     try:
-        sw.reset()
+        await asyncio.to_thread(sw.reset)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"status": "reset", "device_id": device_id}

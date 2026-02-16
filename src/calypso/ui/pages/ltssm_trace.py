@@ -57,7 +57,8 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/snapshot?port_number={port}&port_select={ps}")).json()'
+                f'/ltssm/snapshot?port_number={port}&port_select={ps}")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -75,7 +76,8 @@ def _ltssm_trace_content(device_id: str) -> None:
                 f'/ltssm/clear-counters", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{port_number: {port}, port_select: {ps}}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -143,7 +145,8 @@ def _ltssm_trace_content(device_id: str) -> None:
                 f'/ltssm/retrain", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{port_number: {port}, port_select: {ps}, timeout_s: 10.0}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -166,7 +169,8 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/retrain/progress?port_number={port}&port_select={ps}")).json()'
+                f'/ltssm/retrain/progress?port_number={port}&port_select={ps}")).json()',
+                timeout=10.0,
             )
         except Exception:
             return
@@ -201,7 +205,8 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/retrain/result?port_number={port}&port_select={ps}")).json()'
+                f'/ltssm/retrain/result?port_number={port}&port_select={ps}")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -327,7 +332,8 @@ def _ltssm_trace_content(device_id: str) -> None:
                 f'/ltssm/ptrace/configure", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: \'{body_json}\''
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -344,7 +350,8 @@ def _ltssm_trace_content(device_id: str) -> None:
                 f'/ltssm/ptrace/start", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{port_number: {port}}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -361,7 +368,8 @@ def _ltssm_trace_content(device_id: str) -> None:
                 f'/ltssm/ptrace/stop", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
                 f'body: JSON.stringify({{port_number: {port}}})'
-                f'}})).json()'
+                f'}})).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -375,7 +383,8 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/status?port_number={port}")).json()'
+                f'/ltssm/ptrace/status?port_number={port}")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")
@@ -396,7 +405,8 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/buffer?port_number={port}&max_entries=256")).json()'
+                f'/ltssm/ptrace/buffer?port_number={port}&max_entries=256")).json()',
+                timeout=10.0,
             )
             if resp.get("detail"):
                 ui.notify(f"Error: {resp['detail']}", type="negative")

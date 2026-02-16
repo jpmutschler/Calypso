@@ -78,7 +78,8 @@ def topology_page(device_id: str) -> None:
         async def load_topology():
             try:
                 resp = await ui.run_javascript(
-                    f'return await (await fetch("/api/devices/{device_id}/topology")).json()'
+                    f'return await (await fetch("/api/devices/{device_id}/topology")).json()',
+                    timeout=15.0,
                 )
                 topo_data.clear()
                 topo_data.update(resp)

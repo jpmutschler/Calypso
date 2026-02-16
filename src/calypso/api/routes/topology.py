@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from calypso.models.topology import TopologyMap
@@ -24,4 +26,4 @@ async def get_topology(device_id: str) -> TopologyMap:
     from calypso.core.topology import TopologyMapper
     sw = _get_switch(device_id)
     mapper = TopologyMapper(sw._device_obj, sw._device_key)
-    return mapper.build_topology()
+    return await asyncio.to_thread(mapper.build_topology)
