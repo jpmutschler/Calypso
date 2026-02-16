@@ -25,4 +25,8 @@ ifneq ($(KERNELRELEASE),)
 
     $(ImageName)-objs := $(PLX_OBJECTS)
 
+    # Bridge EXTRA_CFLAGS to ccflags-y for kernel 6.x+ kbuild compatibility.
+    # EXTRA_CFLAGS was deprecated in 3.10 and the compat shim was removed in 6.x.
+    ccflags-y += $(EXTRA_CFLAGS)
+
 endif
