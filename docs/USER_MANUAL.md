@@ -28,6 +28,8 @@ Version 0.1.0
    - 5.13 [Compliance](#513-compliance)
    - 5.14 [Workloads](#514-workloads)
    - 5.15 [MCU Pages](#515-mcu-pages)
+   - 5.16 [I2C/I3C Bus Explorer](#516-i2ci3c-bus-explorer)
+   - 5.17 [NVMe Drives](#517-nvme-drives)
 6. [Hardware Reference](#6-hardware-reference)
 7. [Appendix A: REST API Reference](#appendix-a-rest-api-reference)
 8. [Appendix B: CLI Reference](#appendix-b-cli-reference)
@@ -37,7 +39,7 @@ Version 0.1.0
 
 ## 1. Introduction
 
-Calypso is a comprehensive management tool for the Broadcom PEX90144 and PEX90080 PCIe Gen6 switches on the Serial Cables Atlas3 Host Card. It provides a web-based dashboard, REST API, and command-line interface for:
+Calypso is a comprehensive management tool for Broadcom Atlas3 PCIe Gen6 switches on the Serial Cables Atlas3 Host Card. It supports A0 silicon (PEX90144, PEX90080) and B0 silicon (PEX90024 through PEX90096). It provides a web-based dashboard, REST API, and command-line interface for:
 
 - **Device discovery** across PCIe, UART, and SDB transports
 - **Link diagnostics** -- port status, LTSSM state tracing, equalization monitoring
@@ -58,8 +60,16 @@ The primary audience for this tool is PCIe validation engineers performing link 
 ### Hardware
 
 - Serial Cables Atlas3 Host Card (Rev 1.1 or later)
-  - **PCI6-AD-X16HI-BG6-144** (PEX90144) -- 144 lanes, 6 stations
-  - **PCI6-AD-X16HI-BG6-80** (PEX90080) -- 80 lanes, 4 stations
+  - **A0 silicon:**
+    - **PCI6-AD-X16HI-BG6-144** (PEX90144) -- 144 lanes, 6 stations
+    - **PCI6-AD-X16HI-BG6-80** (PEX90080) -- 80 lanes, 4 stations
+  - **B0 silicon:**
+    - **PEX90024** -- 24 lanes, 2 stations
+    - **PEX90032** -- 32 lanes, 2 stations
+    - **PEX90048** -- 48 lanes, 3 stations
+    - **PEX90064** -- 64 lanes, 4 stations
+    - **PEX90080-B0** -- 80 lanes, 5 stations
+    - **PEX90096** -- 96 lanes, 6 stations
 - Host system with available x16 PCIe slot
 - USB connection to Atlas3 MCU (optional, for MCU features)
 
@@ -225,7 +235,7 @@ The discovery page is the entry point for connecting to Atlas3 devices. It suppo
 
 On page load, Calypso automatically scans the PCIe bus for Broadcom PLX devices. Detected devices appear in a list showing:
 
-- Chip ID and device ID
+- Chip name (human-readable, e.g., "PEX90144", "PEX90064") and device ID
 - BDF (Bus:Device.Function) location
 - PLX port number and family
 - Revision
@@ -351,7 +361,7 @@ A collapsible reference section shows static board layout information:
 - **Station Layout** table -- station index, purpose, port range, connector assignment
 - **Data Path Diagram** -- ASCII block diagram showing host-to-switch-to-connector data paths
 
-The reference automatically updates when live data reveals the board variant (PEX90144 vs. PEX90080).
+The reference automatically updates when live data reveals the board variant (e.g., PEX90144, PEX90080, or any B0 variant).
 
 #### Fabric Summary
 
@@ -528,7 +538,7 @@ Comprehensive PHY-layer monitoring and diagnostics.
 
 #### Global Controls
 
-- **Port Number** (0-143) -- target physical port
+- **Port Number** -- target physical port (range depends on chip variant, e.g., 0-143 for PEX90144)
 - **Num Lanes** (1-16) -- number of lanes to query
 - **Refresh All** -- reload all sections
 
@@ -643,7 +653,7 @@ Link Training and Status State Machine monitoring with retrain observation and P
 
 Read the current LTSSM state for any port:
 
-1. Set **Port Number** (0-143) and **Port Select** (0-15)
+1. Set **Port Number** (range depends on chip variant) and **Port Select** (0-15)
 2. Click **Read Snapshot**
 
 Displayed metrics:
@@ -802,7 +812,7 @@ Signal integrity tests also flag lanes whose measured eye is >30% below the per-
 
 | Parameter | Range | Default |
 |-----------|-------|---------|
-| Port Number | 0-143 | 0 |
+| Port Number | Chip-dependent (e.g., 0-143) | 0 |
 | Port Select | 0-15 | 0 |
 | Lane Count | 1-16 | 16 |
 
@@ -977,9 +987,112 @@ Advanced diagnostic operations:
 
 ---
 
+### 5.16 I2C/I3C Bus Explorer
+
+**Route:** `/mcu/bus`
+
+Low-level I2C and I3C bus access for probing devices on the Atlas3 backplane. Organized into two tabs.
+
+#### I2C Tab
+
+**Bus Selection:** Choose connector (0-5) and channel (a/b) for all I2C operations.
+
+**Bus Scan:** Click **Scan Bus** to enumerate all responding I2C addresses on the selected connector/channel. Results appear in a table with decimal and hex addresses.
+
+**I2C Read:** Read data from a specific device:
+
+| Parameter | Description |
+|-----------|-------------|
+| Address | I2C slave address (hex, e.g., `0x50`) |
+| Register | Starting register offset (hex) |
+| Count | Number of bytes to read (1-256) |
+
+Data is displayed as a hex dump with offset column and ASCII decode.
+
+**I2C Write:** Write data to a device:
+
+| Parameter | Description |
+|-----------|-------------|
+| Address | I2C slave address (hex) |
+| Data | Comma-separated hex bytes (e.g., `0x00,0x01`) |
+
+#### I3C Tab
+
+**Bus Selection:** Same connector/channel selector as I2C.
+
+**I3C ENTDAA Discovery:** Run the Enter Dynamic Address Assignment procedure to discover I3C devices. Results table shows:
+
+| Column | Description |
+|--------|-------------|
+| Address | Assigned dynamic address |
+| Provisional ID | 48-bit PID (hex) |
+| BCR | Bus Characteristics Register |
+| DCR | Device Characteristics Register |
+| MCTP | Whether device supports MCTP |
+
+**I3C Read/Write:** Same interface as I2C read/write, operating over I3C with a register address field.
+
+<!-- Screenshot: I2C/I3C Bus Explorer showing bus scan results and hex dump -->
+
+---
+
+### 5.17 NVMe Drives
+
+**Route:** `/mcu/nvme`
+
+NVMe drive discovery and SMART health monitoring via NVMe-MI over MCTP through the MCU serial connection. This enables drive health monitoring without requiring PCIe enumeration.
+
+#### Scan Controls
+
+Configure connector and channel filters, then click **Scan** to discover NVMe drives on the backplane.
+
+#### Drive Cards
+
+Each discovered drive is displayed as a card with:
+
+- **Temperature gauge** -- color-coded: green (< 50C), yellow (50-70C), red (> 70C)
+- **Available Spare bar** -- percentage remaining, color-coded: green (> 30%), yellow (10-30%), red (< 10%)
+- **Drive Life bar** -- percentage used indicator
+- **Critical Warning flags** -- active flags shown as badges:
+
+| Flag | Description |
+|------|-------------|
+| Spare Below Threshold | Available spare has dropped below threshold |
+| Temperature Exceeded | Composite temperature exceeded critical limit |
+| Reliability Degraded | NVM subsystem reliability degraded |
+| Read-Only Mode | Media placed in read-only mode |
+| Volatile Backup Failed | Volatile memory backup device has failed |
+
+#### Per-Controller Detail
+
+Expandable section per drive showing per-controller breakdown with temperature, spare percentage, percentage used, and warning status.
+
+<!-- Screenshot: NVMe Drives page showing drive cards with temperature gauges and health bars -->
+
+---
+
 ## 6. Hardware Reference
 
-### PEX90144 Station Map (144 lanes)
+### Supported Chip Variants
+
+Calypso supports two generations of Atlas3 silicon:
+
+| Generation | Chip | ChipID | Lanes | Stations | Port Range |
+|------------|------|--------|-------|----------|------------|
+| A0 | PEX90144 | 0x0144 | 144 | 6 | 0-143 |
+| A0 | PEX90080 | 0x0080 | 80 | 4 | 0-111 |
+| B0 | PEX90024 | 0xA024 | 24 | 2 | 0-15, 24-31 |
+| B0 | PEX90032 | 0xA032 | 32 | 2 | 0-31 |
+| B0 | PEX90048 | 0xA048 | 48 | 3 | 0-47 |
+| B0 | PEX90064 | 0xA064 | 64 | 4 | 0-31, 48-79 |
+| B0 | PEX90080-B0 | 0xA080 | 80 | 5 | 0-79 |
+| B0 | PEX90096 | 0xA096 | 96 | 6 | 0-95 |
+
+Both generations share the same Atlas3 family identifiers (PLX_FAMILY_ATLAS_3 and PLX_FAMILY_ATLAS3_LLC). Device discovery uses family-based filtering and automatically detects the specific variant.
+
+> **Note:** B0 silicon connector maps are pending from Broadcom and will be added in a future update. B0 station maps use generic labels. The topology page will display station layout but without physical connector assignments.
+
+### PEX90144 Station Map (A0, 144 lanes)
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|
@@ -990,7 +1103,7 @@ Advanced diagnostic operations:
 | STN7 | 112-127 | CN0/CN1 (Ext MCIO) | External MCIO |
 | STN8 | 128-143 | CN2/CN3 (Int MCIO) | Internal MCIO |
 
-### PEX90080 Station Map (80 lanes)
+### PEX90080 Station Map (A0, 80 lanes)
 
 | Station | Port Range | Connector | Purpose |
 |---------|-----------|-----------|---------|
@@ -1035,6 +1148,64 @@ Advanced diagnostic operations:
                 CN2[8:15]x8     CN0[40:47]x8     CN4[96:111]x16
                 CN3[0:7]x8      CN1[32:39]x8
 ```
+
+### B0 Silicon Station Maps
+
+B0 variants have simplified station layouts with generic station labels. Physical connector assignments are pending from Broadcom.
+
+#### PEX90024 (2 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 24-31 | Station 1 (partial) |
+
+#### PEX90032 (2 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 16-31 | Station 1 |
+
+#### PEX90048 (3 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 16-31 | Station 1 |
+| STN2 | 32-47 | Station 2 |
+
+#### PEX90064 (4 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 16-31 | Station 1 |
+| STN3 | 48-63 | Station 3 |
+| STN4 | 64-79 | Station 4 |
+
+> **Note:** PEX90064 skips station 2. Port numbers 32-47 are not available on this variant.
+
+#### PEX90080-B0 (5 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 16-31 | Station 1 |
+| STN2 | 32-47 | Station 2 |
+| STN3 | 48-63 | Station 3 |
+| STN4 | 64-79 | Station 4 |
+
+#### PEX90096 (6 stations)
+
+| Station | Port Range | Label |
+|---------|-----------|-------|
+| STN0 | 0-15 | Station 0 |
+| STN1 | 16-31 | Station 1 |
+| STN2 | 32-47 | Station 2 |
+| STN3 | 48-63 | Station 3 |
+| STN4 | 64-79 | Station 4 |
+| STN5 | 80-95 | Station 5 |
 
 ---
 
@@ -1179,6 +1350,25 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `GET` | `/api/mcu/config/flit` | FLIT mode status. Params: `port` |
 | `POST` | `/api/mcu/config/mode` | Set operation mode. Params: `port`, `mode` (1-4) |
 | `POST` | `/api/mcu/bist` | Run Built-In Self Test. Params: `port` |
+
+### MCU I2C/I3C Bus
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/mcu/i2c/scan` | Scan I2C bus for devices. Body: `{port, connector, channel}` |
+| `POST` | `/api/mcu/i2c/read` | Read from I2C device. Body: `{port, connector, channel, address, register, read_bytes}` |
+| `POST` | `/api/mcu/i2c/write` | Write to I2C device. Body: `{port, connector, channel, address, data}` |
+| `POST` | `/api/mcu/i3c/read` | Read from I3C device. Body: `{port, connector, channel, address, register, read_bytes}` |
+| `POST` | `/api/mcu/i3c/write` | Write to I3C device. Body: `{port, connector, channel, address, register, data}` |
+| `POST` | `/api/mcu/i3c/entdaa` | Run I3C ENTDAA discovery. Body: `{port, connector, channel}` |
+
+### NVMe-MI (via MCU)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/mcu/nvme/discover` | Scan all connectors for NVMe drives. Params: `port` |
+| `GET` | `/api/mcu/nvme/health` | Poll SMART health from a drive. Params: `port`, `connector`, `channel`, `address` |
+| `GET` | `/api/mcu/nvme/drive` | Get combined identity and health info. Params: `port`, `connector`, `channel`, `address` |
 
 ### Workloads (Linux only)
 
