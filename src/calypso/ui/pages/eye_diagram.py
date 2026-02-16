@@ -216,24 +216,25 @@ def _eye_diagram_content(device_id: str) -> None:
                 "name": "Pass",
                 "type": "scatter",
                 "data": pass_points,
-                "color": COLORS.green,
-                "marker": {"radius": 4, "symbol": "circle"},
+                "itemStyle": {"color": COLORS.green},
+                "symbolSize": 8,
+                "symbol": "circle",
             },
             {
                 "name": "Fail",
                 "type": "scatter",
                 "data": fail_points,
-                "color": COLORS.red,
-                "marker": {"radius": 4, "symbol": "diamond"},
+                "itemStyle": {"color": COLORS.red},
+                "symbolSize": 8,
+                "symbol": "diamond",
             },
             {
                 "name": "Eye Boundary",
                 "type": "line",
                 "data": boundary_points,
-                "color": COLORS.cyan,
-                "lineWidth": 2,
-                "marker": {"enabled": False},
-                "dashStyle": "ShortDash",
+                "lineStyle": {"color": COLORS.cyan, "width": 2, "type": "dashed"},
+                "itemStyle": {"color": COLORS.cyan},
+                "showSymbol": False,
             },
         ]
         eye_chart.update()
@@ -356,47 +357,27 @@ def _eye_diagram_content(device_id: str) -> None:
         ui.label("Eye Diagram").classes("text-h6").style(
             f"color: {COLORS.text_primary};"
         )
-        eye_chart = ui.chart({
-            "title": False,
-            "chart": {
-                "type": "scatter",
-                "backgroundColor": COLORS.bg_secondary,
-                "animation": False,
-            },
+        eye_chart = ui.echart({
+            "animation": False,
+            "backgroundColor": "transparent",
+            "grid": {"containLabel": True},
+            "tooltip": {"trigger": "item"},
+            "legend": {"textStyle": {"color": COLORS.text_secondary}},
             "xAxis": {
-                "title": {
-                    "text": "Timing Offset (UI)",
-                    "style": {"color": COLORS.text_secondary},
-                },
-                "labels": {"style": {"color": COLORS.text_secondary}},
-                "gridLineColor": COLORS.border,
-                "gridLineWidth": 1,
-                "lineColor": COLORS.border,
-                "tickColor": COLORS.border,
+                "type": "value",
+                "name": "Timing Offset (UI)",
+                "nameTextStyle": {"color": COLORS.text_secondary},
+                "axisLabel": {"color": COLORS.text_secondary},
+                "axisLine": {"lineStyle": {"color": COLORS.border}},
+                "splitLine": {"lineStyle": {"color": COLORS.border}},
             },
             "yAxis": {
-                "title": {
-                    "text": "Voltage Offset (mV)",
-                    "style": {"color": COLORS.text_secondary},
-                },
-                "labels": {"style": {"color": COLORS.text_secondary}},
-                "gridLineColor": COLORS.border,
-                "lineColor": COLORS.border,
-            },
-            "legend": {
-                "itemStyle": {"color": COLORS.text_secondary},
-            },
-            "tooltip": {
-                "headerFormat": "",
-                "pointFormat": "Timing: {point.x:.4f} UI<br>Voltage: {point.y:.1f} mV",
-            },
-            "plotOptions": {
-                "scatter": {
-                    "tooltip": {
-                        "headerFormat": "",
-                        "pointFormat": "Timing: {point.x:.4f} UI<br>Voltage: {point.y:.1f} mV",
-                    },
-                },
+                "type": "value",
+                "name": "Voltage Offset (mV)",
+                "nameTextStyle": {"color": COLORS.text_secondary},
+                "axisLabel": {"color": COLORS.text_secondary},
+                "axisLine": {"lineStyle": {"color": COLORS.border}},
+                "splitLine": {"lineStyle": {"color": COLORS.border}},
             },
             "series": [],
         }).classes("w-full").style("height: 450px")

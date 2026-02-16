@@ -169,9 +169,16 @@ def _workloads_content(device_id: str) -> None:
             if len(smart_chart_series[skey]) > _MAX_CHART_POINTS:
                 smart_chart_series[skey] = smart_chart_series[skey][-_MAX_CHART_POINTS:]
 
-        temp_chart.options["series"] = [
-            {"name": name, "data": points} for name, points in smart_chart_series.items()
+        zone_series = temp_chart.options["series"][0] if temp_chart.options["series"] else {
+            "name": "_zones", "type": "line", "data": [],
+            "showSymbol": False, "lineStyle": {"width": 0},
+            "markArea": _temp_zone_mark_area,
+        }
+        temp_chart.options["series"] = [zone_series] + [
+            {"name": name, "type": "line", "data": points, "showSymbol": False}
+            for name, points in smart_chart_series.items()
         ]
+        temp_chart.options["legend"]["data"] = list(smart_chart_series.keys())
         temp_chart.update()
 
     # --- Page content ---
@@ -378,69 +385,60 @@ def _workloads_content(device_id: str) -> None:
         .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         ui.label("DUT Temperature").classes("text-h6 mb-2").style(f"color: {COLORS.text_primary}")
-        temp_chart = (
-            ui.chart(
+        _temp_zone_mark_area = {
+            "silent": True,
+            "label": {"show": True, "position": "insideRight", "fontSize": 10},
+            "data": [
+                [
+                    {"yAxis": 0, "name": "Normal",
+                     "itemStyle": {"color": "rgba(63,185,80,0.08)"},
+                     "label": {"color": COLORS.green}},
+                    {"yAxis": 60},
+                ],
+                [
+                    {"yAxis": 60, "name": "Warm",
+                     "itemStyle": {"color": "rgba(210,153,34,0.08)"},
+                     "label": {"color": COLORS.yellow}},
+                    {"yAxis": 80},
+                ],
+                [
+                    {"yAxis": 80, "name": "Critical",
+                     "itemStyle": {"color": "rgba(248,81,73,0.08)"},
+                     "label": {"color": COLORS.red}},
+                    {"yAxis": 120},
+                ],
+            ],
+        }
+        temp_chart = ui.echart({
+            "animation": False,
+            "backgroundColor": "transparent",
+            "grid": {"containLabel": True},
+            "tooltip": {"trigger": "axis"},
+            "legend": {"textStyle": {"color": COLORS.text_secondary}},
+            "xAxis": {
+                "type": "time",
+                "axisLabel": {"color": COLORS.text_secondary},
+                "axisLine": {"lineStyle": {"color": COLORS.border}},
+            },
+            "yAxis": {
+                "type": "value",
+                "name": "Temperature (C)",
+                "nameTextStyle": {"color": COLORS.text_secondary},
+                "axisLabel": {"color": COLORS.text_secondary},
+                "splitLine": {"lineStyle": {"color": COLORS.border}},
+                "min": 0,
+            },
+            "series": [
                 {
-                    "title": False,
-                    "chart": {
-                        "type": "line",
-                        "backgroundColor": COLORS.bg_secondary,
-                        "animation": False,
-                    },
-                    "xAxis": {
-                        "type": "datetime",
-                        "labels": {"style": {"color": COLORS.text_secondary}},
-                    },
-                    "yAxis": {
-                        "title": {
-                            "text": "Temperature (C)",
-                            "style": {"color": COLORS.text_secondary},
-                        },
-                        "labels": {"style": {"color": COLORS.text_secondary}},
-                        "gridLineColor": COLORS.border,
-                        "min": 0,
-                        "plotBands": [
-                            {
-                                "from": 0,
-                                "to": 60,
-                                "color": "rgba(63,185,80,0.08)",
-                                "label": {
-                                    "text": "Normal",
-                                    "style": {"color": COLORS.green, "fontSize": "10px"},
-                                },
-                            },
-                            {
-                                "from": 60,
-                                "to": 80,
-                                "color": "rgba(210,153,34,0.08)",
-                                "label": {
-                                    "text": "Warm",
-                                    "style": {"color": COLORS.yellow, "fontSize": "10px"},
-                                },
-                            },
-                            {
-                                "from": 80,
-                                "to": 120,
-                                "color": "rgba(248,81,73,0.08)",
-                                "label": {
-                                    "text": "Critical",
-                                    "style": {"color": COLORS.red, "fontSize": "10px"},
-                                },
-                            },
-                        ],
-                    },
-                    "legend": {
-                        "itemStyle": {"color": COLORS.text_secondary},
-                    },
-                    "plotOptions": {
-                        "line": {"marker": {"enabled": False}},
-                    },
-                    "series": [],
-                }
-            )
-            .classes("w-full")
-            .style("height: 300px")
-        )
+                    "name": "_zones",
+                    "type": "line",
+                    "data": [],
+                    "showSymbol": False,
+                    "lineStyle": {"width": 0},
+                    "markArea": _temp_zone_mark_area,
+                },
+            ],
+        }).classes("w-full").style("height: 300px")
 
     # --- Results ---
     with (

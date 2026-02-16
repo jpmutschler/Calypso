@@ -6,7 +6,6 @@ import asyncio
 import time
 
 from nicegui import ui
-from nicegui_highcharts import highchart
 
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
@@ -92,31 +91,24 @@ def _performance_content(device_id: str) -> None:
                 ui.label("Bandwidth (MB/s)").classes("text-h6").style(
                     f"color: {COLORS.text_primary}"
                 )
-                bw_chart = highchart({
-                    "title": False,
-                    "chart": {
-                        "type": "line",
-                        "backgroundColor": COLORS.bg_secondary,
-                        "animation": False,
-                    },
+                bw_chart = ui.echart({
+                    "animation": False,
+                    "backgroundColor": "transparent",
+                    "grid": {"containLabel": True},
+                    "tooltip": {"trigger": "axis"},
+                    "legend": {"textStyle": {"color": COLORS.text_secondary}},
                     "xAxis": {
-                        "type": "datetime",
-                        "labels": {"style": {"color": COLORS.text_secondary}},
+                        "type": "time",
+                        "axisLabel": {"color": COLORS.text_secondary},
+                        "axisLine": {"lineStyle": {"color": COLORS.border}},
                     },
                     "yAxis": {
-                        "title": {
-                            "text": "MB/s",
-                            "style": {"color": COLORS.text_secondary},
-                        },
-                        "labels": {"style": {"color": COLORS.text_secondary}},
-                        "gridLineColor": COLORS.border,
+                        "type": "value",
+                        "name": "MB/s",
+                        "nameTextStyle": {"color": COLORS.text_secondary},
+                        "axisLabel": {"color": COLORS.text_secondary},
+                        "splitLine": {"lineStyle": {"color": COLORS.border}},
                         "min": 0,
-                    },
-                    "legend": {
-                        "itemStyle": {"color": COLORS.text_secondary},
-                    },
-                    "plotOptions": {
-                        "line": {"marker": {"enabled": False}},
                     },
                     "series": [],
                 }).classes("w-full").style("height: 350px")
@@ -128,29 +120,26 @@ def _performance_content(device_id: str) -> None:
                 ui.label("Link Utilization (%)").classes("text-h6").style(
                     f"color: {COLORS.text_primary}"
                 )
-                util_chart = highchart({
-                    "title": False,
-                    "chart": {
-                        "type": "bar",
-                        "backgroundColor": COLORS.bg_secondary,
-                        "animation": False,
-                    },
+                util_chart = ui.echart({
+                    "animation": False,
+                    "backgroundColor": "transparent",
+                    "grid": {"containLabel": True},
+                    "tooltip": {"trigger": "axis"},
+                    "legend": {"textStyle": {"color": COLORS.text_secondary}},
                     "xAxis": {
-                        "categories": [],
-                        "labels": {"style": {"color": COLORS.text_secondary}},
+                        "type": "category",
+                        "data": [],
+                        "axisLabel": {"color": COLORS.text_secondary},
+                        "axisLine": {"lineStyle": {"color": COLORS.border}},
                     },
                     "yAxis": {
-                        "title": {
-                            "text": "%",
-                            "style": {"color": COLORS.text_secondary},
-                        },
-                        "labels": {"style": {"color": COLORS.text_secondary}},
-                        "gridLineColor": COLORS.border,
+                        "type": "value",
+                        "name": "%",
+                        "nameTextStyle": {"color": COLORS.text_secondary},
+                        "axisLabel": {"color": COLORS.text_secondary},
+                        "splitLine": {"lineStyle": {"color": COLORS.border}},
                         "min": 0,
                         "max": 100,
-                    },
-                    "legend": {
-                        "itemStyle": {"color": COLORS.text_secondary},
                     },
                     "series": [],
                 }).classes("w-full").style("height: 350px")
@@ -202,7 +191,7 @@ def _performance_content(device_id: str) -> None:
 
         # Push to charts
         bw_chart.options["series"] = [
-            {"name": name, "data": points}
+            {"name": name, "type": "line", "data": points, "showSymbol": False}
             for name, points in chart_series.items()
         ]
         bw_chart.update()
@@ -217,10 +206,10 @@ def _performance_content(device_id: str) -> None:
                 round(ps.get("egress_link_utilization", 0) * 100, 1) for ps in port_stats
             ]
 
-            util_chart.options["xAxis"]["categories"] = util_categories
+            util_chart.options["xAxis"]["data"] = util_categories
             util_chart.options["series"] = [
-                {"name": "Ingress", "data": in_util, "color": COLORS.blue},
-                {"name": "Egress", "data": out_util, "color": COLORS.green},
+                {"name": "Ingress", "type": "bar", "data": in_util, "itemStyle": {"color": COLORS.blue}},
+                {"name": "Egress", "type": "bar", "data": out_util, "itemStyle": {"color": COLORS.green}},
             ]
             util_chart.update()
 

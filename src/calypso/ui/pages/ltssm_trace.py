@@ -216,45 +216,29 @@ def _ltssm_trace_content(device_id: str) -> None:
         if not transitions:
             return
 
-        # Build step line chart data: x=timestamp_ms, y=state code
-        chart_data: list[list[float]] = []
-        for t in transitions:
-            chart_data.append([t["timestamp_ms"], t["state"]])
-
-        # Build Y-axis categories (state names at each code)
+        # Build category labels ordered by state code
         all_states = sorted({t["state"] for t in transitions})
-        tick_positions = all_states
-        tick_labels = {s: _get_state_label(s) for s in all_states}
+        state_names = [_get_state_label(s) for s in all_states]
 
-        # Color zones for each state
-        zones: list[dict] = []
-        for i, point in enumerate(chart_data):
-            zones.append({
-                "value": point[0] + 0.01 if i < len(chart_data) - 1 else None,
-                "color": _state_color(int(point[1])),
+        # Build data points with per-point state coloring
+        echart_data = []
+        for t in transitions:
+            echart_data.append({
+                "value": [t["timestamp_ms"], _get_state_label(t["state"])],
+                "itemStyle": {"color": _state_color(t["state"])},
             })
-        # Last zone needs no value cap
-        if zones:
-            zones[-1].pop("value", None)
 
+        retrain_chart.options["yAxis"]["data"] = state_names
         retrain_chart.options["series"] = [
             {
                 "name": "LTSSM State",
                 "type": "line",
-                "step": "left",
-                "data": chart_data,
-                "lineWidth": 3,
-                "marker": {"radius": 5, "symbol": "circle"},
-                "color": COLORS.cyan,
-                "zoneAxis": "x",
-                "zones": zones,
+                "step": "start",
+                "data": echart_data,
+                "lineStyle": {"color": COLORS.cyan, "width": 3},
+                "symbolSize": 10,
             },
         ]
-        retrain_chart.options["yAxis"]["tickPositions"] = tick_positions
-        retrain_chart.options["yAxis"]["labels"] = {
-            "style": {"color": COLORS.text_secondary},
-            "formatter": "__x:function() { var m = " + str(tick_labels) + "; return m[this.value] || this.value; }:x__",
-        }
         retrain_chart.update()
         retrain_chart_card.set_visibility(True)
 
@@ -520,46 +504,27 @@ def _ltssm_trace_content(device_id: str) -> None:
         ui.label("LTSSM State Transitions").classes("text-h6").style(
             f"color: {COLORS.text_primary};"
         )
-        retrain_chart = ui.chart({
-            "title": False,
-            "chart": {
-                "type": "line",
-                "backgroundColor": COLORS.bg_secondary,
-                "animation": False,
-            },
+        retrain_chart = ui.echart({
+            "animation": False,
+            "backgroundColor": "transparent",
+            "grid": {"containLabel": True, "left": 120},
+            "tooltip": {"trigger": "axis"},
+            "legend": {"textStyle": {"color": COLORS.text_secondary}},
             "xAxis": {
-                "title": {
-                    "text": "Time (ms)",
-                    "style": {"color": COLORS.text_secondary},
-                },
-                "labels": {"style": {"color": COLORS.text_secondary}},
-                "gridLineColor": COLORS.border,
-                "gridLineWidth": 1,
-                "lineColor": COLORS.border,
-                "tickColor": COLORS.border,
+                "type": "value",
+                "name": "Time (ms)",
+                "nameTextStyle": {"color": COLORS.text_secondary},
+                "axisLabel": {"color": COLORS.text_secondary},
+                "axisLine": {"lineStyle": {"color": COLORS.border}},
+                "splitLine": {"lineStyle": {"color": COLORS.border}},
             },
             "yAxis": {
-                "title": {
-                    "text": "LTSSM State",
-                    "style": {"color": COLORS.text_secondary},
-                },
-                "labels": {"style": {"color": COLORS.text_secondary}},
-                "gridLineColor": COLORS.border,
-                "lineColor": COLORS.border,
-                "min": 0,
-                "max": 26,
-            },
-            "legend": {
-                "itemStyle": {"color": COLORS.text_secondary},
-            },
-            "tooltip": {
-                "headerFormat": "",
-                "pointFormat": "Time: {point.x:.1f} ms<br>State: {point.y}",
-            },
-            "plotOptions": {
-                "line": {
-                    "step": "left",
-                },
+                "type": "category",
+                "name": "LTSSM State",
+                "nameTextStyle": {"color": COLORS.text_secondary},
+                "data": [],
+                "axisLabel": {"color": COLORS.text_secondary},
+                "axisLine": {"lineStyle": {"color": COLORS.border}},
             },
             "series": [],
         }).classes("w-full").style("height: 350px")
