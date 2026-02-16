@@ -97,9 +97,11 @@ def info(ctx: click.Context, device_index: int, transport: str, port: int) -> No
             }, indent=2))
         else:
             if dev:
+                from calypso.hardware.atlas3 import get_board_profile
+                profile = get_board_profile(dev.chip_type, chip_id=dev.chip_id)
                 click.echo(f"Device: {dev.vendor_id:04X}:{dev.device_id:04X}")
                 click.echo(f"  Location: {dev.bus:02X}:{dev.slot:02X}.{dev.function}")
-                click.echo(f"  Chip: 0x{dev.chip_type:04X} rev {dev.chip_revision}")
+                click.echo(f"  Chip: {profile.chip_name} (0x{dev.chip_type:04X} rev {dev.chip_revision})")
                 click.echo(f"  Family: {dev.chip_family}")
             click.echo(f"  Max Link Width: x{port_props.max_link_width}")
             click.echo(f"  Max Link Speed: {port_props.max_link_speed}")

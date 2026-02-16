@@ -7,6 +7,7 @@ import sys
 
 from nicegui import app, ui
 
+from calypso.hardware.atlas3 import get_board_profile
 from calypso.mcu import pool
 from calypso.mcu.client import McuClient
 from calypso.ui.layout import page_layout
@@ -79,10 +80,10 @@ def _discovery_content() -> None:
                     with ui.row().classes("items-center gap-4"):
                         ui.icon("memory").style(f"color: {COLORS.cyan}")
                         with ui.column().classes("gap-1"):
-                            chip_id = dev.chip_id
+                            profile = get_board_profile(dev.chip_type, chip_id=dev.chip_id)
                             bdf = f"{dev.domain:04X}:{dev.bus:02X}:{dev.slot:02X}.{dev.function}"
                             ui.label(
-                                f"PLX {chip_id:#06x} @ {bdf}"
+                                f"{profile.chip_name} @ {bdf}"
                             ).style(
                                 f"color: {COLORS.text_primary}; font-weight: bold"
                             )

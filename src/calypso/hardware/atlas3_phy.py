@@ -1,4 +1,4 @@
-"""Atlas3 (PEX90144) vendor-specific physical layer register definitions.
+"""Atlas3 vendor-specific physical layer register definitions.
 
 These registers are implementation-specific to the Atlas3 switch silicon.
 Users should interact through the PhyMonitor domain class, not directly

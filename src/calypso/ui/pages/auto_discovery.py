@@ -12,6 +12,7 @@ import sys
 
 from nicegui import ui
 
+from calypso.hardware.atlas3 import get_board_profile
 from calypso.ui.services.pcie import DriverSetupError, connect_pcie_device, scan_pcie_devices
 from calypso.ui.theme import COLORS, GLOBAL_CSS
 from calypso.utils.logging import get_logger
@@ -203,7 +204,7 @@ def _show_device_selector(area: ui.column, devices: list) -> None:
         )
 
         for idx, dev in enumerate(devices):
-            chip_id = dev.chip_id
+            profile = get_board_profile(dev.chip_type, chip_id=dev.chip_id)
             bdf = f"{dev.domain:04X}:{dev.bus:02X}:{dev.slot:02X}.{dev.function}"
 
             with ui.card().classes("w-full p-4").style(
@@ -213,7 +214,7 @@ def _show_device_selector(area: ui.column, devices: list) -> None:
                 with ui.row().classes("items-center gap-4 w-full"):
                     ui.icon("memory").style(f"color: {COLORS.cyan}; font-size: 2rem;")
                     with ui.column().classes("gap-1"):
-                        ui.label(f"PLX {chip_id:#06x} @ {bdf}").style(
+                        ui.label(f"{profile.chip_name} @ {bdf}").style(
                             f"color: {COLORS.text_primary}; font-weight: bold;"
                         )
                         ui.label(
