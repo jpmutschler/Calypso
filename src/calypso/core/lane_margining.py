@@ -19,6 +19,7 @@ from calypso.models.phy import (
     MarginingLaneControl,
     MarginingLaneStatus,
     MarginingReceiverNumber,
+    MarginingReportPayload,
     steps_to_timing_ui,
     steps_to_voltage_mv,
 )
@@ -73,21 +74,80 @@ class LaneMarginingEngine:
         if self._margining_offset is None:
             raise ValueError("Lane Margining capability not found on this device")
 
-    def get_capabilities(self) -> LaneMarginCapabilities:
-        """Read port margining capabilities from the Port Capability register."""
-        cap_reg = self._reader.read_config_register(
+    def is_margining_ready(self) -> bool:
+        """Check whether the port's Margining Ready bit is set in Port Status."""
+        dword = self._reader.read_config_register(
             self._margining_offset + LaneMarginingCap.PORT_CAP,
         )
+        # Port Status is upper 16 bits (offset 0x06); bit 0 = Margining Ready
+        port_status = (dword >> 16) & 0xFFFF
+        return bool(port_status & 0x1)
+
+    def _send_report_command(
+        self,
+        lane: int,
+        receiver: MarginingReceiverNumber,
+        report_payload: int,
+    ) -> int:
+        """Send an ACCESS_RECEIVER_MARGIN_CONTROL report command.
+
+        Returns the 8-bit margin_payload from the Lane Status response register.
+        Polls until the response margin_type echoes back as expected, which
+        confirms the device has processed the command (not stale data).
+        """
+        control = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL,
+            usage_model=0,
+            margin_payload=report_payload,
+        )
+        self._write_lane_control(lane, control)
+
+        deadline = time.monotonic() + _POLL_TIMEOUT_S
+        while time.monotonic() < deadline:
+            time.sleep(_POLL_INTERVAL_S)
+            status = self._read_lane_status(lane)
+            if status.margin_type == MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL:
+                return status.margin_payload
+
+        raise TimeoutError(
+            f"Report command 0x{report_payload:02X} timed out waiting for response"
+        )
+
+    def get_capabilities(
+        self,
+        lane: int = 0,
+        receiver: MarginingReceiverNumber = MarginingReceiverNumber.BROADCAST,
+    ) -> LaneMarginCapabilities:
+        """Query lane margining capabilities using the command protocol.
+
+        Per PCIe 6.0.1 Section 7.7.8, capabilities are obtained by sending
+        ACCESS_RECEIVER_MARGIN_CONTROL report commands on a per-lane basis
+        and reading the response from the Lane Status register.
+        """
+        if not self.is_margining_ready():
+            raise ValueError("Port is not ready for margining (Margining Ready bit not set)")
+
+        def _report(payload: int) -> int:
+            return self._send_report_command(lane, receiver, payload)
+
+        # Report Margin Control Capabilities (response bits: Table 7-52)
+        caps_byte = _report(MarginingReportPayload.CAPABILITIES)
+
         return LaneMarginCapabilities(
-            max_voltage_offset=(cap_reg >> 0) & 0x3F,
-            num_voltage_steps=(cap_reg >> 6) & 0x3F,
-            max_timing_offset=(cap_reg >> 12) & 0x3F,
-            num_timing_steps=(cap_reg >> 18) & 0x3F,
-            sample_count=0,
-            sample_rate_voltage=False,
-            sample_rate_timing=False,
-            ind_up_down_voltage=bool((cap_reg >> 24) & 0x1),
-            ind_left_right_timing=bool((cap_reg >> 25) & 0x1),
+            max_voltage_offset=_report(MarginingReportPayload.MAX_VOLTAGE_OFFSET) & 0x3F,
+            num_voltage_steps=_report(MarginingReportPayload.NUM_VOLTAGE_STEPS) & 0x3F,
+            max_timing_offset=_report(MarginingReportPayload.MAX_TIMING_OFFSET) & 0x3F,
+            num_timing_steps=_report(MarginingReportPayload.NUM_TIMING_STEPS) & 0x3F,
+            sample_count=_report(MarginingReportPayload.SAMPLE_COUNT) & 0x3F,
+            sample_rate_voltage=bool(
+                _report(MarginingReportPayload.SAMPLING_RATE_VOLTAGE) & 0x01,
+            ),
+            sample_rate_timing=bool(
+                _report(MarginingReportPayload.SAMPLING_RATE_TIMING) & 0x01,
+            ),
+            ind_up_down_voltage=bool(caps_byte & 0x02),
+            ind_left_right_timing=bool(caps_byte & 0x04),
         )
 
     def _lane_control_offset(self, lane: int) -> int:
@@ -158,7 +218,7 @@ class LaneMarginingEngine:
         key = f"{device_id}:{lane}"
         start_ms = int(time.monotonic() * 1000)
 
-        caps = self.get_capabilities()
+        caps = self.get_capabilities(lane=lane, receiver=receiver)
         num_timing = caps.num_timing_steps
         num_voltage = caps.num_voltage_steps
 

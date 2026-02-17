@@ -1293,7 +1293,7 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `POST` | `/api/devices/{id}/phy/utp/prepare` | Prepare UTP test. Params: `port_number`. Body: `{preset, rate, port_select}` |
 | `GET` | `/api/devices/{id}/phy/utp/results` | Read UTP results. Params: `port_number`, `num_lanes` |
 | `POST` | `/api/devices/{id}/phy/utp/load` | Load UTP pattern. Params: `port_number`. Body: `{preset, pattern_hex}` |
-| `GET` | `/api/devices/{id}/phy/margining/capabilities` | Margining capabilities. Params: `port_number` |
+| `GET` | `/api/devices/{id}/phy/margining/capabilities` | Margining capabilities. Params: `port_number`, `lane` |
 | `POST` | `/api/devices/{id}/phy/margining/sweep` | Start margining sweep. Body: `{lane, port_number, receiver}` |
 | `GET` | `/api/devices/{id}/phy/margining/progress` | Sweep progress. Params: `lane` |
 | `GET` | `/api/devices/{id}/phy/margining/result` | Sweep result. Params: `lane` |

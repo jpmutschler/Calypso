@@ -32,10 +32,11 @@ def _eye_diagram_content(device_id: str) -> None:
 
     async def check_capabilities():
         port = state["port_number"]
+        lane = state["lane"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/phy/margining/capabilities?port_number={port}")).json()',
+                f'/phy/margining/capabilities?port_number={port}&lane={lane}")).json()',
                 timeout=10.0,
             )
             if resp.get("detail"):

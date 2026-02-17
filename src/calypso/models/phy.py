@@ -197,6 +197,25 @@ class MarginingReceiverNumber(IntEnum):
     RECEIVER_C = 0x3
 
 
+class MarginingReportPayload(IntEnum):
+    """Payload values for ACCESS_RECEIVER_MARGIN_CONTROL report commands.
+
+    Per PCIe 6.0.1 Section 7.7.8, capabilities are obtained by sending
+    margin_type=001b commands with these payload values, then reading
+    the response from the Lane Status register.
+    """
+
+    CAPABILITIES = 0x88
+    NUM_VOLTAGE_STEPS = 0x89
+    NUM_TIMING_STEPS = 0x8A
+    MAX_TIMING_OFFSET = 0x8B
+    MAX_VOLTAGE_OFFSET = 0x8C
+    SAMPLING_RATE_VOLTAGE = 0x8D
+    SAMPLING_RATE_TIMING = 0x8E
+    SAMPLE_COUNT = 0x8F
+    MAX_LANES = 0x90
+
+
 @dataclass
 class MarginingLaneControl:
     """Lane Margining Control register fields (Section 7.7.8.4)."""

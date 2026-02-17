@@ -422,14 +422,15 @@ async def prepare_utp_test(
 async def get_margining_capabilities(
     device_id: str,
     port_number: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> LaneMarginCapabilitiesResponse:
-    """Read lane margining capabilities for a port."""
+    """Read lane margining capabilities for a port via the command protocol."""
     sw = _get_switch(device_id)
 
     def _read():
         from calypso.core.lane_margining import LaneMarginingEngine
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
-        caps = engine.get_capabilities()
+        caps = engine.get_capabilities(lane=lane)
         return LaneMarginCapabilitiesResponse(
             max_timing_offset=caps.max_timing_offset,
             max_voltage_offset=caps.max_voltage_offset,
