@@ -49,7 +49,6 @@ def _eye_diagram_content(device_id: str) -> None:
         port = state["port_number"]
         lane = state["lane"]
         try:
-            # Fetch capabilities
             resp = await ui.run_javascript(
                 "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
@@ -64,24 +63,12 @@ def _eye_diagram_content(device_id: str) -> None:
                 return
             state["capabilities"] = resp
 
-            # Detect modulation from link speed
-            link_resp = await ui.run_javascript(
-                "return (async () => {"
-                f'  const r = await fetch("/api/devices/{device_id}/link");'
-                "  if (!r.ok) return {};"
-                "  return await r.json();"
-                "})()",
-                timeout=10.0,
-            )
-            current_speed = ""
-            if isinstance(link_resp, dict) and "status" in link_resp:
-                current_speed = link_resp["status"].get("current_speed", "")
-            elif isinstance(link_resp, dict):
-                current_speed = link_resp.get("current_speed", "")
-
-            is_pam4 = current_speed == "Gen6"
+            # Modulation is now included in the capabilities response
+            # (read from the target port, not the management port)
+            modulation = resp.get("modulation", "NRZ")
+            is_pam4 = modulation == "PAM4"
             state["is_pam4"] = is_pam4
-            state["modulation"] = "PAM4" if is_pam4 else "NRZ"
+            state["modulation"] = modulation
 
             refresh_capabilities()
             mod_label = "PAM4 (3 Eyes)" if is_pam4 else "NRZ (Single Eye)"
@@ -543,6 +530,7 @@ def _eye_diagram_content(device_id: str) -> None:
                         f"color: {COLORS.text_muted}; font-size: 13px;"
                     )
                     return
+                _caps_chip("Link Speed", caps.get("link_speed", "Unknown"))
                 _caps_chip("Timing Steps", str(caps.get("num_timing_steps", 0)))
                 _caps_chip("Voltage Steps", str(caps.get("num_voltage_steps", 0)))
                 _caps_chip("Max Timing Offset", str(caps.get("max_timing_offset", 0)))

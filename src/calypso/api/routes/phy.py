@@ -447,6 +447,7 @@ async def get_margining_capabilities(
 
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
         try:
+            link_speed, modulation = engine.get_link_info()
             caps = engine.get_capabilities(lane=lane)
             return LaneMarginCapabilitiesResponse(
                 max_timing_offset=caps.max_timing_offset,
@@ -455,6 +456,8 @@ async def get_margining_capabilities(
                 num_voltage_steps=caps.num_voltage_steps,
                 ind_up_down_voltage=caps.ind_up_down_voltage,
                 ind_left_right_timing=caps.ind_left_right_timing,
+                link_speed=link_speed,
+                modulation=modulation,
             )
         finally:
             engine.close()

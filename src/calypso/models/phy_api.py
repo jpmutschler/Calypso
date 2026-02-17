@@ -14,6 +14,8 @@ class LaneMarginCapabilitiesResponse(BaseModel):
     num_voltage_steps: int
     ind_up_down_voltage: bool
     ind_left_right_timing: bool
+    link_speed: str = ""  # e.g. "Gen4 (16.0 GT/s)", "Gen6 (64.0 GT/s)"
+    modulation: str = "NRZ"  # "NRZ" or "PAM4"
 
 
 class MarginPoint(BaseModel):

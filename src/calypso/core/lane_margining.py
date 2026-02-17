@@ -325,6 +325,23 @@ class LaneMarginingEngine:
         port_status = (dword >> 16) & 0xFFFF
         return bool(port_status & 0x1)
 
+    def _clear_lane_command(self, lane: int, receiver: MarginingReceiverNumber) -> None:
+        """Write NO_COMMAND to the lane control register.
+
+        Per PCIe 6.0.1 Section 7.7.8.4, software must write No Command to the
+        Margin Type field before writing a new margin command. The receiver only
+        processes commands when it sees a transition FROM No Command.
+        """
+        clear = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.NO_COMMAND,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, clear)
+        # Brief pause for hardware to register the NO_COMMAND state
+        time.sleep(0.01)
+
     def _send_report_command(
         self,
         lane: int,
@@ -334,25 +351,22 @@ class LaneMarginingEngine:
         """Send an ACCESS_RECEIVER_MARGIN_CONTROL report command.
 
         Returns the 8-bit margin_payload from the Lane Status response register.
-        Polls until the response margin_type echoes back as expected, which
-        confirms the device has processed the command (not stale data).
+        Per PCIe 6.0.1, clears to NO_COMMAND first so the receiver sees a valid
+        transition, then polls until the response margin_type echoes back.
         """
+        # Step 1: Clear to NO_COMMAND (mandatory per spec Section 7.7.8.4)
+        self._clear_lane_command(lane, receiver)
+
+        # Step 2: Write the actual report command
         control = MarginingLaneControl(
             receiver_number=receiver,
             margin_type=MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL,
             usage_model=0,
             margin_payload=report_payload,
         )
-
-        # Read the lane DWORD before writing for diagnostics
-        offset = self._lane_control_offset(lane)
-        pre_dword = self._cfg_read(offset)
-
         self._write_lane_control(lane, control)
 
-        # Read back to verify write took effect
-        post_dword = self._cfg_read(offset)
-
+        # Step 3: Poll until status margin_type echoes the command
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         last_status: MarginingLaneStatus | None = None
         while time.monotonic() < deadline:
@@ -364,9 +378,6 @@ class LaneMarginingEngine:
         # Timeout — build diagnostic message
         diag = self._read_diag()
         diag["margining_offset"] = f"0x{self._margining_offset:X}"
-        diag["lane_reg_offset"] = f"0x{offset:X}"
-        diag["pre_write_dword"] = f"0x{pre_dword:08X}"
-        diag["post_write_dword"] = f"0x{post_dword:08X}"
         diag["control_written"] = f"0x{control.to_register():04X}"
         if last_status is not None:
             diag["last_status_type"] = last_status.margin_type.name
@@ -378,6 +389,16 @@ class LaneMarginingEngine:
         )
 
     _MIN_MARGINING_SPEED = PCIeLinkSpeed.GEN4  # 16 GT/s — first gen with margining
+
+    def get_link_info(self) -> tuple[str, str]:
+        """Get the target port's link speed and modulation.
+
+        Returns (link_speed_str, modulation) where modulation is "NRZ" or "PAM4".
+        """
+        speed_code, _, _ = self._get_link_state()
+        speed_str = self._format_link_speed(speed_code)
+        mod = "PAM4" if get_modulation_for_speed(speed_code) == Modulation.PAM4 else "NRZ"
+        return speed_str, mod
 
     def _resolve_receiver(
         self,
@@ -483,6 +504,9 @@ class LaneMarginingEngine:
         payload: int,
     ) -> MarginingLaneStatus:
         """Issue a single margining command and poll until complete or timeout."""
+        # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
+        self._clear_lane_command(lane, receiver)
+
         control = MarginingLaneControl(
             receiver_number=receiver,
             margin_type=cmd,
