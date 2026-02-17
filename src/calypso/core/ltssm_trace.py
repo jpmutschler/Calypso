@@ -144,10 +144,8 @@ class LtssmTracer:
         write_val = reg.to_register()
         self._write_vendor_reg(VendorPhyRegs.RECOVERY_DIAGNOSTIC, write_val)
         raw = self._read_vendor_reg(VendorPhyRegs.RECOVERY_DIAGNOSTIC)
+        self._last_raw_recovery_diag = raw
         result = RecoveryDiagnosticRegister.from_register(raw)
-        # Log at debug only on first call per tracer instance (avoid noise
-        # during 20ms retrain polling).  Subsequent reads log at trace level
-        # which is normally suppressed.
         if not getattr(self, "_ltssm_read_logged", False):
             logger.debug(
                 "read_ltssm_state",
@@ -185,13 +183,21 @@ class LtssmTracer:
         write_reg = PhyAdditionalStatusRegister(port_select=self._port_select)
         self._write_vendor_reg(VendorPhyRegs.PHY_ADDITIONAL_STATUS, write_reg.to_register())
         raw = self._read_vendor_reg(VendorPhyRegs.PHY_ADDITIONAL_STATUS)
+        self._last_raw_phy_status = raw
         return PhyAdditionalStatusRegister.from_register(raw)
 
     def get_snapshot(self) -> PortLtssmSnapshot:
         """Read a complete LTSSM state snapshot for this port.
 
-        Combines LTSSM state, recovery count, and PHY additional status.
+        Combines LTSSM state, recovery count, PHY additional status,
+        and diagnostic raw register values for troubleshooting.
         """
+        # Diagnostic: read Recovery Diagnostic BEFORE we write to it
+        raw_prewrite = self._read_vendor_reg(VendorPhyRegs.RECOVERY_DIAGNOSTIC)
+
+        # Diagnostic: read PHY Cmd/Status as a sanity check (num_ports)
+        raw_cmd_status = self._read_vendor_reg(VendorPhyRegs.PHY_CMD_STATUS)
+
         ltssm_code = self.read_ltssm_state()
         recovery_count, rx_eval = self.read_recovery_count()
         phy_status = self.read_phy_additional_status()
@@ -207,6 +213,11 @@ class LtssmTracer:
             link_down_count=phy_status.link_down_count,
             lane_reversal=phy_status.lane_reversal,
             rx_eval_count=rx_eval,
+            diag_reg_base=f"0x{self._port_reg_base:X}",
+            diag_raw_recovery_prewrite=f"0x{raw_prewrite:08X}",
+            diag_raw_recovery_diag=f"0x{getattr(self, '_last_raw_recovery_diag', 0):08X}",
+            diag_raw_phy_status=f"0x{getattr(self, '_last_raw_phy_status', 0):08X}",
+            diag_raw_phy_cmd_status=f"0x{raw_cmd_status:08X}",
         )
 
     def clear_recovery_count(self) -> None:

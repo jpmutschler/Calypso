@@ -138,6 +138,27 @@ def _ltssm_trace_content(device_id: str) -> None:
                     "", COLORS.text_secondary,
                 )
 
+            # Diagnostic raw register dump
+            reg_base = data.get("diag_reg_base", "")
+            raw_pre = data.get("diag_raw_recovery_prewrite", "")
+            raw_diag = data.get("diag_raw_recovery_diag", "")
+            raw_phy = data.get("diag_raw_phy_status", "")
+            raw_cmd = data.get("diag_raw_phy_cmd_status", "")
+            if reg_base:
+                with ui.expansion("Register Diagnostics").classes("w-full mt-2").props(
+                    "dense header-class=text-caption"
+                ).style(f"color: {COLORS.text_muted};"):
+                    ui.label(
+                        f"Reg base: {reg_base}  |  "
+                        f"PHY Cmd/Status (0x321C): {raw_cmd}  |  "
+                        f"Recovery Diag pre-write: {raw_pre}  |  "
+                        f"Recovery Diag post-write: {raw_diag}  |  "
+                        f"PHY Additional Status: {raw_phy}"
+                    ).style(
+                        f"color: {COLORS.text_muted}; font-size: 12px; "
+                        "font-family: monospace; word-break: break-all;"
+                    )
+
     # --- Retrain-and-Watch actions ---
 
     async def start_retrain():

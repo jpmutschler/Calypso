@@ -103,6 +103,12 @@ class PortLtssmSnapshot(BaseModel):
     link_down_count: int
     lane_reversal: bool
     rx_eval_count: int
+    # Diagnostic raw register values (hex strings) for troubleshooting
+    diag_reg_base: str = ""           # Absolute BAR 0 offset used
+    diag_raw_recovery_diag: str = ""  # Recovery Diagnostic readback
+    diag_raw_phy_status: str = ""     # PHY Additional Status readback
+    diag_raw_phy_cmd_status: str = "" # PHY Cmd/Status (num_ports sanity check)
+    diag_raw_recovery_prewrite: str = ""  # Recovery Diag BEFORE our write
 
 
 class LtssmTransition(BaseModel):
