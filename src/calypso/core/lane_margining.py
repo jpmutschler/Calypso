@@ -215,13 +215,27 @@ class LaneMarginingEngine:
     def _find_port_key(
         mgmt_key: PLX_DEVICE_KEY, port_number: int
     ) -> PLX_DEVICE_KEY | None:
-        """Find a device key matching the given PlxPort number."""
+        """Find a device key whose hardware PortNumber matches.
+
+        PlxPort (SDK index) does not always equal the hardware PortNumber,
+        so we open each candidate and check get_port_properties().PortNumber.
+        This mirrors the pattern used by PortManager.get_all_port_statuses().
+        """
         from calypso.bindings.constants import PlxApiMode
 
         all_keys = sdk_device.find_devices(api_mode=PlxApiMode(mgmt_key.ApiMode))
         for key in all_keys:
-            if key.PlxPort == port_number:
-                return key
+            try:
+                dev = sdk_device.open_device(key)
+                try:
+                    props = sdk_device.get_port_properties(dev)
+                    found = props.PortNumber == port_number
+                finally:
+                    sdk_device.close_device(dev)
+                if found:
+                    return key
+            except Exception:
+                continue
         return None
 
     def is_margining_ready(self) -> bool:
