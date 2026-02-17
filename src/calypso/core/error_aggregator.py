@@ -131,7 +131,7 @@ class ErrorAggregator:
             for port_num in active_ports:
                 try:
                     tracer = LtssmTracer(self._device, self._key, port_num)
-                    snap = tracer.get_snapshot(port_select=0)
+                    snap = tracer.get_snapshot()
 
                     summary = port_map.setdefault(
                         port_num,

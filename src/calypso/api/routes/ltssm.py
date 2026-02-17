@@ -50,12 +50,11 @@ def _get_tracer(device_id: str, port_number: int):
 async def get_ltssm_snapshot(
     device_id: str,
     port_number: int = Query(0, ge=0, le=143),
-    port_select: int = Query(0, ge=0, le=15),
 ) -> PortLtssmSnapshot:
     """Read current LTSSM state, recovery count, and link status."""
     tracer = _get_tracer(device_id, port_number)
     try:
-        return await asyncio.to_thread(tracer.get_snapshot, port_select)
+        return await asyncio.to_thread(tracer.get_snapshot)
     except CalypsoError as exc:
         raise HTTPException(
             status_code=500,
@@ -65,7 +64,6 @@ async def get_ltssm_snapshot(
 
 class ClearCountersRequest(BaseModel):
     port_number: int = Field(0, ge=0, le=143)
-    port_select: int = Field(0, ge=0, le=15)
 
 
 @router.post("/devices/{device_id}/ltssm/clear-counters")
@@ -76,7 +74,7 @@ async def clear_ltssm_counters(
     """Clear recovery count for a port."""
     tracer = _get_tracer(device_id, body.port_number)
     try:
-        await asyncio.to_thread(tracer.clear_recovery_count, body.port_select)
+        await asyncio.to_thread(tracer.clear_recovery_count)
     except CalypsoError as exc:
         raise HTTPException(
             status_code=500,
@@ -92,7 +90,6 @@ async def clear_ltssm_counters(
 
 class RetrainRequest(BaseModel):
     port_number: int = Field(0, ge=0, le=143)
-    port_select: int = Field(0, ge=0, le=15)
     timeout_s: float = Field(10.0, ge=1.0, le=60.0)
 
 
@@ -110,7 +107,7 @@ async def start_retrain_watch(
 
     def _run_retrain():
         try:
-            tracer.retrain_and_watch(body.port_select, device_id, body.timeout_s)
+            tracer.retrain_and_watch(device_id, body.timeout_s)
         except RuntimeError as exc:
             # Atomic guard rejected: already running
             logger.warning("Retrain rejected: %s", exc)
@@ -132,11 +129,10 @@ async def start_retrain_watch(
 async def get_retrain_watch_progress(
     device_id: str,
     port_number: int = Query(0, ge=0, le=143),
-    port_select: int = Query(0, ge=0, le=15),
 ) -> RetrainWatchProgress:
     """Poll the progress of a running retrain-and-watch."""
     from calypso.core.ltssm_trace import get_retrain_progress
-    return get_retrain_progress(device_id, port_number, port_select)
+    return get_retrain_progress(device_id, port_number)
 
 
 @router.get(
@@ -146,11 +142,10 @@ async def get_retrain_watch_progress(
 async def get_retrain_watch_result(
     device_id: str,
     port_number: int = Query(0, ge=0, le=143),
-    port_select: int = Query(0, ge=0, le=15),
 ) -> RetrainWatchResult:
     """Get the completed retrain-watch result."""
     from calypso.core.ltssm_trace import get_retrain_result
-    result = get_retrain_result(device_id, port_number, port_select)
+    result = get_retrain_result(device_id, port_number)
     if result is None:
         raise HTTPException(status_code=404, detail="No retrain result available")
     return result
@@ -163,7 +158,6 @@ async def get_retrain_watch_result(
 
 class PtraceConfigRequest(BaseModel):
     port_number: int = Field(0, ge=0, le=143)
-    port_select: int = Field(0, ge=0, le=15)
     trace_point: int = Field(0, ge=0, le=15)
     lane_select: int = Field(0, ge=0, le=15)
     trigger_on_ltssm: bool = False
@@ -178,7 +172,6 @@ async def configure_ptrace(
     """Configure Ptrace capture parameters."""
     tracer = _get_tracer(device_id, body.port_number)
     config = PtraceConfig(
-        port_select=body.port_select,
         trace_point=body.trace_point,
         lane_select=body.lane_select,
         trigger_on_ltssm=body.trigger_on_ltssm,

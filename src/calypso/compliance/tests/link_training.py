@@ -132,7 +132,7 @@ def _t1_2_ltssm_validation(
     t_start = time.monotonic()
 
     try:
-        result = tracer.retrain_and_watch(port.port_select, device_id, timeout_s=10.0)
+        result = tracer.retrain_and_watch(device_id, timeout_s=10.0)
 
         transitions = result.transitions
         state_names = [t.state_name for t in transitions]
@@ -312,9 +312,9 @@ def _t1_4_recovery_baseline(
     t_start = time.monotonic()
 
     try:
-        tracer.clear_recovery_count(port.port_select)
+        tracer.clear_recovery_count()
         time.sleep(config.idle_wait_s)
-        recovery_count, rx_eval = tracer.read_recovery_count(port.port_select)
+        recovery_count, rx_eval = tracer.read_recovery_count()
 
         if recovery_count == 0:
             verdict = Verdict.PASS

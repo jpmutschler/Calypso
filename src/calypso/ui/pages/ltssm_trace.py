@@ -43,7 +43,6 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     state: dict = {
         "port_number": 0,
-        "port_select": 0,
         "auto_refresh": False,
         "retrain_polling": False,
     }
@@ -53,11 +52,10 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def read_snapshot():
         port = state["port_number"]
-        ps = state["port_select"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/snapshot?port_number={port}&port_select={ps}")).json()',
+                f'/ltssm/snapshot?port_number={port}")).json()',
                 timeout=10.0,
             )
             if resp.get("detail"):
@@ -69,13 +67,12 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def clear_counters():
         port = state["port_number"]
-        ps = state["port_select"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
                 f'/ltssm/clear-counters", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f'body: JSON.stringify({{port_number: {port}, port_select: {ps}}})'
+                f'body: JSON.stringify({{port_number: {port}}})'
                 f'}})).json()',
                 timeout=10.0,
             )
@@ -102,6 +99,8 @@ def _ltssm_trace_content(device_id: str) -> None:
             ltssm_code = data.get("ltssm_state", 0)
             ltssm_name = data.get("ltssm_state_name", "UNKNOWN")
             speed_name = data.get("link_speed_name", "Unknown")
+            port_sel = data.get("port_select", 0)
+            port_num = data.get("port_number", 0)
             color = _state_color(ltssm_code)
 
             with ui.row().classes("w-full gap-8 items-start flex-wrap"):
@@ -112,6 +111,11 @@ def _ltssm_trace_content(device_id: str) -> None:
                 _snapshot_stat(
                     "Link Speed", speed_name,
                     "", COLORS.cyan,
+                )
+                _snapshot_stat(
+                    "Station Port",
+                    f"Stn {port_num // 16} / Port {port_sel}",
+                    f"port_select={port_sel}", COLORS.text_secondary,
                 )
                 _snapshot_stat(
                     "Recovery Count",
@@ -138,13 +142,12 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def start_retrain():
         port = state["port_number"]
-        ps = state["port_select"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
                 f'/ltssm/retrain", {{'
                 f'method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f'body: JSON.stringify({{port_number: {port}, port_select: {ps}, timeout_s: 10.0}})'
+                f'body: JSON.stringify({{port_number: {port}, timeout_s: 10.0}})'
                 f'}})).json()',
                 timeout=10.0,
             )
@@ -165,11 +168,10 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def poll_retrain_progress():
         port = state["port_number"]
-        ps = state["port_select"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/retrain/progress?port_number={port}&port_select={ps}")).json()',
+                f'/ltssm/retrain/progress?port_number={port}")).json()',
                 timeout=10.0,
             )
         except Exception:
@@ -201,11 +203,10 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def fetch_retrain_result():
         port = state["port_number"]
-        ps = state["port_select"]
         try:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/retrain/result?port_number={port}&port_select={ps}")).json()',
+                f'/ltssm/retrain/result?port_number={port}")).json()',
                 timeout=10.0,
             )
             if resp.get("detail"):
@@ -310,7 +311,6 @@ def _ltssm_trace_content(device_id: str) -> None:
 
     async def configure_ptrace():
         port = state["port_number"]
-        ps = state["port_select"]
         tp = int(ptrace_trace_point.value or 0)
         lane = int(ptrace_lane.value or 0)
         trigger_ltssm = ptrace_trigger_toggle.value
@@ -318,7 +318,6 @@ def _ltssm_trace_content(device_id: str) -> None:
         try:
             body = {
                 "port_number": port,
-                "port_select": ps,
                 "trace_point": tp,
                 "lane_select": lane,
                 "trigger_on_ltssm": trigger_ltssm,
@@ -459,13 +458,6 @@ def _ltssm_trace_content(device_id: str) -> None:
             ).props("dense outlined").classes("w-28")
             port_input.on_value_change(
                 lambda e: state.update({"port_number": int(e.value or 0)})
-            )
-
-            port_select_input = ui.number(
-                "Port Select", value=0, min=0, max=15, step=1,
-            ).props("dense outlined").classes("w-28")
-            port_select_input.on_value_change(
-                lambda e: state.update({"port_select": int(e.value or 0)})
             )
 
             ui.button("Read Snapshot", on_click=read_snapshot).props(

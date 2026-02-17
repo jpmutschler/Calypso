@@ -183,7 +183,7 @@ def _t6_3_all_port_recovery_count(
         for port_num in active_ports:
             try:
                 tracer = LtssmTracer(device, device_key, port_num)
-                recovery, rx_eval = tracer.read_recovery_count(port_select=0)
+                recovery, rx_eval = tracer.read_recovery_count()
                 total_checked += 1
                 if recovery > 0:
                     non_zero.append({

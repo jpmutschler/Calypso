@@ -81,7 +81,12 @@ class TestSuiteResult(BaseModel):
 
 
 class PortConfig(BaseModel):
-    """Port selection for compliance tests."""
+    """Port selection for compliance tests.
+
+    Note: ``port_select`` is used only by PHY/UTP tests that access
+    SerDes-level registers.  LTSSM tests auto-compute the intra-station
+    port_select from ``port_number`` inside ``LtssmTracer``.
+    """
 
     port_number: int = Field(0, ge=0, le=143)
     port_select: int = Field(0, ge=0, le=15)

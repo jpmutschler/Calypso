@@ -143,9 +143,11 @@ class RetrainWatchProgress(BaseModel):
 # ---------------------------------------------------------------------------
 
 class PtraceConfig(BaseModel):
-    """Configuration for a Ptrace capture session."""
+    """Configuration for a Ptrace capture session.
 
-    port_select: int
+    port_select is auto-computed by LtssmTracer from the global port number.
+    """
+
     trace_point: int = 0
     lane_select: int = 0
     trigger_on_ltssm: bool = False
