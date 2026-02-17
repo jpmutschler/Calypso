@@ -13,7 +13,14 @@ from collections.abc import Callable
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
-from calypso.hardware.pcie_registers import ExtCapabilityID
+from calypso.hardware.pcie_registers import (
+    ExtCapabilityID,
+    LinkStsBits,
+    PCIeCapability,
+    PCIeCapabilityID,
+    PCIeLinkSpeed,
+    SPEED_STRINGS,
+)
 from calypso.sdk import device as sdk_device
 from calypso.models.phy import (
     LaneMarginCapabilities,
@@ -250,10 +257,35 @@ class LaneMarginingEngine:
         """Write a config register via the port's device handle."""
         self._config.write_config_register(offset, value)
 
+    def _get_link_speed_code(self) -> int:
+        """Read the current link speed code from Link Status register.
+
+        Returns the raw speed code (1=Gen1 .. 6=Gen6), or 0 on failure.
+        """
+        try:
+            pcie_cap = self._config.find_capability(PCIeCapabilityID.PCIE)
+            if pcie_cap is None:
+                return 0
+            link_ctl_sts = self._cfg_read(pcie_cap + PCIeCapability.LINK_CTL)
+            status_word = (link_ctl_sts >> 16) & 0xFFFF
+            return status_word & int(LinkStsBits.CURRENT_LINK_SPEED_MASK)
+        except Exception:
+            return 0
+
+    def _format_link_speed(self, code: int) -> str:
+        """Format a speed code as a human-readable string."""
+        try:
+            return SPEED_STRINGS[PCIeLinkSpeed(code)]
+        except (ValueError, KeyError):
+            return f"Unknown(0x{code:X})"
+
     def _read_diag(self) -> dict[str, str]:
         """Collect diagnostic register reads for troubleshooting."""
         diag: dict[str, str] = {}
         try:
+            speed_code = self._get_link_speed_code()
+            diag["link_speed"] = self._format_link_speed(speed_code)
+
             cap_header = self._cfg_read(self._margining_offset)
             cap_id = cap_header & 0xFFFF
             diag["cap_header"] = f"0x{cap_header:08X} (cap_id=0x{cap_id:04X})"
@@ -337,6 +369,8 @@ class LaneMarginingEngine:
             f"Report command 0x{report_payload:02X} timed out. Diag: {diag_str}"
         )
 
+    _MIN_MARGINING_SPEED = PCIeLinkSpeed.GEN4  # 16 GT/s — first gen with margining
+
     def get_capabilities(
         self,
         lane: int = 0,
@@ -348,6 +382,15 @@ class LaneMarginingEngine:
         ACCESS_RECEIVER_MARGIN_CONTROL report commands on a per-lane basis
         and reading the response from the Lane Status register.
         """
+        speed_code = self._get_link_speed_code()
+        if speed_code < self._MIN_MARGINING_SPEED:
+            current = self._format_link_speed(speed_code)
+            raise ValueError(
+                f"Lane Margining requires Gen4 (16 GT/s) or higher. "
+                f"Current link speed: {current}. "
+                f"Margining uses PHY-level ordered sets that only exist at Gen4+."
+            )
+
         if not self.is_margining_ready():
             raise ValueError("Port is not ready for margining (Margining Ready bit not set)")
 
