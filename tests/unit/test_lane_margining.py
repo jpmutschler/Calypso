@@ -329,56 +329,25 @@ class TestResolveReceiver:
 # ---------------------------------------------------------------------------
 
 
-def _make_status_no_command() -> MarginingLaneStatus:
-    """Build a lane status with margin_type=NO_COMMAND."""
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.BROADCAST,
-        margin_type=MarginingCmd.NO_COMMAND,
-        usage_model=0,
-        margin_payload=0,
-    )
-
-
-def _make_status_stale() -> MarginingLaneStatus:
-    """Build a lane status with margin_type=MARGIN_VOLTAGE (lingering state)."""
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.RECEIVER_A,
-        margin_type=MarginingCmd.MARGIN_VOLTAGE,
-        usage_model=0,
-        margin_payload=0x21,
-    )
-
-
 class TestClearLaneCommand:
-    def test_immediate_ack(self):
-        """Status returns NO_COMMAND on first read — returns immediately."""
+    @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
+    def test_writes_no_command(self):
+        """Writes NO_COMMAND control word to the lane."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(return_value=_make_status_no_command())
         engine._clear_lane_command(0, MarginingReceiverNumber.BROADCAST)
         engine._write_lane_control.assert_called_once()
-        engine._read_lane_status.assert_called_once()
+        control = engine._write_lane_control.call_args[0][1]
+        assert control.margin_type == MarginingCmd.NO_COMMAND
 
-    def test_delayed_ack(self):
-        """Status returns stale type for several reads, then NO_COMMAND."""
+    @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
+    def test_uses_specified_receiver(self):
+        """Preserves the receiver number in the NO_COMMAND control word."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(
-            side_effect=[_make_status_stale(), _make_status_stale(), _make_status_no_command()]
-        )
         engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_A)
-        assert engine._read_lane_status.call_count == 3
-
-    @patch("calypso.core.lane_margining._POLL_TIMEOUT_S", 0.03)
-    def test_timeout_logs_warning_and_continues(self):
-        """Status never returns NO_COMMAND — logs warning, does not raise."""
-        engine = _create_engine()
-        engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(return_value=_make_status_stale())
-        # Should not raise
-        engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_A)
-        # Should have polled multiple times before timeout
-        assert engine._read_lane_status.call_count >= 1
+        control = engine._write_lane_control.call_args[0][1]
+        assert control.receiver_number == MarginingReceiverNumber.RECEIVER_A
 
 
 # ---------------------------------------------------------------------------
