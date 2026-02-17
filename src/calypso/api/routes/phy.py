@@ -535,8 +535,19 @@ async def start_margining_sweep(
     def _run_sweep():
         try:
             engine.sweep_lane(body.lane, device_id, receiver)
-        except Exception:
+        except Exception as exc:
             logger.exception("Background sweep failed for lane %d", body.lane)
+            # Update progress to "error" so the UI sees the failure
+            from calypso.core.lane_margining import _lock, _active_sweeps
+            with _lock:
+                _active_sweeps[f"{device_id}:{body.lane}"] = SweepProgress(
+                    status="error",
+                    lane=body.lane,
+                    current_step=0,
+                    total_steps=0,
+                    percent=0.0,
+                    error=str(exc),
+                )
         finally:
             engine.close()
 
@@ -666,8 +677,21 @@ async def start_pam4_margining_sweep(
     def _run_sweep():
         try:
             engine.sweep_lane_pam4(body.lane, device_id)
-        except Exception:
+        except Exception as exc:
             logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
+            # Update progress to "error" so the UI sees the failure
+            from calypso.core.lane_margining import _lock, _pam4_active_sweeps
+            with _lock:
+                _pam4_active_sweeps[f"{device_id}:{body.lane}"] = PAM4SweepProgress(
+                    status="error",
+                    lane=body.lane,
+                    current_eye="",
+                    current_eye_index=0,
+                    overall_step=0,
+                    overall_total_steps=0,
+                    percent=0.0,
+                    error=str(exc),
+                )
         finally:
             engine.close()
 

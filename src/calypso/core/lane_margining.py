@@ -648,6 +648,16 @@ class LaneMarginingEngine:
         """
         key = f"{device_id}:{lane}"
 
+        # Signal "running" immediately so the UI sees feedback before pre-flight
+        with _lock:
+            _active_sweeps[key] = SweepProgress(
+                status="running",
+                lane=lane,
+                current_step=0,
+                total_steps=0,
+                percent=0.0,
+            )
+
         # At Gen6, receiver 000b is reserved — auto-resolve before use
         speed_code, _, _ = self._get_link_state()
         receiver = self._resolve_receiver(receiver, speed_code)
@@ -669,6 +679,7 @@ class LaneMarginingEngine:
                 )
             raise ValueError(error_msg)
 
+        # Update with actual total now that pre-flight is complete
         with _lock:
             _active_sweeps[key] = SweepProgress(
                 status="running",
@@ -726,6 +737,18 @@ class LaneMarginingEngine:
         key = f"{device_id}:{lane}"
         start_ms = int(time.monotonic() * 1000)
 
+        # Signal "running" immediately so the UI sees feedback before pre-flight
+        with _lock:
+            _pam4_active_sweeps[key] = PAM4SweepProgress(
+                status="running",
+                lane=lane,
+                current_eye="pre-flight",
+                current_eye_index=0,
+                overall_step=0,
+                overall_total_steps=0,
+                percent=0.0,
+            )
+
         # Pre-flight: query capabilities for each receiver to compute total steps
         per_eye_caps: list[LaneMarginCapabilities] = []
         per_eye_steps: list[int] = []
@@ -751,6 +774,7 @@ class LaneMarginingEngine:
                 )
             raise ValueError(error_msg)
 
+        # Update with actual total now that pre-flight is complete
         with _lock:
             _pam4_active_sweeps[key] = PAM4SweepProgress(
                 status="running",
