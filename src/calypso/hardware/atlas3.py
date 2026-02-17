@@ -293,22 +293,52 @@ def get_board_profile(chip_type: int, *, chip_id: int = 0) -> BoardProfile:
 STATION_MAP: Mapping[int, StationInfo] = PROFILE_144.station_map  # deprecated
 CONNECTOR_MAP: Mapping[str, ConnectorInfo] = PROFILE_144.connector_map  # deprecated
 
-# Per-port register base offset within BAR 0 (see kernel driver DrvDefs.h)
+# Per-port PEX register base within BAR 0 (see DrvDefs.h ATLAS_PEX_REGS_BASE_OFFSET)
 # Note: 0x60800000 is the AXI address; BAR 0 offset is 0x800000 (8MB).
+# Stride: 0x8000 (32 KB) per port.
 _PORT_REGISTER_BASE = 0x800000
 _PORT_REGISTER_STRIDE = 0x8000
 
+# Station-level register base within BAR 0 (see DrvDefs.h ATLAS_PEX_STN_REGS_BASE_OFFSET)
+# Vendor PHY registers (Recovery Diagnostic, PHY Additional Status, Port Control,
+# Ptrace, etc.) live here — NOT in the per-port PEX space.
+# Stride: 0x10000 (64 KB) per station, with 16 ports per station.
+_STATION_REGISTER_BASE = 0xF00000
+_STATION_REGISTER_STRIDE = 0x10000
+
 
 def port_register_base(port_number: int) -> int:
-    """Calculate the per-port register base address.
+    """Calculate the per-port PEX register base address.
+
+    Use this for standard PEX per-port registers.
+    For vendor PHY registers, use :func:`station_register_base` instead.
 
     Args:
         port_number: Atlas3 port number.
 
     Returns:
-        32-bit base address for the port's register block.
+        32-bit base address for the port's PEX register block in BAR 0.
     """
     return _PORT_REGISTER_BASE + (port_number * _PORT_REGISTER_STRIDE)
+
+
+def station_register_base(port_number: int) -> int:
+    """Calculate the station register base address for vendor PHY registers.
+
+    Atlas3 vendor PHY registers (Recovery Diagnostic, PHY Additional Status,
+    Port Control, Ptrace capture, etc.) are station-level registers at
+    BAR 0 offset ``0xF00000 + station_id * 0x10000``.  Each register
+    contains a ``port_select`` field to choose among the 16 ports in the
+    station.
+
+    Args:
+        port_number: Atlas3 port number (0-143).
+
+    Returns:
+        32-bit base address for the station's vendor register block in BAR 0.
+    """
+    station_id = port_number // 16
+    return _STATION_REGISTER_BASE + (station_id * _STATION_REGISTER_STRIDE)
 
 
 def station_for_port(

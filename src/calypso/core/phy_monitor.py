@@ -15,7 +15,7 @@ from __future__ import annotations
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pcie_registers import ExtCapabilityID
-from calypso.hardware.atlas3 import port_register_base
+from calypso.hardware.atlas3 import station_register_base
 from calypso.hardware.atlas3_phy import (
     PhyCmdStatusRegister,
     PortControlRegister,
@@ -59,7 +59,8 @@ class PhyMonitor:
         self._key = device_key
         self._port_number = port_number
         self._config = PcieConfigReader(device, device_key)
-        self._port_reg_base = port_register_base(port_number)
+        # Vendor PHY registers are station-level at 0xF00000 + station * 0x10000
+        self._port_reg_base = station_register_base(port_number)
 
     def _read_vendor_reg(self, offset: int) -> int:
         """Read a vendor-specific register relative to port register base."""

@@ -13,7 +13,7 @@ import threading
 import time
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
-from calypso.hardware.atlas3 import port_register_base
+from calypso.hardware.atlas3 import station_register_base
 from calypso.hardware.atlas3_phy import (
     PhyAdditionalStatusRegister,
     PortControlRegister,
@@ -105,10 +105,10 @@ class LtssmTracer:
         self._device = device
         self._key = device_key
         self._port_number = port_number
-        # Station-level PHY registers live at the station's base port offset
+        # Station-level PHY registers live at 0xF00000 + station_id * 0x10000
         self._station_base = _station_base_port(port_number)
         self._port_select = _port_select_for(port_number)
-        self._port_reg_base = port_register_base(self._station_base)
+        self._port_reg_base = station_register_base(port_number)
         logger.debug(
             "ltssm_tracer_init",
             port_number=port_number,

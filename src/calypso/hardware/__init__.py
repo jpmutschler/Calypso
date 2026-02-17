@@ -12,6 +12,7 @@ from calypso.hardware.atlas3 import (
     get_board_profile,
     port_register_base,
     station_for_port,
+    station_register_base,
 )
 from calypso.hardware.atlas3_phy import (
     PhyCmdStatusBits,
@@ -72,4 +73,5 @@ __all__ = [
     "get_utp_preset",
     "port_register_base",
     "station_for_port",
+    "station_register_base",
 ]

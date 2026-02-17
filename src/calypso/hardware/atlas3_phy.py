@@ -4,8 +4,9 @@ These registers are implementation-specific to the Atlas3 switch silicon.
 Users should interact through the PhyMonitor domain class, not directly
 with these register definitions.
 
-Register offsets are relative to the per-port register base (BAR 0 offset):
-    base = 0x800000 + (port_number * 0x8000)
+Register offsets are relative to the station register base (BAR 0 offset):
+    base = 0xF00000 + (station_id * 0x10000)
+where station_id = port_number // 16.  See DrvDefs.h ATLAS_PEX_STN_REGS_BASE_OFFSET.
 """
 
 from __future__ import annotations
