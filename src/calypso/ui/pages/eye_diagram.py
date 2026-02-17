@@ -51,12 +51,12 @@ def _eye_diagram_content(device_id: str) -> None:
         try:
             # Fetch capabilities
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/capabilities?port_number={port}&lane={lane}");'
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=15.0,
             )
             if resp.get("detail"):
@@ -66,11 +66,11 @@ def _eye_diagram_content(device_id: str) -> None:
 
             # Detect modulation from link speed
             link_resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}/link");'
                 "  if (!r.ok) return {};"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
             current_speed = ""
@@ -101,7 +101,7 @@ def _eye_diagram_content(device_id: str) -> None:
     async def _start_nrz_sweep(lane: int, port: int):
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/sweep", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
@@ -109,7 +109,7 @@ def _eye_diagram_content(device_id: str) -> None:
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=15.0,
             )
             if resp.get("detail"):
@@ -125,7 +125,7 @@ def _eye_diagram_content(device_id: str) -> None:
     async def _start_pam4_sweep(lane: int, port: int):
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/sweep-pam4", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
@@ -133,7 +133,7 @@ def _eye_diagram_content(device_id: str) -> None:
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=15.0,
             )
             if resp.get("detail"):
@@ -151,7 +151,7 @@ def _eye_diagram_content(device_id: str) -> None:
         port = state["port_number"]
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/reset", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
@@ -159,7 +159,7 @@ def _eye_diagram_content(device_id: str) -> None:
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
             if resp.get("detail"):
@@ -181,12 +181,12 @@ def _eye_diagram_content(device_id: str) -> None:
         lane = state["lane"]
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/progress?lane={lane}");'
                 "  if (!r.ok) return {status: 'error', error: await r.text()};"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
         except Exception:
@@ -215,12 +215,12 @@ def _eye_diagram_content(device_id: str) -> None:
         lane = state["lane"]
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/progress-pam4?lane={lane}");'
                 "  if (!r.ok) return {status: 'error', error: await r.text()};"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
         except Exception:
@@ -263,12 +263,12 @@ def _eye_diagram_content(device_id: str) -> None:
         lane = state["lane"]
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/result?lane={lane}");'
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
             if resp.get("detail"):
@@ -285,12 +285,12 @@ def _eye_diagram_content(device_id: str) -> None:
         lane = state["lane"]
         try:
             resp = await ui.run_javascript(
-                "async function() {"
+                "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/result-pam4?lane={lane}");'
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
-                "}()",
+                "})()",
                 timeout=10.0,
             )
             if resp.get("detail"):
