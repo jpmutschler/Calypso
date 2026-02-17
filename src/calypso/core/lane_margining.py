@@ -257,20 +257,24 @@ class LaneMarginingEngine:
         """Write a config register via the port's device handle."""
         self._config.write_config_register(offset, value)
 
-    def _get_link_speed_code(self) -> int:
-        """Read the current link speed code from Link Status register.
+    def _get_link_state(self) -> tuple[int, bool, bool]:
+        """Read link speed code, DLL Link Active, and Link Training from Link Status.
 
-        Returns the raw speed code (1=Gen1 .. 6=Gen6), or 0 on failure.
+        Returns (speed_code, dll_link_active, link_training).
+        speed_code: 1=Gen1 .. 6=Gen6, 0 on failure.
         """
         try:
             pcie_cap = self._config.find_capability(PCIeCapabilityID.PCIE)
             if pcie_cap is None:
-                return 0
+                return (0, False, False)
             link_ctl_sts = self._cfg_read(pcie_cap + PCIeCapability.LINK_CTL)
             status_word = (link_ctl_sts >> 16) & 0xFFFF
-            return status_word & int(LinkStsBits.CURRENT_LINK_SPEED_MASK)
+            speed = status_word & int(LinkStsBits.CURRENT_LINK_SPEED_MASK)
+            dll_active = bool(status_word & LinkStsBits.DL_LINK_ACTIVE)
+            training = bool(status_word & LinkStsBits.LINK_TRAINING)
+            return (speed, dll_active, training)
         except Exception:
-            return 0
+            return (0, False, False)
 
     def _format_link_speed(self, code: int) -> str:
         """Format a speed code as a human-readable string."""
@@ -283,8 +287,10 @@ class LaneMarginingEngine:
         """Collect diagnostic register reads for troubleshooting."""
         diag: dict[str, str] = {}
         try:
-            speed_code = self._get_link_speed_code()
+            speed_code, dll_active, training = self._get_link_state()
             diag["link_speed"] = self._format_link_speed(speed_code)
+            diag["dll_link_active"] = str(dll_active)
+            diag["link_training"] = str(training)
 
             cap_header = self._cfg_read(self._margining_offset)
             cap_id = cap_header & 0xFFFF
@@ -382,13 +388,21 @@ class LaneMarginingEngine:
         ACCESS_RECEIVER_MARGIN_CONTROL report commands on a per-lane basis
         and reading the response from the Lane Status register.
         """
-        speed_code = self._get_link_speed_code()
+        speed_code, dll_active, training = self._get_link_state()
+
+        if not dll_active:
+            current = self._format_link_speed(speed_code)
+            raise ValueError(
+                f"Link is not active (DLL Link Active=0). "
+                f"LTSSM must reach L0 before margining can operate. "
+                f"Reported speed: {current}, training={training}."
+            )
+
         if speed_code < self._MIN_MARGINING_SPEED:
             current = self._format_link_speed(speed_code)
             raise ValueError(
                 f"Lane Margining requires Gen4 (16 GT/s) or higher. "
-                f"Current link speed: {current}. "
-                f"Margining uses PHY-level ordered sets that only exist at Gen4+."
+                f"Current link speed: {current}."
             )
 
         if not self.is_margining_ready():
