@@ -293,8 +293,9 @@ def get_board_profile(chip_type: int, *, chip_id: int = 0) -> BoardProfile:
 STATION_MAP: Mapping[int, StationInfo] = PROFILE_144.station_map  # deprecated
 CONNECTOR_MAP: Mapping[str, ConnectorInfo] = PROFILE_144.connector_map  # deprecated
 
-# Per-port register base address formula (chip-agnostic)
-_PORT_REGISTER_BASE = 0x60800000
+# Per-port register base offset within BAR 0 (see kernel driver DrvDefs.h)
+# Note: 0x60800000 is the AXI address; BAR 0 offset is 0x800000 (8MB).
+_PORT_REGISTER_BASE = 0x800000
 _PORT_REGISTER_STRIDE = 0x8000
 
 
