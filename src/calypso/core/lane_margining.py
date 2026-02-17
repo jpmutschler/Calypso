@@ -170,8 +170,9 @@ class LaneMarginingEngine:
         self._port_number = port_number
         self._port_device: PLX_DEVICE_OBJECT | None = None  # Tracks separately-opened device
 
-        # If the opened device IS the target port, use it directly
-        if device_key.PlxPort == port_number:
+        # Check if the opened device IS the target port via its hardware PortNumber
+        props = sdk_device.get_port_properties(device)
+        if props.PortNumber == port_number:
             target_device, target_key = device, device_key
         else:
             # Find and open the device for the target port
@@ -190,14 +191,21 @@ class LaneMarginingEngine:
     def _find_and_open_port(
         reference_key: PLX_DEVICE_KEY, port_number: int
     ) -> tuple[PLX_DEVICE_OBJECT, PLX_DEVICE_KEY]:
-        """Find and open the device for a specific switch port."""
+        """Find and open the device for a specific switch port by hardware PortNumber."""
         api_mode = PlxApiMode(reference_key.ApiMode)
         mode_prop = PLX_MODE_PROP() if api_mode != PlxApiMode.PCI else None
         all_keys = sdk_device.find_devices(api_mode=api_mode, mode_prop=mode_prop)
 
         for k in all_keys:
-            if k.PlxPort == port_number:
-                return sdk_device.open_device(k), k
+            dev = sdk_device.open_device(k)
+            try:
+                props = sdk_device.get_port_properties(dev)
+                if props.PortNumber == port_number:
+                    return dev, k
+                sdk_device.close_device(dev)
+            except Exception:
+                sdk_device.close_device(dev)
+                raise
 
         raise ValueError(f"Port {port_number} not found in device enumeration")
 
