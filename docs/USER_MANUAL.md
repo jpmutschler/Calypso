@@ -604,7 +604,7 @@ Check for Lane Margining at Receiver extended capability. If present, displays t
 
 **Route:** `/switch/{device_id}/eye`
 
-PCIe Lane Margining eye diagram visualization with automated sweep and analysis.
+PCIe Lane Margining eye diagram visualization with automated sweep and analysis. Supports both NRZ (Gen1-5, single eye) and PAM4 (Gen6, 3 stacked eyes) modulation.
 
 #### Workflow
 
@@ -613,13 +613,14 @@ PCIe Lane Margining eye diagram visualization with automated sweep and analysis.
    - Timing Steps / Max Timing Offset (UI)
    - Voltage Steps / Max Voltage Offset (mV)
    - Independent up/down voltage, left/right timing capability flags
+   - **Modulation auto-detection:** The page queries the current link speed and displays "NRZ (Single Eye)" for Gen1-5 or "PAM4 (3 Eyes)" for Gen6
 3. Click **Start Sweep** to begin automated margining
 4. Monitor progress bar (updates every 500ms)
-5. View the completed eye diagram
+5. View the completed eye diagram(s)
 
-#### Eye Diagram Chart
+#### NRZ Mode (Gen1-5)
 
-A scatter plot showing the margining results:
+A single scatter plot showing the margining results:
 
 - **X-axis:** Timing Offset (UI)
 - **Y-axis:** Voltage Offset (mV)
@@ -627,13 +628,32 @@ A scatter plot showing the margining results:
 - **Red diamonds:** Fail points (margin exceeded)
 - **Cyan dashed boundary:** Calculated eye boundary
 
-#### Sweep Results
+#### PAM4 Mode (Gen6)
+
+PCIe Gen6 uses PAM4 signaling with 4 voltage levels, creating 3 vertically stacked eyes. The sweep runs 3 independent margining passes using PCIe Receivers A, B, and C:
+
+- **Upper Eye (Receiver A)** -- cyan accent
+- **Middle Eye (Receiver B)** -- blue accent
+- **Lower Eye (Receiver C)** -- purple accent
+
+Each eye is displayed as its own scatter plot with independent width/height measurements. The progress label shows the current eye being swept (e.g., "PAM4 - Upper Eye (1/3) - Step 24/144 (17%)").
+
+**PAM4 Aggregate Summary** (below the 3 charts):
+
+| Metric | Description |
+|--------|-------------|
+| Worst Eye Width | Minimum width across all 3 eyes |
+| Worst Eye Height | Minimum height across all 3 eyes |
+| Balance Status | Balanced (3 heights within 20% of average) or Imbalanced |
+| Total Sweep Time | Combined duration for all 3 eyes |
+
+#### Sweep Results (per eye)
 
 | Metric | Description |
 |--------|-------------|
 | Eye Width | Steps and UI measurement |
 | Eye Height | Steps and mV measurement |
-| Lane / Receiver | Target lane and receiver number |
+| Lane / Receiver | Target lane and receiver number (Broadcast for NRZ, A/B/C for PAM4) |
 | Sweep Time | Duration in milliseconds |
 | Pass/Total | Number of passing vs. total measurement points |
 
@@ -785,7 +805,7 @@ Automated PCIe compliance testing with 6 test suites, real-time progress trackin
 | Link Training | T1 | 4 | Speed negotiation, LTSSM state validation, EQ phase verification, recovery count baseline |
 | Error Audit | T2 | 3 | AER error audit, error reporting enables, error-free operation hold |
 | Config Audit | T3 | 4 | Capability list integrity, MPS/MRRS validation, link capability consistency, supported speeds contiguity |
-| Signal Integrity | T4 | ~20 | Lane margining eye measurement (per-lane), spec minimum eye check, per-lane margin comparison |
+| Signal Integrity | T4 | ~20 | Lane margining eye measurement (per-lane, NRZ single-eye or PAM4 3-eye), spec minimum eye check, per-lane margin comparison, PAM4 eye balance check (Gen6) |
 | BER Test | T5 | ~18 | PRBS31 per-lane BER at current speed, multi-speed BER across all supported Gen3+ speeds |
 | Port Sweep | T6 | 3 (total) | All-port link status, all-port error sweep, all-port recovery count audit |
 
@@ -799,10 +819,10 @@ Spec-aligned pass/fail thresholds derived from PCIe CEM 6.0 and PCIe Base Spec 6
 |------------|-------------------|---------------------|---------|-----------|
 | Gen3 (8 GT/s) | 0.30 | 15 | 1e-12 | NRZ |
 | Gen4 (16 GT/s) | 0.25 | 15 | 1e-12 | NRZ |
-| Gen5 (32 GT/s) | 0.20 | 10 | 1e-6 | PAM4 |
+| Gen5 (32 GT/s) | 0.20 | 10 | 1e-6 | NRZ with FEC |
 | Gen6 (64 GT/s) | 0.15 | 8 | 1e-6 | PAM4 |
 
-Signal integrity tests also flag lanes whose measured eye is >30% below the per-port average (outlier detection).
+Signal integrity tests also flag lanes whose measured eye is >30% below the per-port average (outlier detection). For Gen6 (PAM4), each lane produces 3 eye measurements (upper, middle, lower); the per-lane comparison uses the worst-case eye per lane. An additional T4.4 balance check warns if the 3 PAM4 eye heights deviate >20% from their average, indicating transmitter or channel linearity issues.
 
 #### Configuration
 
@@ -1298,6 +1318,9 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `GET` | `/api/devices/{id}/phy/margining/progress` | Sweep progress. Params: `lane` |
 | `GET` | `/api/devices/{id}/phy/margining/result` | Sweep result. Params: `lane` |
 | `POST` | `/api/devices/{id}/phy/margining/reset` | Reset lane margining. Body: `{lane, port_number}` |
+| `POST` | `/api/devices/{id}/phy/margining/sweep-pam4` | Start PAM4 3-eye sweep (Receivers A/B/C). Body: `{lane, port_number}` |
+| `GET` | `/api/devices/{id}/phy/margining/progress-pam4` | Poll PAM4 sweep progress. Params: `lane` |
+| `GET` | `/api/devices/{id}/phy/margining/result-pam4` | Get PAM4 3-eye sweep result. Params: `lane` |
 
 ### LTSSM
 
