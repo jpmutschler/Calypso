@@ -13,6 +13,8 @@ from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpee
 from calypso.models.phy_api import (
     EyeSweepResult,
     LaneMarginCapabilitiesResponse,
+    PAM4SweepProgress,
+    PAM4SweepResult,
     SweepProgress,
 )
 
@@ -23,6 +25,7 @@ router = APIRouter(tags=["phy"])
 
 def _get_switch(device_id: str):
     from calypso.api.app import get_device_registry
+
     registry = get_device_registry()
     sw = registry.get(device_id)
     if sw is None:
@@ -32,12 +35,14 @@ def _get_switch(device_id: str):
 
 def _get_phy_monitor(device_id: str, port_number: int = 0):
     from calypso.core.phy_monitor import PhyMonitor
+
     sw = _get_switch(device_id)
     return PhyMonitor(sw._device_obj, sw._device_key, port_number)
 
 
 def _get_config_reader(device_id: str):
     from calypso.core.pcie_config import PcieConfigReader
+
     sw = _get_switch(device_id)
     return PcieConfigReader(sw._device_obj, sw._device_key)
 
@@ -295,7 +300,10 @@ async def get_lane_margining(device_id: str) -> dict[str, bool | int | None]:
 
 class UTPLoadRequest(BaseModel):
     """Load a user test pattern. Either use a preset name or provide raw hex bytes."""
-    preset: str | None = None  # "prbs7", "prbs15", "prbs31", "alternating", "walking_ones", "zeros", "ones"
+
+    preset: str | None = (
+        None  # "prbs7", "prbs15", "prbs31", "alternating", "walking_ones", "zeros", "ones"
+    )
     pattern_hex: str | None = None  # 32 hex chars (16 bytes)
 
 
@@ -337,7 +345,9 @@ async def load_utp(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid hex string")
         if len(raw) != 16:
-            raise HTTPException(status_code=400, detail="Pattern must be exactly 16 bytes (32 hex chars)")
+            raise HTTPException(
+                status_code=400, detail="Pattern must be exactly 16 bytes (32 hex chars)"
+            )
         pattern = UserTestPattern(pattern=raw)
     else:
         raise HTTPException(status_code=400, detail="Provide either 'preset' or 'pattern_hex'")
@@ -382,7 +392,9 @@ async def get_utp_results(
 
 class UTPPrepareRequest(BaseModel):
     preset: str = "prbs7"
-    rate: int = Field(2, ge=0, le=5, description="TestPatternRate: 0=2.5GT, 1=5GT, 2=8GT, 3=16GT, 4=32GT, 5=64GT")
+    rate: int = Field(
+        2, ge=0, le=5, description="TestPatternRate: 0=2.5GT, 1=5GT, 2=8GT, 3=16GT, 4=32GT, 5=64GT"
+    )
     port_select: int = Field(0, ge=0, le=15)
 
 
@@ -407,7 +419,10 @@ async def prepare_utp_test(
 
     monitor = _get_phy_monitor(device_id, port_number)
     await asyncio.to_thread(
-        monitor.prepare_utp_test, pattern=pattern, rate=rate, port_select=body.port_select,
+        monitor.prepare_utp_test,
+        pattern=pattern,
+        rate=rate,
+        port_select=body.port_select,
     )
     return {"status": "prepared", "pattern": body.preset, "rate": rate.name}
 
@@ -429,6 +444,7 @@ async def get_margining_capabilities(
 
     def _read():
         from calypso.core.lane_margining import LaneMarginingEngine
+
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
         caps = engine.get_capabilities(lane=lane)
         return LaneMarginCapabilitiesResponse(
@@ -470,6 +486,7 @@ async def start_margining_sweep(
 
     def _run_sweep():
         from calypso.core.lane_margining import LaneMarginingEngine
+
         try:
             engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
             engine.sweep_lane(body.lane, device_id, receiver)
@@ -493,6 +510,7 @@ async def get_margining_progress(
 ) -> SweepProgress:
     """Poll the progress of a running margining sweep."""
     from calypso.core.lane_margining import get_sweep_progress
+
     return get_sweep_progress(device_id, lane)
 
 
@@ -506,6 +524,7 @@ async def get_margining_result(
 ) -> EyeSweepResult:
     """Get the completed sweep result for a lane."""
     from calypso.core.lane_margining import get_sweep_result
+
     result = get_sweep_result(device_id, lane)
     if result is None:
         raise HTTPException(status_code=404, detail="No sweep result available for this lane")
@@ -527,6 +546,7 @@ async def reset_margining(
 
     def _reset():
         from calypso.core.lane_margining import LaneMarginingEngine
+
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
         engine.reset_lane(body.lane)
 
@@ -535,3 +555,70 @@ async def reset_margining(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return {"status": "reset", "lane": str(body.lane)}
+
+
+# --- PAM4 3-Eye Lane Margining (Gen6) ---
+
+
+class PAM4SweepRequest(BaseModel):
+    lane: int = Field(ge=0, le=15)
+    port_number: int = Field(0, ge=0, le=143)
+
+
+@router.post("/devices/{device_id}/phy/margining/sweep-pam4")
+async def start_pam4_margining_sweep(
+    device_id: str,
+    body: PAM4SweepRequest,
+) -> dict[str, str]:
+    """Start a background PAM4 3-eye lane margining sweep (Receivers A/B/C)."""
+    from calypso.core.lane_margining import get_pam4_sweep_progress
+
+    progress = get_pam4_sweep_progress(device_id, body.lane)
+    if progress.status == "running":
+        raise HTTPException(status_code=409, detail="PAM4 sweep already running on this lane")
+
+    sw = _get_switch(device_id)
+
+    def _run_sweep():
+        from calypso.core.lane_margining import LaneMarginingEngine
+
+        try:
+            engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
+            engine.sweep_lane_pam4(body.lane, device_id)
+        except Exception:
+            logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
+
+    asyncio.get_running_loop().run_in_executor(None, _run_sweep)
+
+    return {"status": "started", "lane": str(body.lane), "modulation": "PAM4"}
+
+
+@router.get(
+    "/devices/{device_id}/phy/margining/progress-pam4",
+    response_model=PAM4SweepProgress,
+)
+async def get_pam4_margining_progress(
+    device_id: str,
+    lane: int = Query(0, ge=0, le=15),
+) -> PAM4SweepProgress:
+    """Poll the progress of a running PAM4 3-eye margining sweep."""
+    from calypso.core.lane_margining import get_pam4_sweep_progress
+
+    return get_pam4_sweep_progress(device_id, lane)
+
+
+@router.get(
+    "/devices/{device_id}/phy/margining/result-pam4",
+    response_model=PAM4SweepResult,
+)
+async def get_pam4_margining_result(
+    device_id: str,
+    lane: int = Query(0, ge=0, le=15),
+) -> PAM4SweepResult:
+    """Get the completed PAM4 3-eye sweep result for a lane."""
+    from calypso.core.lane_margining import get_pam4_sweep_result
+
+    result = get_pam4_sweep_result(device_id, lane)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No PAM4 sweep result available for this lane")
+    return result

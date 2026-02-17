@@ -24,22 +24,23 @@ from typing import NamedTuple
 # Modulation Modes (PCIe Base Spec 6.0.1, Section 4.2)
 # ---------------------------------------------------------------------------
 
+
 class Modulation(IntEnum):
     """PCIe link modulation encoding."""
 
-    NRZ = 0   # Non-Return-to-Zero (Gen1-5): 2.5-32 GT/s
+    NRZ = 0  # Non-Return-to-Zero (Gen1-5): 2.5-32 GT/s
     PAM4 = 1  # Pulse Amplitude Modulation 4-level (Gen6): 64 GT/s
 
 
 class DataRate(IntEnum):
     """PCIe data rates (PCIe Base Spec 6.0.1, Table 4-2)."""
 
-    RATE_2_5GT = 1   # Gen1: 2.5 GT/s, NRZ, 8b/10b
-    RATE_5GT = 2     # Gen2: 5.0 GT/s, NRZ, 8b/10b
-    RATE_8GT = 3     # Gen3: 8.0 GT/s, NRZ, 128b/130b
-    RATE_16GT = 4    # Gen4: 16.0 GT/s, NRZ, 128b/130b
-    RATE_32GT = 5    # Gen5: 32.0 GT/s, NRZ, 128b/130b
-    RATE_64GT = 6    # Gen6: 64.0 GT/s, PAM4, 242B/256B FLIT
+    RATE_2_5GT = 1  # Gen1: 2.5 GT/s, NRZ, 8b/10b
+    RATE_5GT = 2  # Gen2: 5.0 GT/s, NRZ, 8b/10b
+    RATE_8GT = 3  # Gen3: 8.0 GT/s, NRZ, 128b/130b
+    RATE_16GT = 4  # Gen4: 16.0 GT/s, NRZ, 128b/130b
+    RATE_32GT = 5  # Gen5: 32.0 GT/s, NRZ, 128b/130b
+    RATE_64GT = 6  # Gen6: 64.0 GT/s, PAM4, 242B/256B FLIT
 
     @property
     def modulation(self) -> Modulation:
@@ -63,6 +64,7 @@ class DataRate(IntEnum):
 # TX Equalization Presets (PCIe Base Spec 6.0.1, Section 4.2.3)
 # ---------------------------------------------------------------------------
 
+
 class TxPreset(IntEnum):
     """Transmitter equalization preset values (P0-P10)."""
 
@@ -83,9 +85,9 @@ class TxPreset(IntEnum):
 class TxCoefficients:
     """TX equalizer 3-tap FIR coefficients (PCIe Base Spec 6.0.1, Section 4.2.3.3)."""
 
-    pre_cursor: int       # c-1 coefficient (0-63 typical)
-    cursor: int           # c0 coefficient (main tap)
-    post_cursor: int      # c+1 coefficient (0-63 typical)
+    pre_cursor: int  # c-1 coefficient (0-63 typical)
+    cursor: int  # c0 coefficient (main tap)
+    post_cursor: int  # c+1 coefficient (0-63 typical)
     preset: TxPreset | None = None
 
     @property
@@ -131,6 +133,7 @@ TX_PRESETS_8GT: dict[TxPreset, TxCoefficients] = {
 # RX Equalization Hints (PCIe Base Spec 6.0.1, Section 4.2.3.4)
 # ---------------------------------------------------------------------------
 
+
 class RxPresetHint(IntEnum):
     """Receiver equalization preset hints (Table 4-19)."""
 
@@ -159,6 +162,7 @@ class CtleBoost(IntEnum):
 # Lane Margining at the Receiver (PCIe Base Spec 6.0.1, Section 7.7.8)
 # ---------------------------------------------------------------------------
 
+
 class LaneMarginingCap(IntEnum):
     """Lane Margining Extended Capability register offsets."""
 
@@ -166,7 +170,7 @@ class LaneMarginingCap(IntEnum):
     PORT_CAP = 0x04
     PORT_STATUS = 0x06
     LANE_CONTROL_BASE = 0x08  # Lane N Control at 0x08 + (N * 4)
-    LANE_STATUS_BASE = 0x0A   # Lane N Status at 0x0A + (N * 4)
+    LANE_STATUS_BASE = 0x0A  # Lane N Status at 0x0A + (N * 4)
 
 
 class MarginingCapBits(IntFlag):
@@ -195,6 +199,15 @@ class MarginingReceiverNumber(IntEnum):
     RECEIVER_A = 0x1
     RECEIVER_B = 0x2
     RECEIVER_C = 0x3
+
+
+# PAM4 receiver-to-eye mapping for 3-eye margining (Gen6)
+PAM4_RECEIVERS: tuple[MarginingReceiverNumber, ...] = (
+    MarginingReceiverNumber.RECEIVER_A,  # upper eye
+    MarginingReceiverNumber.RECEIVER_B,  # middle eye
+    MarginingReceiverNumber.RECEIVER_C,  # lower eye
+)
+PAM4_EYE_LABELS: tuple[str, ...] = ("upper", "middle", "lower")
 
 
 class MarginingReportPayload(IntEnum):
@@ -282,6 +295,7 @@ class MarginingLaneStatus:
 # Eye Diagram Measurements
 # ---------------------------------------------------------------------------
 
+
 class EyeMeasurement(NamedTuple):
     """Eye diagram measurement results from lane margining."""
 
@@ -311,6 +325,7 @@ class LaneMarginCapabilities:
 # ---------------------------------------------------------------------------
 # Physical Layer 16 GT/s Extended Capability (Section 7.7.5)
 # ---------------------------------------------------------------------------
+
 
 class PhysLayer16GT(IntEnum):
     """PCIe 4.0 (16 GT/s) Physical Layer Extended Capability offsets."""
@@ -344,6 +359,7 @@ class PhysLayer16GTStsBits(IntFlag):
 # ---------------------------------------------------------------------------
 # Physical Layer 32 GT/s Extended Capability (Section 7.7.6)
 # ---------------------------------------------------------------------------
+
 
 class PhysLayer32GT(IntEnum):
     """PCIe 5.0 (32 GT/s) Physical Layer Extended Capability offsets."""
@@ -380,6 +396,7 @@ class PhysLayer32GTStsBits(IntFlag):
 # Lane Equalization Control (Section 7.7.5.7, 7.7.6.6, 7.7.7.6)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class LaneEqualizationControl:
     """Per-lane equalization control settings."""
@@ -413,6 +430,7 @@ class LaneEqualizationControl:
 # SerDes Lane Status
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SerDesLaneStatus:
     """Comprehensive SerDes lane status combining multiple register sources."""
@@ -438,6 +456,7 @@ class SerDesLaneStatus:
 # PAM4 Specific Definitions (Gen6)
 # ---------------------------------------------------------------------------
 
+
 class PAM4Level(IntEnum):
     """PAM4 voltage levels (4 amplitude levels, 2 bits per symbol)."""
 
@@ -450,9 +469,9 @@ class PAM4Level(IntEnum):
 class PAM4EyeType(IntEnum):
     """PAM4 has three eyes stacked vertically."""
 
-    LOWER_EYE = 0   # Between Level 0 and Level 1
+    LOWER_EYE = 0  # Between Level 0 and Level 1
     MIDDLE_EYE = 1  # Between Level 1 and Level 2
-    UPPER_EYE = 2   # Between Level 2 and Level 3
+    UPPER_EYE = 2  # Between Level 2 and Level 3
 
 
 @dataclass
@@ -494,27 +513,28 @@ PHY_LAYER_EXT_CAP_IDS: dict[int, str] = {
 # PRBS Testing (Pseudo-Random Bit Sequence)
 # ---------------------------------------------------------------------------
 
+
 class PRBSOption(IntEnum):
     """PRBS operation mode."""
 
     GENERATE = 1  # Generate PRBS on TX
-    CHECK = 2     # Check PRBS on RX
+    CHECK = 2  # Check PRBS on RX
 
 
 class PRBSPattern(IntEnum):
     """PRBS polynomial pattern types."""
 
-    PRBS7 = 0     # x^7 + x^6 + 1, period 127
-    PRBS9 = 1     # x^9 + x^5 + 1, period 511
-    PRBS11 = 2    # x^11 + x^9 + 1, period 2047
-    PRBS15 = 3    # x^15 + x^14 + 1, period 32767
-    PRBS23 = 4    # x^23 + x^18 + 1, period 8388607
-    PRBS31 = 5    # x^31 + x^28 + 1, period 2147483647
-    PRBS58 = 6    # For PAM4/Gen6 testing
-    PRBS49 = 7    # For PAM4/Gen6 testing
-    PRBS20 = 8    # x^20 + x^3 + 1
-    PRBS10 = 9    # x^10 + x^7 + 1
-    PRBS13 = 10   # x^13 + x^12 + x^2 + x + 1
+    PRBS7 = 0  # x^7 + x^6 + 1, period 127
+    PRBS9 = 1  # x^9 + x^5 + 1, period 511
+    PRBS11 = 2  # x^11 + x^9 + 1, period 2047
+    PRBS15 = 3  # x^15 + x^14 + 1, period 32767
+    PRBS23 = 4  # x^23 + x^18 + 1, period 8388607
+    PRBS31 = 5  # x^31 + x^28 + 1, period 2147483647
+    PRBS58 = 6  # For PAM4/Gen6 testing
+    PRBS49 = 7  # For PAM4/Gen6 testing
+    PRBS20 = 8  # x^20 + x^3 + 1
+    PRBS10 = 9  # x^10 + x^7 + 1
+    PRBS13 = 10  # x^13 + x^12 + x^2 + x + 1
 
 
 class PRBSRate(IntEnum):
@@ -594,23 +614,68 @@ class PRBSResult:
 
 # PRBS pattern descriptions
 PRBS_PATTERN_INFO: dict[PRBSPattern, dict[str, str | int]] = {
-    PRBSPattern.PRBS7: {"polynomial": "x^7 + x^6 + 1", "period": 127, "use_case": "Short pattern, quick tests"},
-    PRBSPattern.PRBS9: {"polynomial": "x^9 + x^5 + 1", "period": 511, "use_case": "General testing"},
-    PRBSPattern.PRBS11: {"polynomial": "x^11 + x^9 + 1", "period": 2047, "use_case": "General testing"},
-    PRBSPattern.PRBS15: {"polynomial": "x^15 + x^14 + 1", "period": 32767, "use_case": "Standard compliance testing"},
-    PRBSPattern.PRBS23: {"polynomial": "x^23 + x^18 + 1", "period": 8388607, "use_case": "Long pattern testing"},
-    PRBSPattern.PRBS31: {"polynomial": "x^31 + x^28 + 1", "period": 2147483647, "use_case": "Stress testing, BER measurements"},
-    PRBSPattern.PRBS58: {"polynomial": "PAM4 specific", "period": 0, "use_case": "Gen6 PAM4 testing"},
-    PRBSPattern.PRBS49: {"polynomial": "PAM4 specific", "period": 0, "use_case": "Gen6 PAM4 testing"},
-    PRBSPattern.PRBS20: {"polynomial": "x^20 + x^3 + 1", "period": 1048575, "use_case": "Extended testing"},
-    PRBSPattern.PRBS10: {"polynomial": "x^10 + x^7 + 1", "period": 1023, "use_case": "General testing"},
-    PRBSPattern.PRBS13: {"polynomial": "x^13 + x^12 + x^2 + x + 1", "period": 8191, "use_case": "O.150 compliance"},
+    PRBSPattern.PRBS7: {
+        "polynomial": "x^7 + x^6 + 1",
+        "period": 127,
+        "use_case": "Short pattern, quick tests",
+    },
+    PRBSPattern.PRBS9: {
+        "polynomial": "x^9 + x^5 + 1",
+        "period": 511,
+        "use_case": "General testing",
+    },
+    PRBSPattern.PRBS11: {
+        "polynomial": "x^11 + x^9 + 1",
+        "period": 2047,
+        "use_case": "General testing",
+    },
+    PRBSPattern.PRBS15: {
+        "polynomial": "x^15 + x^14 + 1",
+        "period": 32767,
+        "use_case": "Standard compliance testing",
+    },
+    PRBSPattern.PRBS23: {
+        "polynomial": "x^23 + x^18 + 1",
+        "period": 8388607,
+        "use_case": "Long pattern testing",
+    },
+    PRBSPattern.PRBS31: {
+        "polynomial": "x^31 + x^28 + 1",
+        "period": 2147483647,
+        "use_case": "Stress testing, BER measurements",
+    },
+    PRBSPattern.PRBS58: {
+        "polynomial": "PAM4 specific",
+        "period": 0,
+        "use_case": "Gen6 PAM4 testing",
+    },
+    PRBSPattern.PRBS49: {
+        "polynomial": "PAM4 specific",
+        "period": 0,
+        "use_case": "Gen6 PAM4 testing",
+    },
+    PRBSPattern.PRBS20: {
+        "polynomial": "x^20 + x^3 + 1",
+        "period": 1048575,
+        "use_case": "Extended testing",
+    },
+    PRBSPattern.PRBS10: {
+        "polynomial": "x^10 + x^7 + 1",
+        "period": 1023,
+        "use_case": "General testing",
+    },
+    PRBSPattern.PRBS13: {
+        "polynomial": "x^13 + x^12 + x^2 + x + 1",
+        "period": 8191,
+        "use_case": "O.150 compliance",
+    },
 }
 
 
 # ---------------------------------------------------------------------------
 # Utility Functions
 # ---------------------------------------------------------------------------
+
 
 def get_modulation_for_speed(speed: int) -> Modulation:
     """Determine modulation type from link speed code (1-6)."""

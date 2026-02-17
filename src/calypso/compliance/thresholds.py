@@ -16,7 +16,7 @@ class EyeThreshold:
 
 
 # Thresholds derived from PCIe CEM 6.0 and PCIe Base Spec 6.0.1.
-# Gen3/4 use NRZ signaling (BER 1e-12), Gen5/6 use PAM4 (BER 1e-6).
+# Gen3/4 use NRZ (BER 1e-12). Gen5 uses NRZ with FEC (BER 1e-6). Gen6 uses PAM4 (BER 1e-6).
 EYE_THRESHOLDS: dict[int, EyeThreshold] = {
     3: EyeThreshold(speed_gen=3, min_eye_width_ui=0.30, min_eye_height_mv=15.0, max_ber=1e-12),
     4: EyeThreshold(speed_gen=4, min_eye_width_ui=0.25, min_eye_height_mv=15.0, max_ber=1e-12),
