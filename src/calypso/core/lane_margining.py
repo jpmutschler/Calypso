@@ -59,6 +59,7 @@ _pam4_active_sweeps: dict[str, PAM4SweepProgress] = {}
 _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 
 _POLL_INTERVAL_S = 0.1
+_POLL_INTERVAL_CLEAR_S = 0.01  # 10ms — NO_COMMAND ack is fast (ordered-set level)
 _POLL_TIMEOUT_S = 5.0
 
 
@@ -326,11 +327,16 @@ class LaneMarginingEngine:
         return bool(port_status & 0x1)
 
     def _clear_lane_command(self, lane: int, receiver: MarginingReceiverNumber) -> None:
-        """Write NO_COMMAND to the lane control register.
+        """Write NO_COMMAND and poll until the status register confirms it.
 
         Per PCIe 6.0.1 Section 7.7.8.4, software must write No Command to the
         Margin Type field before writing a new margin command. The receiver only
         processes commands when it sees a transition FROM No Command.
+
+        After writing NO_COMMAND, we poll the status register until margin_type
+        echoes NO_COMMAND. This is critical when the hardware has lingering state
+        from a previous sweep — a fixed sleep is insufficient because the remote
+        partner may still be sending ordered sets for the old command.
         """
         clear = MarginingLaneControl(
             receiver_number=receiver,
@@ -339,8 +345,24 @@ class LaneMarginingEngine:
             margin_payload=0,
         )
         self._write_lane_control(lane, clear)
-        # Brief pause for hardware to register the NO_COMMAND state
-        time.sleep(0.01)
+
+        # Poll until status confirms NO_COMMAND (or timeout)
+        last_status: MarginingLaneStatus | None = None
+        deadline = time.monotonic() + _POLL_TIMEOUT_S
+        while time.monotonic() < deadline:
+            time.sleep(_POLL_INTERVAL_CLEAR_S)
+            last_status = self._read_lane_status(lane)
+            if last_status.margin_type == MarginingCmd.NO_COMMAND:
+                return
+
+        # Timed out waiting for NO_COMMAND acknowledgement — log but continue.
+        # The subsequent command write may still work if the transition is slow.
+        logger.warning(
+            "clear_lane_command_timeout",
+            lane=lane,
+            receiver=int(receiver),
+            last_status_type=last_status.margin_type.name if last_status else "unknown",
+        )
 
     def _send_report_command(
         self,
@@ -540,6 +562,9 @@ class LaneMarginingEngine:
             and get_modulation_for_speed(speed_code) == Modulation.PAM4
         ):
             receiver = MarginingReceiverNumber.PAM4_BROADCAST
+
+        # Clear to NO_COMMAND first so the receiver sees a valid transition
+        self._clear_lane_command(lane, receiver)
 
         control = MarginingLaneControl(
             receiver_number=receiver,
