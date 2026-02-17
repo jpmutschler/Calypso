@@ -329,12 +329,33 @@ class TestResolveReceiver:
 # ---------------------------------------------------------------------------
 
 
+def _make_status_no_command() -> MarginingLaneStatus:
+    """Build a lane status with margin_type=NO_COMMAND."""
+    return MarginingLaneStatus(
+        receiver_number=MarginingReceiverNumber.BROADCAST,
+        margin_type=MarginingCmd.NO_COMMAND,
+        usage_model=0,
+        margin_payload=0,
+    )
+
+
+def _make_status_go_to_normal() -> MarginingLaneStatus:
+    """Build a lane status with margin_type=GO_TO_NORMAL_SETTINGS."""
+    return MarginingLaneStatus(
+        receiver_number=MarginingReceiverNumber.BROADCAST,
+        margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
+        usage_model=0,
+        margin_payload=0x9C,
+    )
+
+
 class TestClearLaneCommand:
     @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
     def test_writes_no_command(self):
         """Writes NO_COMMAND control word to the lane."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
+        engine._read_lane_status = MagicMock(return_value=_make_status_no_command())
         engine._clear_lane_command(0, MarginingReceiverNumber.BROADCAST)
         engine._write_lane_control.assert_called_once()
         control = engine._write_lane_control.call_args[0][1]
@@ -345,9 +366,25 @@ class TestClearLaneCommand:
         """Preserves the receiver number in the NO_COMMAND control word."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
+        engine._read_lane_status = MagicMock(return_value=_make_status_no_command())
         engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_A)
         control = engine._write_lane_control.call_args[0][1]
         assert control.receiver_number == MarginingReceiverNumber.RECEIVER_A
+
+    @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
+    def test_waits_for_go_to_normal_to_clear(self):
+        """Polls until GO_TO_NORMAL_SETTINGS clears on receiver switch."""
+        engine = _create_engine()
+        engine._write_lane_control = MagicMock()
+        engine._read_lane_status = MagicMock(
+            side_effect=[
+                _make_status_go_to_normal(),  # receiver switch in progress
+                _make_status_go_to_normal(),  # still transitioning
+                _make_status_no_command(),  # cleared
+            ]
+        )
+        engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_B)
+        assert engine._read_lane_status.call_count == 3
 
 
 # ---------------------------------------------------------------------------

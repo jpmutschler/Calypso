@@ -333,11 +333,10 @@ class LaneMarginingEngine:
         Margin Type field before writing a new margin command. The receiver only
         processes commands when it sees a transition FROM No Command.
 
-        We use a fixed delay after writing NO_COMMAND. Polling the status register
-        is unreliable — many receiver implementations do not echo NO_COMMAND in the
-        status register, keeping the last non-NO_COMMAND response instead.
-        The 100ms delay is sufficient for the PHY ordered set round-trip even when
-        the remote partner has lingering state from a previous sweep.
+        After the initial settle, checks for GO_TO_NORMAL_SETTINGS in the status
+        register. This response appears when switching receiver numbers — the
+        previously addressed receiver auto-resets per spec. We must wait for it
+        to clear before the new receiver can process commands.
         """
         clear = MarginingLaneControl(
             receiver_number=receiver,
@@ -347,6 +346,23 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, clear)
         time.sleep(_CLEAR_SETTLE_S)
+
+        # If a receiver switch triggered GO_TO_NORMAL_SETTINGS from the previous
+        # receiver, wait for that transition to complete. Without this, the new
+        # receiver won't process subsequent commands.
+        status = self._read_lane_status(lane)
+        if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
+            logger.debug(
+                "clear_waiting_for_go_to_normal",
+                lane=lane,
+                receiver=int(receiver),
+            )
+            deadline = time.monotonic() + _POLL_TIMEOUT_S
+            while time.monotonic() < deadline:
+                time.sleep(_CLEAR_SETTLE_S)
+                status = self._read_lane_status(lane)
+                if status.margin_type != MarginingCmd.GO_TO_NORMAL_SETTINGS:
+                    break
 
     def _send_report_command(
         self,
