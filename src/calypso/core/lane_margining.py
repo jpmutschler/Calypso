@@ -15,7 +15,7 @@ from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pcie_registers import ExtCapabilityID
 from calypso.sdk import device as sdk_device
-from calypso.sdk.registers import read_pci_register, write_pci_register
+from calypso.sdk.registers import read_plx_register, write_plx_register
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -177,7 +177,6 @@ class LaneMarginingEngine:
         if props.PortNumber == port_number:
             # Management port IS the target — use existing handle
             reader_device = device
-            self._target_bdf = (device_key.bus, device_key.slot, device_key.function)
         else:
             # Find and open the target port
             target_key = self._find_port_key(device_key, port_number)
@@ -186,13 +185,15 @@ class LaneMarginingEngine:
                     f"Port {port_number} not found. "
                     f"Ensure it is configured and the link is active."
                 )
-            self._target_bdf = (target_key.bus, target_key.slot, target_key.function)
             self._port_device = sdk_device.open_device(target_key)
             reader_device = self._port_device
 
+        # Device handle used for PLX register reads/writes (BAR0 path)
+        self._reg_device = reader_device
+
         try:
-            self._reader = PcieConfigReader(reader_device, device_key)
-            self._margining_offset = self._reader.find_extended_capability(
+            reader = PcieConfigReader(reader_device, device_key)
+            self._margining_offset = reader.find_extended_capability(
                 ExtCapabilityID.RECEIVER_LANE_MARGINING,
             )
         except Exception:
@@ -213,6 +214,7 @@ class LaneMarginingEngine:
             except Exception:
                 logger.debug("close_device_failed", exc_info=True)
             self._port_device = None
+            self._reg_device = None
 
     @staticmethod
     def _find_port_key(
@@ -241,19 +243,27 @@ class LaneMarginingEngine:
                 continue
         return None
 
-    def _bdf_read(self, offset: int) -> int:
-        """Read a config register via BDF-based access (OS PCI config mechanism)."""
-        bus, slot, fn = self._target_bdf
-        return read_pci_register(bus, slot, fn, offset)
+    def _reg_read(self, offset: int) -> int:
+        """Read a port register via PLX BAR0 memory-mapped path.
 
-    def _bdf_write(self, offset: int, value: int) -> None:
-        """Write a config register via BDF-based access (OS PCI config mechanism)."""
-        bus, slot, fn = self._target_bdf
-        write_pci_register(bus, slot, fn, offset, value)
+        Uses PlxPci_PlxRegisterRead which accesses the switch's internal
+        register space through BAR0 with automatic port offset adjustment.
+        This bypasses OS PCI config TLPs which timeout for Lane Margining
+        commands on non-management ports.
+        """
+        return read_plx_register(self._reg_device, offset)
+
+    def _reg_write(self, offset: int, value: int) -> None:
+        """Write a port register via PLX BAR0 memory-mapped path.
+
+        Uses PlxPci_PlxRegisterWrite — same BAR0 path as PHY monitor's
+        vendor register writes, which are proven to work for all ports.
+        """
+        write_plx_register(self._reg_device, offset, value)
 
     def is_margining_ready(self) -> bool:
         """Check whether the port's Margining Ready bit is set in Port Status."""
-        dword = self._bdf_read(self._margining_offset + LaneMarginingCap.PORT_CAP)
+        dword = self._reg_read(self._margining_offset + LaneMarginingCap.PORT_CAP)
         # Port Status is upper 16 bits (offset 0x06); bit 0 = Margining Ready
         port_status = (dword >> 16) & 0xFFFF
         return bool(port_status & 0x1)
@@ -330,19 +340,19 @@ class LaneMarginingEngine:
     def _write_lane_control(self, lane: int, control: MarginingLaneControl) -> None:
         """Write the lane control register (low 16 bits of the lane DWORD).
 
-        Uses BDF-based PCI config access so the write reaches the port's
-        margining hardware via the OS config mechanism (not the SDK driver's
-        internal register path, which may not propagate writes on non-management ports).
+        Uses PLX BAR0 register path so writes reach the port's margining
+        hardware directly through memory-mapped I/O, bypassing OS PCI config
+        TLPs which timeout on non-management ports.
         """
         offset = self._lane_control_offset(lane)
-        current = self._bdf_read(offset)
+        current = self._reg_read(offset)
         new_value = (current & 0xFFFF0000) | (control.to_register() & 0xFFFF)
-        self._bdf_write(offset, new_value)
+        self._reg_write(offset, new_value)
 
     def _read_lane_status(self, lane: int) -> MarginingLaneStatus:
         """Read the lane status register (high 16 bits of the lane DWORD)."""
         offset = self._lane_control_offset(lane)
-        dword = self._bdf_read(offset)
+        dword = self._reg_read(offset)
         status_word = (dword >> 16) & 0xFFFF
         return MarginingLaneStatus.from_register(status_word)
 
