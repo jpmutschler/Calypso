@@ -15,7 +15,6 @@ from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pcie_registers import ExtCapabilityID
 from calypso.sdk import device as sdk_device
-from calypso.sdk.registers import read_plx_register, write_plx_register
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -188,12 +187,13 @@ class LaneMarginingEngine:
             self._port_device = sdk_device.open_device(target_key)
             reader_device = self._port_device
 
-        # Device handle used for PLX register reads/writes (BAR0 path)
-        self._reg_device = reader_device
+        # PcieConfigReader for all register access (handle-based OS config path).
+        # Both capability walk and margining commands must use the same path
+        # to ensure register offsets map correctly.
+        self._config = PcieConfigReader(reader_device, device_key)
 
         try:
-            reader = PcieConfigReader(reader_device, device_key)
-            self._margining_offset = reader.find_extended_capability(
+            self._margining_offset = self._config.find_extended_capability(
                 ExtCapabilityID.RECEIVER_LANE_MARGINING,
             )
         except Exception:
@@ -214,7 +214,6 @@ class LaneMarginingEngine:
             except Exception:
                 logger.debug("close_device_failed", exc_info=True)
             self._port_device = None
-            self._reg_device = None
 
     @staticmethod
     def _find_port_key(
@@ -243,27 +242,45 @@ class LaneMarginingEngine:
                 continue
         return None
 
-    def _reg_read(self, offset: int) -> int:
-        """Read a port register via PLX BAR0 memory-mapped path.
+    def _cfg_read(self, offset: int) -> int:
+        """Read a config register via the port's device handle."""
+        return self._config.read_config_register(offset)
 
-        Uses PlxPci_PlxRegisterRead which accesses the switch's internal
-        register space through BAR0 with automatic port offset adjustment.
-        This bypasses OS PCI config TLPs which timeout for Lane Margining
-        commands on non-management ports.
-        """
-        return read_plx_register(self._reg_device, offset)
+    def _cfg_write(self, offset: int, value: int) -> None:
+        """Write a config register via the port's device handle."""
+        self._config.write_config_register(offset, value)
 
-    def _reg_write(self, offset: int, value: int) -> None:
-        """Write a port register via PLX BAR0 memory-mapped path.
+    def _read_diag(self) -> dict[str, str]:
+        """Collect diagnostic register reads for troubleshooting."""
+        diag: dict[str, str] = {}
+        try:
+            cap_header = self._cfg_read(self._margining_offset)
+            cap_id = cap_header & 0xFFFF
+            diag["cap_header"] = f"0x{cap_header:08X} (cap_id=0x{cap_id:04X})"
 
-        Uses PlxPci_PlxRegisterWrite — same BAR0 path as PHY monitor's
-        vendor register writes, which are proven to work for all ports.
-        """
-        write_plx_register(self._reg_device, offset, value)
+            port_dword = self._cfg_read(
+                self._margining_offset + LaneMarginingCap.PORT_CAP
+            )
+            port_cap = port_dword & 0xFFFF
+            port_status = (port_dword >> 16) & 0xFFFF
+            diag["port_cap"] = f"0x{port_cap:04X}"
+            diag["port_status"] = f"0x{port_status:04X}"
+            diag["margining_ready"] = str(bool(port_status & 0x1))
+
+            lane0_dword = self._cfg_read(
+                self._margining_offset + LaneMarginingCap.LANE_CONTROL_BASE
+            )
+            lane0_ctrl = lane0_dword & 0xFFFF
+            lane0_status = (lane0_dword >> 16) & 0xFFFF
+            diag["lane0_ctrl"] = f"0x{lane0_ctrl:04X}"
+            diag["lane0_status"] = f"0x{lane0_status:04X}"
+        except Exception as exc:
+            diag["diag_error"] = str(exc)
+        return diag
 
     def is_margining_ready(self) -> bool:
         """Check whether the port's Margining Ready bit is set in Port Status."""
-        dword = self._reg_read(self._margining_offset + LaneMarginingCap.PORT_CAP)
+        dword = self._cfg_read(self._margining_offset + LaneMarginingCap.PORT_CAP)
         # Port Status is upper 16 bits (offset 0x06); bit 0 = Margining Ready
         port_status = (dword >> 16) & 0xFFFF
         return bool(port_status & 0x1)
@@ -286,16 +303,39 @@ class LaneMarginingEngine:
             usage_model=0,
             margin_payload=report_payload,
         )
+
+        # Read the lane DWORD before writing for diagnostics
+        offset = self._lane_control_offset(lane)
+        pre_dword = self._cfg_read(offset)
+
         self._write_lane_control(lane, control)
 
+        # Read back to verify write took effect
+        post_dword = self._cfg_read(offset)
+
         deadline = time.monotonic() + _POLL_TIMEOUT_S
+        last_status: MarginingLaneStatus | None = None
         while time.monotonic() < deadline:
             time.sleep(_POLL_INTERVAL_S)
-            status = self._read_lane_status(lane)
-            if status.margin_type == MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL:
-                return status.margin_payload
+            last_status = self._read_lane_status(lane)
+            if last_status.margin_type == MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL:
+                return last_status.margin_payload
 
-        raise TimeoutError(f"Report command 0x{report_payload:02X} timed out waiting for response")
+        # Timeout — build diagnostic message
+        diag = self._read_diag()
+        diag["margining_offset"] = f"0x{self._margining_offset:X}"
+        diag["lane_reg_offset"] = f"0x{offset:X}"
+        diag["pre_write_dword"] = f"0x{pre_dword:08X}"
+        diag["post_write_dword"] = f"0x{post_dword:08X}"
+        diag["control_written"] = f"0x{control.to_register():04X}"
+        if last_status is not None:
+            diag["last_status_type"] = last_status.margin_type.name
+            diag["last_status_payload"] = f"0x{last_status.margin_payload:02X}"
+        diag_str = ", ".join(f"{k}={v}" for k, v in diag.items())
+
+        raise TimeoutError(
+            f"Report command 0x{report_payload:02X} timed out. Diag: {diag_str}"
+        )
 
     def get_capabilities(
         self,
@@ -338,21 +378,16 @@ class LaneMarginingEngine:
         return self._margining_offset + LaneMarginingCap.LANE_CONTROL_BASE + (lane * 4)
 
     def _write_lane_control(self, lane: int, control: MarginingLaneControl) -> None:
-        """Write the lane control register (low 16 bits of the lane DWORD).
-
-        Uses PLX BAR0 register path so writes reach the port's margining
-        hardware directly through memory-mapped I/O, bypassing OS PCI config
-        TLPs which timeout on non-management ports.
-        """
+        """Write the lane control register (low 16 bits of the lane DWORD)."""
         offset = self._lane_control_offset(lane)
-        current = self._reg_read(offset)
+        current = self._cfg_read(offset)
         new_value = (current & 0xFFFF0000) | (control.to_register() & 0xFFFF)
-        self._reg_write(offset, new_value)
+        self._cfg_write(offset, new_value)
 
     def _read_lane_status(self, lane: int) -> MarginingLaneStatus:
         """Read the lane status register (high 16 bits of the lane DWORD)."""
         offset = self._lane_control_offset(lane)
-        dword = self._reg_read(offset)
+        dword = self._cfg_read(offset)
         status_word = (dword >> 16) & 0xFFFF
         return MarginingLaneStatus.from_register(status_word)
 
