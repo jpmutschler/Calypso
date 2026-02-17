@@ -460,6 +460,22 @@ async def get_margining_capabilities(
         return await asyncio.to_thread(_read)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"SDK error reading margining capabilities: {exc}",
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Timed out reading margining capabilities: {exc}",
+        ) from exc
+    except Exception:
+        logger.exception("Unexpected error reading margining capabilities")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected internal error occurred",
+        )
 
 
 class SweepRequest(BaseModel):
@@ -474,7 +490,7 @@ async def start_margining_sweep(
     body: SweepRequest,
 ) -> dict[str, str]:
     """Start a background lane margining sweep for eye diagram data."""
-    from calypso.core.lane_margining import get_sweep_progress
+    from calypso.core.lane_margining import LaneMarginingEngine, get_sweep_progress
     from calypso.models.phy import MarginingReceiverNumber
 
     progress = get_sweep_progress(device_id, body.lane)
@@ -484,11 +500,29 @@ async def start_margining_sweep(
     sw = _get_switch(device_id)
     receiver = MarginingReceiverNumber(body.receiver)
 
-    def _run_sweep():
-        from calypso.core.lane_margining import LaneMarginingEngine
+    # Validate engine construction before launching background task
+    try:
+        engine = await asyncio.to_thread(
+            LaneMarginingEngine, sw._device_obj, sw._device_key, body.port_number
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"SDK error initializing margining: {exc}"
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504, detail=f"Timed out initializing margining: {exc}"
+        ) from exc
+    except Exception:
+        logger.exception("Failed to initialize margining engine")
+        raise HTTPException(
+            status_code=500, detail="An unexpected internal error occurred"
+        )
 
+    def _run_sweep():
         try:
-            engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
             engine.sweep_lane(body.lane, device_id, receiver)
         except Exception:
             logger.exception("Background sweep failed for lane %d", body.lane)
@@ -553,7 +587,20 @@ async def reset_margining(
     try:
         await asyncio.to_thread(_reset)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"SDK error resetting lane: {exc}"
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504, detail=f"Timed out resetting lane: {exc}"
+        ) from exc
+    except Exception:
+        logger.exception("Unexpected error resetting lane %d", body.lane)
+        raise HTTPException(
+            status_code=500, detail="An unexpected internal error occurred"
+        )
     return {"status": "reset", "lane": str(body.lane)}
 
 
@@ -571,7 +618,7 @@ async def start_pam4_margining_sweep(
     body: PAM4SweepRequest,
 ) -> dict[str, str]:
     """Start a background PAM4 3-eye lane margining sweep (Receivers A/B/C)."""
-    from calypso.core.lane_margining import get_pam4_sweep_progress
+    from calypso.core.lane_margining import LaneMarginingEngine, get_pam4_sweep_progress
 
     progress = get_pam4_sweep_progress(device_id, body.lane)
     if progress.status == "running":
@@ -579,11 +626,29 @@ async def start_pam4_margining_sweep(
 
     sw = _get_switch(device_id)
 
-    def _run_sweep():
-        from calypso.core.lane_margining import LaneMarginingEngine
+    # Validate engine construction before launching background task
+    try:
+        engine = await asyncio.to_thread(
+            LaneMarginingEngine, sw._device_obj, sw._device_key, body.port_number
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CalypsoError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"SDK error initializing margining: {exc}"
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504, detail=f"Timed out initializing margining: {exc}"
+        ) from exc
+    except Exception:
+        logger.exception("Failed to initialize PAM4 margining engine")
+        raise HTTPException(
+            status_code=500, detail="An unexpected internal error occurred"
+        )
 
+    def _run_sweep():
         try:
-            engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
             engine.sweep_lane_pam4(body.lane, device_id)
         except Exception:
             logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
