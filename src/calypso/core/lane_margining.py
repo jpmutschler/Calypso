@@ -14,6 +14,7 @@ from collections.abc import Callable
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pcie_registers import ExtCapabilityID
+from calypso.sdk import device as sdk_device
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -157,19 +158,71 @@ def _compute_eye_dimensions(
 
 
 class LaneMarginingEngine:
-    """Executes lane margining sweeps via the management port using global lane numbers."""
+    """Executes lane margining sweeps on a target port's config space.
+
+    Opens a separate device handle when targeting a non-management port,
+    following the proven topology/port-manager pattern for per-port access.
+    """
 
     def __init__(
         self,
         device: PLX_DEVICE_OBJECT,
         device_key: PLX_DEVICE_KEY,
+        port_number: int = 0,
     ) -> None:
-        self._reader = PcieConfigReader(device, device_key)
-        self._margining_offset = self._reader.find_extended_capability(
-            ExtCapabilityID.RECEIVER_LANE_MARGINING,
-        )
+        self._port_device: PLX_DEVICE_OBJECT | None = None
+
+        props = sdk_device.get_port_properties(device)
+        if props.PortNumber == port_number:
+            # Management port IS the target — use existing handle
+            reader_device = device
+        else:
+            # Find and open the target port
+            target_key = self._find_port_key(device_key, port_number)
+            if target_key is None:
+                raise ValueError(
+                    f"Port {port_number} not found. "
+                    f"Ensure it is configured and the link is active."
+                )
+            self._port_device = sdk_device.open_device(target_key)
+            reader_device = self._port_device
+
+        try:
+            self._reader = PcieConfigReader(reader_device, device_key)
+            self._margining_offset = self._reader.find_extended_capability(
+                ExtCapabilityID.RECEIVER_LANE_MARGINING,
+            )
+        except Exception:
+            self.close()
+            raise
+
         if self._margining_offset is None:
-            raise ValueError("Lane Margining capability not found on this device")
+            self.close()
+            raise ValueError(
+                f"Lane Margining capability not found on port {port_number}"
+            )
+
+    def close(self) -> None:
+        """Release the opened port device handle, if any."""
+        if self._port_device is not None:
+            try:
+                sdk_device.close_device(self._port_device)
+            except Exception:
+                logger.debug("close_device_failed", exc_info=True)
+            self._port_device = None
+
+    @staticmethod
+    def _find_port_key(
+        mgmt_key: PLX_DEVICE_KEY, port_number: int
+    ) -> PLX_DEVICE_KEY | None:
+        """Find a device key matching the given PlxPort number."""
+        from calypso.bindings.constants import PlxApiMode
+
+        all_keys = sdk_device.find_devices(api_mode=PlxApiMode(mgmt_key.ApiMode))
+        for key in all_keys:
+            if key.PlxPort == port_number:
+                return key
+        return None
 
     def is_margining_ready(self) -> bool:
         """Check whether the port's Margining Ready bit is set in Port Status."""

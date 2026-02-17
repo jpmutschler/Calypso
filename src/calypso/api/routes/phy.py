@@ -436,24 +436,28 @@ async def prepare_utp_test(
 )
 async def get_margining_capabilities(
     device_id: str,
-    lane: int = Query(0, ge=0, le=143),
+    port_number: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> LaneMarginCapabilitiesResponse:
-    """Read lane margining capabilities via the command protocol using global lane number."""
+    """Read lane margining capabilities on the target port's config space."""
     sw = _get_switch(device_id)
 
     def _read():
         from calypso.core.lane_margining import LaneMarginingEngine
 
-        engine = LaneMarginingEngine(sw._device_obj, sw._device_key)
-        caps = engine.get_capabilities(lane=lane)
-        return LaneMarginCapabilitiesResponse(
-            max_timing_offset=caps.max_timing_offset,
-            max_voltage_offset=caps.max_voltage_offset,
-            num_timing_steps=caps.num_timing_steps,
-            num_voltage_steps=caps.num_voltage_steps,
-            ind_up_down_voltage=caps.ind_up_down_voltage,
-            ind_left_right_timing=caps.ind_left_right_timing,
-        )
+        engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
+        try:
+            caps = engine.get_capabilities(lane=lane)
+            return LaneMarginCapabilitiesResponse(
+                max_timing_offset=caps.max_timing_offset,
+                max_voltage_offset=caps.max_voltage_offset,
+                num_timing_steps=caps.num_timing_steps,
+                num_voltage_steps=caps.num_voltage_steps,
+                ind_up_down_voltage=caps.ind_up_down_voltage,
+                ind_left_right_timing=caps.ind_left_right_timing,
+            )
+        finally:
+            engine.close()
 
     try:
         return await asyncio.to_thread(_read)
@@ -478,7 +482,8 @@ async def get_margining_capabilities(
 
 
 class SweepRequest(BaseModel):
-    lane: int = Field(ge=0, le=143)
+    port_number: int = Field(0, ge=0, le=143)
+    lane: int = Field(ge=0, le=15)
     receiver: int = Field(0, ge=0, le=3, description="0=broadcast, 1=A, 2=B, 3=C")
 
 
@@ -501,7 +506,7 @@ async def start_margining_sweep(
     # Validate engine construction before launching background task
     try:
         engine = await asyncio.to_thread(
-            LaneMarginingEngine, sw._device_obj, sw._device_key
+            LaneMarginingEngine, sw._device_obj, sw._device_key, body.port_number
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -524,6 +529,8 @@ async def start_margining_sweep(
             engine.sweep_lane(body.lane, device_id, receiver)
         except Exception:
             logger.exception("Background sweep failed for lane %d", body.lane)
+        finally:
+            engine.close()
 
     # Fire-and-forget: run_in_executor returns immediately so the HTTP response
     # is sent before the sweep finishes. Use get_margining_progress to poll.
@@ -538,7 +545,7 @@ async def start_margining_sweep(
 )
 async def get_margining_progress(
     device_id: str,
-    lane: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> SweepProgress:
     """Poll the progress of a running margining sweep."""
     from calypso.core.lane_margining import get_sweep_progress
@@ -552,7 +559,7 @@ async def get_margining_progress(
 )
 async def get_margining_result(
     device_id: str,
-    lane: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> EyeSweepResult:
     """Get the completed sweep result for a lane."""
     from calypso.core.lane_margining import get_sweep_result
@@ -564,7 +571,8 @@ async def get_margining_result(
 
 
 class ResetRequest(BaseModel):
-    lane: int = Field(ge=0, le=143)
+    port_number: int = Field(0, ge=0, le=143)
+    lane: int = Field(ge=0, le=15)
 
 
 @router.post("/devices/{device_id}/phy/margining/reset")
@@ -578,8 +586,11 @@ async def reset_margining(
     def _reset():
         from calypso.core.lane_margining import LaneMarginingEngine
 
-        engine = LaneMarginingEngine(sw._device_obj, sw._device_key)
-        engine.reset_lane(body.lane)
+        engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
+        try:
+            engine.reset_lane(body.lane)
+        finally:
+            engine.close()
 
     try:
         await asyncio.to_thread(_reset)
@@ -605,7 +616,8 @@ async def reset_margining(
 
 
 class PAM4SweepRequest(BaseModel):
-    lane: int = Field(ge=0, le=143)
+    port_number: int = Field(0, ge=0, le=143)
+    lane: int = Field(ge=0, le=15)
 
 
 @router.post("/devices/{device_id}/phy/margining/sweep-pam4")
@@ -625,7 +637,7 @@ async def start_pam4_margining_sweep(
     # Validate engine construction before launching background task
     try:
         engine = await asyncio.to_thread(
-            LaneMarginingEngine, sw._device_obj, sw._device_key
+            LaneMarginingEngine, sw._device_obj, sw._device_key, body.port_number
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -648,6 +660,8 @@ async def start_pam4_margining_sweep(
             engine.sweep_lane_pam4(body.lane, device_id)
         except Exception:
             logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
+        finally:
+            engine.close()
 
     asyncio.get_running_loop().run_in_executor(None, _run_sweep)
 
@@ -660,7 +674,7 @@ async def start_pam4_margining_sweep(
 )
 async def get_pam4_margining_progress(
     device_id: str,
-    lane: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> PAM4SweepProgress:
     """Poll the progress of a running PAM4 3-eye margining sweep."""
     from calypso.core.lane_margining import get_pam4_sweep_progress
@@ -674,7 +688,7 @@ async def get_pam4_margining_progress(
 )
 async def get_pam4_margining_result(
     device_id: str,
-    lane: int = Query(0, ge=0, le=143),
+    lane: int = Query(0, ge=0, le=15),
 ) -> PAM4SweepResult:
     """Get the completed PAM4 3-eye sweep result for a lane."""
     from calypso.core.lane_margining import get_pam4_sweep_result

@@ -34,6 +34,7 @@ def _eye_diagram_content(device_id: str) -> None:
     """Build the eye diagram page content inside page_layout."""
 
     state: dict = {
+        "port_number": 0,
         "lane": 0,
         "capabilities": None,
         "polling": False,
@@ -45,13 +46,14 @@ def _eye_diagram_content(device_id: str) -> None:
     # --- Actions ---
 
     async def check_capabilities():
+        port = state["port_number"]
         lane = state["lane"]
         try:
             # Fetch capabilities
             resp = await ui.run_javascript(
                 "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
-                f'/phy/margining/capabilities?lane={lane}");'
+                f'/phy/margining/capabilities?port_number={port}&lane={lane}");'
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
                 "})()",
@@ -88,21 +90,22 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     async def start_sweep():
+        port = state["port_number"]
         lane = state["lane"]
 
         if state["is_pam4"]:
-            await _start_pam4_sweep(lane)
+            await _start_pam4_sweep(lane, port)
         else:
-            await _start_nrz_sweep(lane)
+            await _start_nrz_sweep(lane, port)
 
-    async def _start_nrz_sweep(lane: int):
+    async def _start_nrz_sweep(lane: int, port: int):
         try:
             resp = await ui.run_javascript(
                 "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/sweep", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"    body: JSON.stringify({{lane: {lane}, receiver: 0}})"
+                f"    body: JSON.stringify({{port_number: {port}, lane: {lane}, receiver: 0}})"
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
@@ -119,14 +122,14 @@ def _eye_diagram_content(device_id: str) -> None:
         except Exception as e:
             ui.notify(f"Error: {e}", type="negative")
 
-    async def _start_pam4_sweep(lane: int):
+    async def _start_pam4_sweep(lane: int, port: int):
         try:
             resp = await ui.run_javascript(
                 "return (async () => {"
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/sweep-pam4", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"    body: JSON.stringify({{lane: {lane}}})"
+                f"    body: JSON.stringify({{port_number: {port}, lane: {lane}}})"
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
@@ -144,6 +147,7 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     async def reset_lane():
+        port = state["port_number"]
         lane = state["lane"]
         try:
             resp = await ui.run_javascript(
@@ -151,7 +155,7 @@ def _eye_diagram_content(device_id: str) -> None:
                 f'  const r = await fetch("/api/devices/{device_id}'
                 f'/phy/margining/reset", {{'
                 f'    method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"    body: JSON.stringify({{lane: {lane}}})"
+                f"    body: JSON.stringify({{port_number: {port}, lane: {lane}}})"
                 "  });"
                 "  if (!r.ok) { const t = await r.text(); return {detail: t || r.statusText}; }"
                 "  return await r.json();"
@@ -494,12 +498,27 @@ def _eye_diagram_content(device_id: str) -> None:
             f"color: {COLORS.text_primary};"
         )
         with ui.row().classes("items-end gap-4 mt-2"):
-            lane_input = (
+            port_input = (
                 ui.number(
-                    "Lane (Global)",
+                    "Port Number",
                     value=0,
                     min=0,
                     max=143,
+                    step=1,
+                )
+                .props("dense outlined")
+                .classes("w-32")
+            )
+            port_input.on_value_change(
+                lambda e: state.update({"port_number": int(e.value or 0)})
+            )
+
+            lane_input = (
+                ui.number(
+                    "Lane",
+                    value=0,
+                    min=0,
+                    max=15,
                     step=1,
                 )
                 .props("dense outlined")
