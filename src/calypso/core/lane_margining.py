@@ -32,6 +32,8 @@ from calypso.models.phy import (
     MarginingReportPayload,
     PAM4_EYE_LABELS,
     PAM4_RECEIVERS,
+    get_modulation_for_speed,
+    Modulation,
     steps_to_timing_ui,
     steps_to_voltage_mv,
 )
@@ -377,6 +379,28 @@ class LaneMarginingEngine:
 
     _MIN_MARGINING_SPEED = PCIeLinkSpeed.GEN4  # 16 GT/s — first gen with margining
 
+    def _resolve_receiver(
+        self,
+        receiver: MarginingReceiverNumber,
+        speed_code: int,
+    ) -> MarginingReceiverNumber:
+        """Auto-select a valid receiver number based on link speed.
+
+        Per PCIe 6.0.1 Table 7-51, receiver number 000b is RESERVED at
+        64 GT/s (Gen6 PAM4). Hardware SHALL NOT respond to commands with
+        receiver 000b at that speed. At Gen6:
+          - Use RECEIVER_A (001b) for per-receiver queries/sweeps
+          - Use PAM4_BROADCAST (111b) for reset/broadcast operations
+
+        At NRZ speeds (Gen4/5), receiver 000b is the single valid default.
+        """
+        if (
+            receiver == MarginingReceiverNumber.BROADCAST
+            and get_modulation_for_speed(speed_code) == Modulation.PAM4
+        ):
+            return MarginingReceiverNumber.RECEIVER_A
+        return receiver
+
     def get_capabilities(
         self,
         lane: int = 0,
@@ -407,6 +431,9 @@ class LaneMarginingEngine:
 
         if not self.is_margining_ready():
             raise ValueError("Port is not ready for margining (Margining Ready bit not set)")
+
+        # At Gen6 (64 GT/s), receiver 000b is reserved — auto-resolve to a valid value
+        receiver = self._resolve_receiver(receiver, speed_code)
 
         def _report(payload: int) -> int:
             return self._send_report_command(lane, receiver, payload)
@@ -477,7 +504,19 @@ class LaneMarginingEngine:
     def reset_lane(
         self, lane: int, receiver: MarginingReceiverNumber = MarginingReceiverNumber.BROADCAST
     ) -> None:
-        """Send GO_TO_NORMAL_SETTINGS to restore normal operation."""
+        """Send GO_TO_NORMAL_SETTINGS to restore normal operation.
+
+        At Gen6 PAM4, uses PAM4_BROADCAST (111b) instead of BROADCAST (000b)
+        to reset all three receivers simultaneously.
+        """
+        # At Gen6, receiver 000b is reserved — use PAM4_BROADCAST for resets
+        speed_code, _, _ = self._get_link_state()
+        if (
+            receiver == MarginingReceiverNumber.BROADCAST
+            and get_modulation_for_speed(speed_code) == Modulation.PAM4
+        ):
+            receiver = MarginingReceiverNumber.PAM4_BROADCAST
+
         control = MarginingLaneControl(
             receiver_number=receiver,
             margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
@@ -575,6 +614,10 @@ class LaneMarginingEngine:
         Stores the final result in _sweep_results.
         """
         key = f"{device_id}:{lane}"
+
+        # At Gen6, receiver 000b is reserved — auto-resolve before use
+        speed_code, _, _ = self._get_link_state()
+        receiver = self._resolve_receiver(receiver, speed_code)
 
         # Pre-flight: get total steps for progress tracking
         caps = self.get_capabilities(lane=lane, receiver=receiver)

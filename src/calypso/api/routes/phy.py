@@ -484,7 +484,12 @@ async def get_margining_capabilities(
 class SweepRequest(BaseModel):
     port_number: int = Field(0, ge=0, le=143)
     lane: int = Field(ge=0, le=15)
-    receiver: int = Field(0, ge=0, le=3, description="0=broadcast, 1=A, 2=B, 3=C")
+    receiver: int = Field(
+        0,
+        ge=0,
+        le=7,
+        description="0=NRZ default (auto-resolved to Rx-A at Gen6), 1=A, 2=B, 3=C, 7=PAM4 broadcast",
+    )
 
 
 @router.post("/devices/{device_id}/phy/margining/sweep")

@@ -193,12 +193,19 @@ class MarginingCmd(IntEnum):
 
 
 class MarginingReceiverNumber(IntEnum):
-    """Receiver number for margining commands (Section 7.7.8.4)."""
+    """Receiver number for margining commands (Section 7.7.8.4).
 
-    BROADCAST = 0x0
-    RECEIVER_A = 0x1
-    RECEIVER_B = 0x2
-    RECEIVER_C = 0x3
+    Per PCIe 6.0.1 Table 7-51:
+    - 000b: Default receiver at NRZ speeds (Gen1-5). RESERVED at 64 GT/s.
+    - 001b-011b: Individual PAM4 receivers (valid at all margining speeds).
+    - 111b: Broadcast to all receivers (valid at 64 GT/s only).
+    """
+
+    BROADCAST = 0x0  # NRZ default receiver. RESERVED at 64 GT/s (Gen6).
+    RECEIVER_A = 0x1  # PAM4 upper eye (Rx-a)
+    RECEIVER_B = 0x2  # PAM4 middle eye (Rx-b)
+    RECEIVER_C = 0x3  # PAM4 lower eye (Rx-c)
+    PAM4_BROADCAST = 0x7  # Broadcast to all PAM4 receivers (64 GT/s only)
 
 
 # PAM4 receiver-to-eye mapping for 3-eye margining (Gen6)

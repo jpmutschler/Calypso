@@ -288,6 +288,43 @@ class TestPAM4StateGetters:
 
 
 # ---------------------------------------------------------------------------
+# _resolve_receiver (Gen6 PAM4 receiver auto-resolution)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveReceiver:
+    def test_broadcast_at_nrz_unchanged(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.BROADCAST, speed_code=4)
+        assert result == MarginingReceiverNumber.BROADCAST
+
+    def test_broadcast_at_gen5_unchanged(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.BROADCAST, speed_code=5)
+        assert result == MarginingReceiverNumber.BROADCAST
+
+    def test_broadcast_at_gen6_becomes_receiver_a(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.BROADCAST, speed_code=6)
+        assert result == MarginingReceiverNumber.RECEIVER_A
+
+    def test_explicit_receiver_a_at_gen6_unchanged(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.RECEIVER_A, speed_code=6)
+        assert result == MarginingReceiverNumber.RECEIVER_A
+
+    def test_explicit_receiver_b_at_gen6_unchanged(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.RECEIVER_B, speed_code=6)
+        assert result == MarginingReceiverNumber.RECEIVER_B
+
+    def test_pam4_broadcast_at_gen6_unchanged(self):
+        engine = _create_engine()
+        result = engine._resolve_receiver(MarginingReceiverNumber.PAM4_BROADCAST, speed_code=6)
+        assert result == MarginingReceiverNumber.PAM4_BROADCAST
+
+
+# ---------------------------------------------------------------------------
 # _execute_single_sweep
 # ---------------------------------------------------------------------------
 
@@ -387,6 +424,8 @@ class TestSweepLane:
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(return_value=_make_status_complete())
         engine.reset_lane = MagicMock()
+        # NRZ speed so _resolve_receiver keeps BROADCAST unchanged
+        engine._get_link_state = MagicMock(return_value=(4, True, False))
         return engine
 
     def test_successful_sweep_stores_result(self):
@@ -409,6 +448,7 @@ class TestSweepLane:
     def test_zero_steps_sets_error_state(self):
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=0, num_voltage=0))
+        engine._get_link_state = MagicMock(return_value=(4, True, False))
         with pytest.raises(ValueError, match="0 margining steps"):
             engine.sweep_lane(lane=0, device_id="test_zero")
         progress = get_sweep_progress("test_zero", 0)
@@ -420,6 +460,7 @@ class TestSweepLane:
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=RuntimeError("hw fail"))
         engine.reset_lane = MagicMock()
+        engine._get_link_state = MagicMock(return_value=(4, True, False))
         with pytest.raises(RuntimeError, match="hw fail"):
             engine.sweep_lane(lane=0, device_id="test_err")
         engine.reset_lane.assert_called_once()
