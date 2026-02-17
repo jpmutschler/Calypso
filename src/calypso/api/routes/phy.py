@@ -446,15 +446,18 @@ async def get_margining_capabilities(
         from calypso.core.lane_margining import LaneMarginingEngine
 
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, port_number)
-        caps = engine.get_capabilities(lane=lane)
-        return LaneMarginCapabilitiesResponse(
-            max_timing_offset=caps.max_timing_offset,
-            max_voltage_offset=caps.max_voltage_offset,
-            num_timing_steps=caps.num_timing_steps,
-            num_voltage_steps=caps.num_voltage_steps,
-            ind_up_down_voltage=caps.ind_up_down_voltage,
-            ind_left_right_timing=caps.ind_left_right_timing,
-        )
+        try:
+            caps = engine.get_capabilities(lane=lane)
+            return LaneMarginCapabilitiesResponse(
+                max_timing_offset=caps.max_timing_offset,
+                max_voltage_offset=caps.max_voltage_offset,
+                num_timing_steps=caps.num_timing_steps,
+                num_voltage_steps=caps.num_voltage_steps,
+                ind_up_down_voltage=caps.ind_up_down_voltage,
+                ind_left_right_timing=caps.ind_left_right_timing,
+            )
+        finally:
+            engine.close()
 
     try:
         return await asyncio.to_thread(_read)
@@ -526,6 +529,8 @@ async def start_margining_sweep(
             engine.sweep_lane(body.lane, device_id, receiver)
         except Exception:
             logger.exception("Background sweep failed for lane %d", body.lane)
+        finally:
+            engine.close()
 
     # Fire-and-forget: run_in_executor returns immediately so the HTTP response
     # is sent before the sweep finishes. Use get_margining_progress to poll.
@@ -582,7 +587,10 @@ async def reset_margining(
         from calypso.core.lane_margining import LaneMarginingEngine
 
         engine = LaneMarginingEngine(sw._device_obj, sw._device_key, body.port_number)
-        engine.reset_lane(body.lane)
+        try:
+            engine.reset_lane(body.lane)
+        finally:
+            engine.close()
 
     try:
         await asyncio.to_thread(_reset)
@@ -652,6 +660,8 @@ async def start_pam4_margining_sweep(
             engine.sweep_lane_pam4(body.lane, device_id)
         except Exception:
             logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
+        finally:
+            engine.close()
 
     asyncio.get_running_loop().run_in_executor(None, _run_sweep)
 

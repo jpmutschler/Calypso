@@ -11,9 +11,11 @@ import threading
 import time
 from collections.abc import Callable
 
-from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
+from calypso.bindings.constants import PlxApiMode
+from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT, PLX_MODE_PROP
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pcie_registers import ExtCapabilityID
+from calypso.sdk import device as sdk_device
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -165,13 +167,54 @@ class LaneMarginingEngine:
         device_key: PLX_DEVICE_KEY,
         port_number: int,
     ) -> None:
-        self._reader = PcieConfigReader(device, device_key)
         self._port_number = port_number
+        self._port_device: PLX_DEVICE_OBJECT | None = None  # Tracks separately-opened device
+
+        # If the opened device IS the target port, use it directly
+        if device_key.PlxPort == port_number:
+            target_device, target_key = device, device_key
+        else:
+            # Find and open the device for the target port
+            target_device, target_key = self._find_and_open_port(device_key, port_number)
+            self._port_device = target_device  # Track for cleanup
+
+        self._reader = PcieConfigReader(target_device, target_key)
         self._margining_offset = self._reader.find_extended_capability(
             ExtCapabilityID.RECEIVER_LANE_MARGINING,
         )
         if self._margining_offset is None:
+            self.close()
             raise ValueError("Lane Margining capability not found on this device")
+
+    @staticmethod
+    def _find_and_open_port(
+        reference_key: PLX_DEVICE_KEY, port_number: int
+    ) -> tuple[PLX_DEVICE_OBJECT, PLX_DEVICE_KEY]:
+        """Find and open the device for a specific switch port."""
+        api_mode = PlxApiMode(reference_key.ApiMode)
+        mode_prop = PLX_MODE_PROP() if api_mode != PlxApiMode.PCI else None
+        all_keys = sdk_device.find_devices(api_mode=api_mode, mode_prop=mode_prop)
+
+        for k in all_keys:
+            if k.PlxPort == port_number:
+                return sdk_device.open_device(k), k
+
+        raise ValueError(f"Port {port_number} not found in device enumeration")
+
+    def close(self) -> None:
+        """Close the separately-opened port device, if any."""
+        if self._port_device is not None:
+            try:
+                sdk_device.close_device(self._port_device)
+            except Exception:
+                logger.warning("failed_to_close_port_device", port=self._port_number)
+            self._port_device = None
+
+    def __enter__(self) -> LaneMarginingEngine:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
     def is_margining_ready(self) -> bool:
         """Check whether the port's Margining Ready bit is set in Port Status."""
