@@ -61,7 +61,7 @@ def run_signal_integrity_tests(
         return results, eye_data
 
     try:
-        engine = LaneMarginingEngine(device, device_key, port.port_number)
+        engine = LaneMarginingEngine(device, device_key)
     except ValueError as exc:
         results.append(
             TestResult(
@@ -76,19 +76,9 @@ def run_signal_integrity_tests(
         )
         return results, eye_data
 
-    try:
-        # Branch on modulation: PAM4 (Gen6) vs NRZ (Gen4/5)
-        if speed_code >= 6:
-            return _run_pam4_signal_integrity(
-                engine,
-                device_id,
-                speed_code,
-                port,
-                results,
-                eye_data,
-            )
-
-        return _run_nrz_signal_integrity(
+    # Branch on modulation: PAM4 (Gen6) vs NRZ (Gen4/5)
+    if speed_code >= 6:
+        return _run_pam4_signal_integrity(
             engine,
             device_id,
             speed_code,
@@ -96,8 +86,15 @@ def run_signal_integrity_tests(
             results,
             eye_data,
         )
-    finally:
-        engine.close()
+
+    return _run_nrz_signal_integrity(
+        engine,
+        device_id,
+        speed_code,
+        port,
+        results,
+        eye_data,
+    )
 
 
 def _run_nrz_signal_integrity(

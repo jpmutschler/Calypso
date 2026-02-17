@@ -13,9 +13,7 @@ from collections.abc import Callable
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
-from calypso.hardware.atlas3 import port_register_base
 from calypso.hardware.pcie_registers import ExtCapabilityID
-from calypso.sdk import device as sdk_device
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -159,34 +157,19 @@ def _compute_eye_dimensions(
 
 
 class LaneMarginingEngine:
-    """Executes lane margining sweeps against a PCIe device port."""
+    """Executes lane margining sweeps via the management port using global lane numbers."""
 
     def __init__(
         self,
         device: PLX_DEVICE_OBJECT,
         device_key: PLX_DEVICE_KEY,
-        port_number: int,
     ) -> None:
-        self._port_number = port_number
-
-        # Check if the opened device IS the target port
-        props = sdk_device.get_port_properties(device)
-        if props.PortNumber == port_number:
-            self._reader = PcieConfigReader(device, device_key)
-        else:
-            # Access the target port's config space through BAR 0 mapped registers,
-            # same approach as PhyMonitor and LTSSM Trace for vendor registers.
-            base = port_register_base(port_number)
-            self._reader = PcieConfigReader(device, device_key, mapped_port_base=base)
-
+        self._reader = PcieConfigReader(device, device_key)
         self._margining_offset = self._reader.find_extended_capability(
             ExtCapabilityID.RECEIVER_LANE_MARGINING,
         )
         if self._margining_offset is None:
             raise ValueError("Lane Margining capability not found on this device")
-
-    def close(self) -> None:
-        """No-op retained for API compatibility with callers using try/finally."""
 
     def is_margining_ready(self) -> bool:
         """Check whether the port's Margining Ready bit is set in Port Status."""

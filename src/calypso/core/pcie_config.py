@@ -34,9 +34,7 @@ from calypso.models.pcie_config import (
     SupportedSpeedsVector,
 )
 from calypso.sdk.registers import (
-    read_mapped_register,
     read_pci_register_fast,
-    write_mapped_register,
     write_pci_register_fast,
 )
 from calypso.utils.logging import get_logger
@@ -179,37 +177,23 @@ def _encode_payload(size: int) -> int:
 
 
 class PcieConfigReader:
-    """Reads and parses PCIe configuration space registers.
-
-    When *mapped_port_base* is provided, all config reads/writes are routed
-    through ``PlxPci_PlxMappedRegisterRead/Write`` at the given BAR 0 offset.
-    This allows reading another port's config space through the management
-    port, matching the pattern used by :class:`PhyMonitor` and LTSSM Trace.
-    """
+    """Reads and parses PCIe configuration space registers."""
 
     def __init__(
         self,
         device: PLX_DEVICE_OBJECT,
         device_key: PLX_DEVICE_KEY,
-        *,
-        mapped_port_base: int | None = None,
     ) -> None:
         self._device = device
         self._key = device_key
-        self._mapped_port_base = mapped_port_base
 
     def read_config_register(self, offset: int) -> int:
         """Read a single 32-bit config register."""
-        if self._mapped_port_base is not None:
-            return read_mapped_register(self._device, self._mapped_port_base + offset)
         return read_pci_register_fast(self._device, offset)
 
     def write_config_register(self, offset: int, value: int) -> None:
         """Write a single 32-bit config register."""
-        if self._mapped_port_base is not None:
-            write_mapped_register(self._device, self._mapped_port_base + offset, value)
-        else:
-            write_pci_register_fast(self._device, offset, value)
+        write_pci_register_fast(self._device, offset, value)
 
     def dump_config_space(self, offset: int = 0, count: int = 64) -> list[ConfigRegister]:
         """Read a range of config space registers.
