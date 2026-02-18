@@ -13,7 +13,6 @@ from collections.abc import Callable
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
-from calypso.hardware.atlas3 import station_register_base
 from calypso.hardware.pcie_registers import (
     ExtCapabilityID,
     LinkStsBits,
@@ -23,7 +22,6 @@ from calypso.hardware.pcie_registers import (
     SPEED_STRINGS,
 )
 from calypso.sdk import device as sdk_device
-from calypso.sdk.registers import read_mapped_register, write_mapped_register
 from calypso.models.phy import (
     LaneMarginCapabilities,
     LaneMarginingCap,
@@ -63,11 +61,7 @@ _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 _POLL_INTERVAL_S = 0.02  # 20ms between status register reads
 _POLL_TIMEOUT_S = 2.0  # 2s max per margin point (pcilmr default dwell = 1s)
 _CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
-
-# Station-specific Lane Margin Control-0 register (PEX90000-RD101 p206).
-# Offset relative to station register base (0xF00000 + station_id * 0x10000).
-_LANE_MARGIN_CTL0_OFFSET = 0x3260
-_NO_CMD_RESPONSE_BIT = 1 << 29  # "No CMD local response enable"
+_MIN_DWELL_S = 0.15  # 150ms before accepting — prevents stale same-type data
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -188,9 +182,7 @@ class LaneMarginingEngine:
         device_key: PLX_DEVICE_KEY,
         port_number: int = 0,
     ) -> None:
-        self._mgmt_device = device  # Management handle for mapped register access
         self._port_device: PLX_DEVICE_OBJECT | None = None
-        self._no_cmd_response_enabled = False
 
         props = sdk_device.get_port_properties(device)
         if props.PortNumber == port_number:
@@ -212,9 +204,6 @@ class LaneMarginingEngine:
         # to ensure register offsets map correctly.
         self._config = PcieConfigReader(reader_device, device_key)
 
-        # Station register base for vendor PHY register access
-        self._station_base = station_register_base(port_number)
-
         try:
             self._margining_offset = self._config.find_extended_capability(
                 ExtCapabilityID.RECEIVER_LANE_MARGINING,
@@ -229,56 +218,14 @@ class LaneMarginingEngine:
                 f"Lane Margining capability not found on port {port_number}"
             )
 
-        # Enable "No CMD local response" so NO_COMMAND generates a status
-        # register response.  This allows us to detect stale data cleanly
-        # instead of relying on minimum dwell times.  Restored in close().
-        self._enable_no_cmd_response()
-
     def close(self) -> None:
-        """Restore hardware state and release the opened port device handle."""
-        self._disable_no_cmd_response()
+        """Release the opened port device handle, if any."""
         if self._port_device is not None:
             try:
                 sdk_device.close_device(self._port_device)
             except Exception:
                 logger.debug("close_device_failed", exc_info=True)
             self._port_device = None
-
-    def _read_margin_ctl0(self) -> int:
-        """Read Lane Margin Control-0 station register."""
-        offset = self._station_base + _LANE_MARGIN_CTL0_OFFSET
-        return read_mapped_register(self._mgmt_device, offset)
-
-    def _write_margin_ctl0(self, value: int) -> None:
-        """Write Lane Margin Control-0 station register."""
-        offset = self._station_base + _LANE_MARGIN_CTL0_OFFSET
-        write_mapped_register(self._mgmt_device, offset, value)
-
-    def _enable_no_cmd_response(self) -> None:
-        """Set bit [29] of Lane Margin Control-0 so NO_COMMAND generates a
-        status register response.  This prevents stale data from a previous
-        same-type margin command being accepted during polling."""
-        try:
-            val = self._read_margin_ctl0()
-            if not (val & _NO_CMD_RESPONSE_BIT):
-                self._write_margin_ctl0(val | _NO_CMD_RESPONSE_BIT)
-                logger.debug("no_cmd_response_enabled", reg=f"0x{val:08X}")
-            self._no_cmd_response_enabled = True
-        except Exception:
-            logger.warning("no_cmd_response_enable_failed", exc_info=True)
-
-    def _disable_no_cmd_response(self) -> None:
-        """Clear bit [29] of Lane Margin Control-0 to restore default behavior."""
-        if not self._no_cmd_response_enabled:
-            return
-        try:
-            val = self._read_margin_ctl0()
-            if val & _NO_CMD_RESPONSE_BIT:
-                self._write_margin_ctl0(val & ~_NO_CMD_RESPONSE_BIT)
-                logger.debug("no_cmd_response_disabled", reg=f"0x{val:08X}")
-            self._no_cmd_response_enabled = False
-        except Exception:
-            logger.warning("no_cmd_response_disable_failed", exc_info=True)
 
     @staticmethod
     def _find_port_key(
@@ -401,29 +348,12 @@ class LaneMarginingEngine:
         self._write_lane_control(lane, clear)
         time.sleep(_CLEAR_SETTLE_S)
 
-    def _wait_for_no_cmd_response(self, lane: int) -> None:
-        """Poll until the status register shows margin_type=NO_COMMAND.
-
-        Only useful when bit [29] of Lane Margin Control-0 is enabled.
-        Falls back to a fixed settle sleep otherwise.
-        """
-        if not self._no_cmd_response_enabled:
-            time.sleep(_CLEAR_SETTLE_S)
-            return
-        deadline = time.monotonic() + 0.5
-        while time.monotonic() < deadline:
-            status = self._read_lane_status(lane)
-            if status.margin_type == MarginingCmd.NO_COMMAND:
-                return
-            time.sleep(_POLL_INTERVAL_S)
-        # Didn't see NO_COMMAND response — continue anyway
-        logger.debug("no_cmd_response_timeout", lane=lane)
-
     def _try_report_command(
         self,
         lane: int,
         receiver: MarginingReceiverNumber,
         report_payload: int,
+        settle_s: float = _CLEAR_SETTLE_S,
     ) -> tuple[int | None, MarginingLaneStatus | None]:
         """Single attempt at sending a report command.
 
@@ -437,7 +367,7 @@ class LaneMarginingEngine:
             margin_payload=0,
         )
         self._write_lane_control(lane, clear)
-        self._wait_for_no_cmd_response(lane)
+        time.sleep(settle_s)
 
         # Write the actual report command
         control = MarginingLaneControl(
@@ -479,14 +409,14 @@ class LaneMarginingEngine:
         if result is not None:
             return result
 
-        # First attempt failed — retry once
+        # First attempt failed — retry with longer settle (500ms)
         logger.warning(
             "report_command_retry",
             payload=f"0x{report_payload:02X}",
             last_status_type=last_status.margin_type.name if last_status else "none",
         )
         result, last_status = self._try_report_command(
-            lane, receiver, report_payload,
+            lane, receiver, report_payload, settle_s=0.5,
         )
         if result is not None:
             return result
@@ -627,19 +557,14 @@ class LaneMarginingEngine:
     ) -> MarginingLaneStatus:
         """Issue a single margining command and poll until complete or timeout.
 
-        With "No CMD local response" enabled (bit [29] of Lane Margin
-        Control-0), the NO_COMMAND clear generates a response in the status
-        register with margin_type=NO_COMMAND.  We wait for that transition
-        first, then write the actual command and poll for a response with
-        margin_type matching our command.  This cleanly prevents stale data
-        from a previous same-type command.
-
-        If the NO_COMMAND response feature is not available (enable failed),
-        falls back to a minimum dwell time before accepting.
+        Clears to NO_COMMAND first (mandatory per spec Section 7.7.8.4),
+        writes the margin command, then waits a minimum dwell time before
+        polling. The dwell prevents reading a stale response from a previous
+        same-type command (consecutive passes both produce identical raw
+        register values).
         """
         # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
-        self._wait_for_no_cmd_response(lane)
 
         control = MarginingLaneControl(
             receiver_number=receiver,
@@ -648,6 +573,9 @@ class LaneMarginingEngine:
             margin_payload=payload,
         )
         self._write_lane_control(lane, control)
+
+        # Minimum dwell before accepting — prevents stale same-type data
+        time.sleep(_MIN_DWELL_S)
 
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
