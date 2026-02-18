@@ -291,132 +291,102 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     def _render_eye_chart(chart, data: dict, accent_color: str):
-        """Populate a single eye chart with sweep data.
+        """Populate a single eye chart with a 2D eye diagram heatmap.
 
-        Uses error_count-based coloring:
-          - Pass (0 errors): green circles
-          - Low errors (1-5): amber circles
-          - High errors (>5): red diamonds
-          - NAK (unsupported step): gray triangles
+        Interpolates the 1D timing and voltage sweeps into a 2D surface:
+        for each (timing_step, voltage_step) combination, the estimated
+        error is timing_error + voltage_error.  This produces a recognisable
+        eye shape with green at center (low error) fading to red at edges.
         """
         caps = data.get("capabilities", {})
         num_timing = caps.get("num_timing_steps", 1)
         num_voltage = caps.get("num_voltage_steps", 1)
 
-        pass_points: list[list[float]] = []
-        low_err_points: list[list[float]] = []
-        high_err_points: list[list[float]] = []
-        nak_points: list[list[float]] = []
-
-        max_pass_right = 0.0
-        max_pass_left = 0.0
+        # Build error-count lookups from the measured 1D sweeps.
+        # Use "right" for timing and "up" for voltage (the primary dirs).
+        timing_err: dict[int, int] = {}
         for pt in data.get("timing_points", []):
-            step = pt["step"]
-            direction = pt["direction"]
-            passed = pt["passed"]
-            error_count = pt.get("margin_value", 0)
-            status_code = pt.get("status_code", 0)
+            if pt["direction"] == "right":
+                timing_err[pt["step"]] = pt.get("margin_value", 0)
 
-            x_ui = (step / num_timing) * 0.5 if num_timing > 0 else 0.0
-            if direction == "left":
-                x_ui = -x_ui
-
-            point = [round(x_ui, 4), 0.0]
-            if passed:
-                pass_points.append(point)
-                if direction == "right" and x_ui > max_pass_right:
-                    max_pass_right = x_ui
-                if direction == "left" and abs(x_ui) > abs(max_pass_left):
-                    max_pass_left = x_ui
-            elif status_code == 3:
-                nak_points.append(point)
-            elif error_count <= 5:
-                low_err_points.append(point)
-            else:
-                high_err_points.append(point)
-
-        max_pass_up = 0.0
-        max_pass_down = 0.0
+        voltage_err: dict[int, int] = {}
+        max_usable_v = 0
         for pt in data.get("voltage_points", []):
-            step = pt["step"]
-            direction = pt["direction"]
-            passed = pt["passed"]
-            error_count = pt.get("margin_value", 0)
-            status_code = pt.get("status_code", 0)
+            if pt["direction"] == "up":
+                if pt.get("status_code", 0) == 3:  # NAK — beyond usable range
+                    continue
+                voltage_err[pt["step"]] = pt.get("margin_value", 0)
+                max_usable_v = max(max_usable_v, pt["step"])
 
-            y_mv = (step / num_voltage) * 500.0 if num_voltage > 0 else 0.0
-            if direction == "down":
-                y_mv = -y_mv
+        max_t = max(timing_err.keys()) if timing_err else 0
+        max_v = max_usable_v if max_usable_v > 0 else num_voltage
 
-            point = [0.0, round(y_mv, 2)]
-            if passed:
-                pass_points.append(point)
-                if direction == "up" and y_mv > max_pass_up:
-                    max_pass_up = y_mv
-                if direction == "down" and abs(y_mv) > abs(max_pass_down):
-                    max_pass_down = y_mv
-            elif status_code == 3:
-                nak_points.append(point)
-            elif error_count <= 5:
-                low_err_points.append(point)
-            else:
-                high_err_points.append(point)
+        # Generate 2D grid with combined error estimate.
+        # Step 0 = nominal sampling point — assumed 0 errors (link works).
+        points: list[list[float]] = []  # [x_ui, y_mv, combined_error]
+        max_combined = 1
 
-        boundary_points = [
-            [max_pass_right, 0.0],
-            [0.0, max_pass_up],
-            [max_pass_left, 0.0],
-            [0.0, max_pass_down],
-            [max_pass_right, 0.0],
+        t_steps = list(range(0, max_t + 1))
+        v_steps = list(range(0, max_v + 1))
+
+        for t in t_steps:
+            t_e = timing_err.get(t, 0) if t > 0 else 0
+            x = (t / num_timing) * 0.5 if num_timing > 0 else 0.0
+            for v in v_steps:
+                v_e = voltage_err.get(v, 0) if v > 0 else 0
+                y = (v / num_voltage) * 500.0 if num_voltage > 0 else 0.0
+                combined = t_e + v_e
+                if combined > max_combined:
+                    max_combined = combined
+                # Mirror into all 4 quadrants (avoid duplicating axes)
+                x_vals = (x, -x) if t > 0 else (x,)
+                y_vals = (y, -y) if v > 0 else (y,)
+                for xv in x_vals:
+                    for yv in y_vals:
+                        points.append([round(xv, 4), round(yv, 2), combined])
+
+        # Dynamic symbol size: fill the grid without excessive overlap.
+        grid_steps = max(max_t, max_v, 1)
+        sym_size = max(5, min(14, 360 // grid_steps))
+
+        # Eye boundary diamond (if there are passing points)
+        eye_w = data.get("eye_width_ui", 0)
+        eye_h = data.get("eye_height_mv", 0)
+
+        series: list[dict] = [
+            {
+                "name": "Margin",
+                "type": "scatter",
+                "data": points,
+                "symbolSize": sym_size,
+                "symbol": "rect",
+            },
         ]
 
-        series: list[dict] = []
-        if pass_points:
-            series.append({
-                "name": "Pass (0 errors)",
-                "type": "scatter",
-                "data": pass_points,
-                "itemStyle": {"color": COLORS.green},
-                "symbolSize": 10,
-                "symbol": "circle",
-            })
-        if low_err_points:
-            series.append({
-                "name": "Low Errors (1-5)",
-                "type": "scatter",
-                "data": low_err_points,
-                "itemStyle": {"color": "#FFB74D"},
-                "symbolSize": 8,
-                "symbol": "circle",
-            })
-        if high_err_points:
-            series.append({
-                "name": "High Errors (>5)",
-                "type": "scatter",
-                "data": high_err_points,
-                "itemStyle": {"color": COLORS.red},
-                "symbolSize": 8,
-                "symbol": "diamond",
-            })
-        if nak_points:
-            series.append({
-                "name": "NAK (unsupported)",
-                "type": "scatter",
-                "data": nak_points,
-                "itemStyle": {"color": "#616161"},
-                "symbolSize": 6,
-                "symbol": "triangle",
-            })
-        if any(p != [0.0, 0.0] for p in boundary_points):
+        if eye_w > 0 or eye_h > 0:
+            hw = round(eye_w / 2, 4)
+            hh = round(eye_h / 2, 2)
             series.append({
                 "name": "Eye Boundary",
                 "type": "line",
-                "data": boundary_points,
-                "lineStyle": {"color": accent_color, "width": 2, "type": "dashed"},
+                "data": [[hw, 0], [0, hh], [-hw, 0], [0, -hh], [hw, 0]],
+                "lineStyle": {"color": accent_color, "width": 3, "type": "dashed"},
                 "itemStyle": {"color": accent_color},
                 "showSymbol": False,
+                "z": 10,
             })
 
+        chart.options["visualMap"] = {
+            "min": 0,
+            "max": max_combined,
+            "dimension": 2,
+            "inRange": {
+                "color": ["#4CAF50", "#8BC34A", "#FFEB3B", "#FF9800", "#F44336"],
+            },
+            "text": [f"Errors: {max_combined}", "Errors: 0"],
+            "textStyle": {"color": COLORS.text_secondary},
+            "right": 10,
+        }
         chart.options["series"] = series
         chart.update()
 
