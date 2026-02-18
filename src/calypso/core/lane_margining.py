@@ -401,12 +401,29 @@ class LaneMarginingEngine:
         self._write_lane_control(lane, clear)
         time.sleep(_CLEAR_SETTLE_S)
 
+    def _wait_for_no_cmd_response(self, lane: int) -> None:
+        """Poll until the status register shows margin_type=NO_COMMAND.
+
+        Only useful when bit [29] of Lane Margin Control-0 is enabled.
+        Falls back to a fixed settle sleep otherwise.
+        """
+        if not self._no_cmd_response_enabled:
+            time.sleep(_CLEAR_SETTLE_S)
+            return
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            status = self._read_lane_status(lane)
+            if status.margin_type == MarginingCmd.NO_COMMAND:
+                return
+            time.sleep(_POLL_INTERVAL_S)
+        # Didn't see NO_COMMAND response — continue anyway
+        logger.debug("no_cmd_response_timeout", lane=lane)
+
     def _try_report_command(
         self,
         lane: int,
         receiver: MarginingReceiverNumber,
         report_payload: int,
-        settle_s: float = _CLEAR_SETTLE_S,
     ) -> tuple[int | None, MarginingLaneStatus | None]:
         """Single attempt at sending a report command.
 
@@ -420,7 +437,7 @@ class LaneMarginingEngine:
             margin_payload=0,
         )
         self._write_lane_control(lane, clear)
-        time.sleep(settle_s)
+        self._wait_for_no_cmd_response(lane)
 
         # Write the actual report command
         control = MarginingLaneControl(
@@ -462,14 +479,14 @@ class LaneMarginingEngine:
         if result is not None:
             return result
 
-        # First attempt failed — retry with longer settle (500ms)
+        # First attempt failed — retry once
         logger.warning(
             "report_command_retry",
             payload=f"0x{report_payload:02X}",
             last_status_type=last_status.margin_type.name if last_status else "none",
         )
         result, last_status = self._try_report_command(
-            lane, receiver, report_payload, settle_s=0.5,
+            lane, receiver, report_payload,
         )
         if result is not None:
             return result
@@ -622,17 +639,7 @@ class LaneMarginingEngine:
         """
         # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
-
-        if self._no_cmd_response_enabled:
-            # Wait for the NO_COMMAND response to appear in status register.
-            # This guarantees the status register is "clean" before we write
-            # our actual command.
-            no_cmd_deadline = time.monotonic() + 0.5
-            while time.monotonic() < no_cmd_deadline:
-                status = self._read_lane_status(lane)
-                if status.margin_type == MarginingCmd.NO_COMMAND:
-                    break
-                time.sleep(_POLL_INTERVAL_S)
+        self._wait_for_no_cmd_response(lane)
 
         control = MarginingLaneControl(
             receiver_number=receiver,
