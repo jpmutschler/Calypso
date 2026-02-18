@@ -553,7 +553,20 @@ class LaneMarginingEngine:
         receiver: MarginingReceiverNumber,
         payload: int,
     ) -> MarginingLaneStatus:
-        """Issue a single margining command and poll until complete or timeout."""
+        """Issue a single margining command and poll until complete or timeout.
+
+        Uses a baseline snapshot of the raw status register to avoid accepting
+        stale data from a previous command of the same margin_type.  The status
+        register retains the last non-NO_COMMAND response, so back-to-back
+        MARGIN_TIMING commands would have matching margin_type in the stale
+        response.  We compare the full register word so that ANY change (new
+        margin_payload, new receiver echo, etc.) is detected.
+        """
+        # Snapshot the raw status register BEFORE clearing + writing.
+        offset = self._lane_control_offset(lane)
+        baseline_dword = self._cfg_read(offset)
+        baseline_status = (baseline_dword >> 16) & 0xFFFF
+
         # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
 
@@ -568,14 +581,19 @@ class LaneMarginingEngine:
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             time.sleep(_POLL_INTERVAL_S)
-            status = self._read_lane_status(lane)
-            # Must match our command type AND be past setup phase.
-            # Status codes: 0=error_exceeded, 1=setup, 2=passed, 3=NAK.
-            # We poll past status 1 (setup) and accept 0/2/3 as final.
-            # Without the margin_type check, stale responses from prior
-            # commands (e.g. GO_TO_NORMAL_SETTINGS after reset_lane) would
-            # be accepted immediately.
-            if status.margin_type == cmd and not status.is_setup:
+            dword = self._cfg_read(offset)
+            raw_status = (dword >> 16) & 0xFFFF
+            status = MarginingLaneStatus.from_register(raw_status)
+
+            # Accept when ALL of:
+            #  1) margin_type matches our command (not stale GO_TO_NORMAL etc.)
+            #  2) not in setup phase (status_code != 1)
+            #  3) raw register differs from baseline (not stale same-type data)
+            if (
+                status.margin_type == cmd
+                and not status.is_setup
+                and raw_status != baseline_status
+            ):
                 return status
 
         # Timed out - return last status
