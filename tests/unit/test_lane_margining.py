@@ -141,8 +141,11 @@ def _make_eye_sweep_result(
 
 def _patch_engine_init(engine: LaneMarginingEngine) -> None:
     """Bypass __init__ hardware reads by directly setting internal attributes."""
+    engine._mgmt_device = MagicMock()
     engine._port_device = None
+    engine._no_cmd_response_enabled = False
     engine._config = MagicMock()
+    engine._station_base = 0xF00000
     engine._margining_offset = 0x100
 
 
