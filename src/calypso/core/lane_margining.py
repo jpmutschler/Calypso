@@ -58,9 +58,10 @@ _sweep_results: dict[str, EyeSweepResult] = {}
 _pam4_active_sweeps: dict[str, PAM4SweepProgress] = {}
 _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 
-_POLL_INTERVAL_S = 0.1
-_POLL_TIMEOUT_S = 5.0
-_CLEAR_SETTLE_S = 0.1  # 100ms for NO_COMMAND PHY ordered set round-trip
+_POLL_INTERVAL_S = 0.02  # 20ms between status register reads
+_POLL_TIMEOUT_S = 2.0  # 2s max per margin point (pcilmr default dwell = 1s)
+_CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
+_MIN_DWELL_S = 0.15  # 150ms before accepting — prevents stale same-type data
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -555,18 +556,14 @@ class LaneMarginingEngine:
     ) -> MarginingLaneStatus:
         """Issue a single margining command and poll until complete or timeout.
 
-        Uses a baseline snapshot of the raw status register to avoid accepting
-        stale data from a previous command of the same margin_type.  The status
-        register retains the last non-NO_COMMAND response, so back-to-back
-        MARGIN_TIMING commands would have matching margin_type in the stale
-        response.  We compare the full register word so that ANY change (new
-        margin_payload, new receiver echo, etc.) is detected.
+        Uses a minimum dwell time (_MIN_DWELL_S) after writing the command
+        before accepting any response.  This prevents stale data from a
+        previous same-type command: the status register retains the last
+        non-NO_COMMAND response, so back-to-back MARGIN_TIMING commands could
+        match margin_type immediately.  By waiting at least 150ms, the receiver
+        has processed the new command (PHY ordered sets propagate in
+        nanoseconds) and the status register reflects the new response.
         """
-        # Snapshot the raw status register BEFORE clearing + writing.
-        offset = self._lane_control_offset(lane)
-        baseline_dword = self._cfg_read(offset)
-        baseline_status = (baseline_dword >> 16) & 0xFFFF
-
         # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
 
@@ -578,23 +575,23 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, control)
 
+        # Minimum dwell: give the receiver time to process the new command
+        # before we start reading the status register.  Even the fastest
+        # receiver (Rx A on Gen6) needs some time; this prevents us from
+        # reading stale data left over from the previous margin point.
+        time.sleep(_MIN_DWELL_S)
+
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
-            time.sleep(_POLL_INTERVAL_S)
-            dword = self._cfg_read(offset)
-            raw_status = (dword >> 16) & 0xFFFF
-            status = MarginingLaneStatus.from_register(raw_status)
+            status = self._read_lane_status(lane)
 
-            # Accept when ALL of:
+            # Accept when:
             #  1) margin_type matches our command (not stale GO_TO_NORMAL etc.)
-            #  2) not in setup phase (status_code != 1)
-            #  3) raw register differs from baseline (not stale same-type data)
-            if (
-                status.margin_type == cmd
-                and not status.is_setup
-                and raw_status != baseline_status
-            ):
+            #  2) not in setup phase (status_code != 1, receiver still preparing)
+            if status.margin_type == cmd and not status.is_setup:
                 return status
+
+            time.sleep(_POLL_INTERVAL_S)
 
         # Timed out - return last status
         return self._read_lane_status(lane)
