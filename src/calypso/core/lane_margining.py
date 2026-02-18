@@ -59,9 +59,9 @@ _pam4_active_sweeps: dict[str, PAM4SweepProgress] = {}
 _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 
 _POLL_INTERVAL_S = 0.02  # 20ms between status register reads
-_POLL_TIMEOUT_S = 2.0  # 2s max per margin point (pcilmr default dwell = 1s)
+_POLL_TIMEOUT_S = 5.0  # 5s max per margin point (PAM4 receivers may be slow)
 _CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
-_MIN_DWELL_S = 0.15  # 150ms before accepting — prevents stale same-type data
+_GO_NORMAL_TIMEOUT_S = 0.5  # 500ms to confirm GO_TO_NORMAL_SETTINGS response
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -557,14 +557,49 @@ class LaneMarginingEngine:
     ) -> MarginingLaneStatus:
         """Issue a single margining command and poll until complete or timeout.
 
-        Clears to NO_COMMAND first (mandatory per spec Section 7.7.8.4),
-        writes the margin command, then waits a minimum dwell time before
-        polling. The dwell prevents reading a stale response from a previous
-        same-type command (consecutive passes both produce identical raw
-        register values).
+        Uses GO_TO_NORMAL_SETTINGS as a pre-clear to force a detectable status
+        register transition.  Unlike NO_COMMAND (which does not update the
+        status register), GO_TO_NORMAL_SETTINGS generates a real response.
+        This guarantees that the subsequent margin command's response can be
+        distinguished from a stale previous response — the status register
+        must transition from GO_TO_NORMAL_SETTINGS to MARGIN_TIMING/VOLTAGE.
+
+        Without this, consecutive same-type commands that both pass with 0
+        errors produce identical raw register values, making it impossible to
+        tell whether we're reading the old or new response.
         """
-        # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
+        # Phase 1: Force a known status register state with GO_TO_NORMAL_SETTINGS.
+        # This resets the receiver's margin offset and, critically, writes a
+        # response with margin_type=GO_TO_NORMAL_SETTINGS into the status register.
         self._clear_lane_command(lane, receiver)
+        go_normal = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, go_normal)
+
+        # Wait for GO_TO_NORMAL_SETTINGS response — confirms the status register
+        # no longer contains stale data from a previous margin command.
+        go_deadline = time.monotonic() + _GO_NORMAL_TIMEOUT_S
+        while time.monotonic() < go_deadline:
+            status = self._read_lane_status(lane)
+            if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
+                break
+            time.sleep(_POLL_INTERVAL_S)
+
+        # Phase 2: Standard margin command with NO_COMMAND transition.
+        # Per PCIe 6.0.1 Section 7.7.8.4, the receiver processes commands when
+        # it sees a transition FROM No Command to a command value.
+        clear = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.NO_COMMAND,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, clear)
+        time.sleep(_CLEAR_SETTLE_S)
 
         control = MarginingLaneControl(
             receiver_number=receiver,
@@ -574,22 +609,16 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, control)
 
-        # Minimum dwell before accepting — prevents stale same-type data
-        time.sleep(_MIN_DWELL_S)
-
+        # Phase 3: Poll for margin response. Status must transition from
+        # GO_TO_NORMAL_SETTINGS (confirmed above) to our command's margin_type.
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             status = self._read_lane_status(lane)
-
-            # Accept when:
-            #  1) margin_type matches our command (not stale NO_COMMAND etc.)
-            #  2) not in setup phase (status_code != 1, receiver still preparing)
             if status.margin_type == cmd and not status.is_setup:
                 return status
-
             time.sleep(_POLL_INTERVAL_S)
 
-        # Timed out - return last status
+        # Timed out — return last status for diagnostics
         return self._read_lane_status(lane)
 
     def reset_lane(
@@ -673,7 +702,9 @@ class LaneMarginingEngine:
 
                 # Per PCIe spec, status_code 2 (10b) = margining passed
                 # (errors within limit). Status 0 = too many errors (fail).
-                passed = status.is_passed
+                # If timed out, the response is stale — treat as failed
+                # regardless of the status_code in the stale payload.
+                passed = status.is_passed and not timed_out
                 if passed:
                     dir_passed += 1
                 dir_status_codes[status.status_code] = (

@@ -75,29 +75,34 @@ def _make_caps(
     )
 
 
-def _make_status_complete(error_count: int = 0) -> MarginingLaneStatus:
-    """Build a lane status with status_code=2 (margining passed).
+def _margin_point_side_effect(error_count: int = 0):
+    """Create a side_effect for _margin_single_point that echoes the command type.
 
-    Per PCIe spec, status 10b (2) = margining executed with errors within limit.
-    error_count (bits [5:0]) = number of detected errors (0 = no errors = best).
+    The real hardware responds with margin_type matching the command.  Timed-out
+    points are now treated as failures, so the mock must echo ``cmd`` back in the
+    response to be counted as passed.
     """
-    payload = (0x2 << 6) | (error_count & 0x3F)
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.BROADCAST,
-        margin_type=MarginingCmd.MARGIN_TIMING,
-        usage_model=0,
-        margin_payload=payload,
-    )
+    def _side_effect(lane, cmd, receiver, payload):
+        pld = (0x2 << 6) | (error_count & 0x3F)
+        return MarginingLaneStatus(
+            receiver_number=MarginingReceiverNumber.BROADCAST,
+            margin_type=cmd,
+            usage_model=0,
+            margin_payload=pld,
+        )
+    return _side_effect
 
 
-def _make_status_fail() -> MarginingLaneStatus:
-    """Build a lane status with status_code=0 (too many errors)."""
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.BROADCAST,
-        margin_type=MarginingCmd.MARGIN_TIMING,
-        usage_model=0,
-        margin_payload=(0x0 << 6) | 0,
-    )
+def _margin_point_fail_side_effect():
+    """Create a side_effect for _margin_single_point with status_code=0 (too many errors)."""
+    def _side_effect(lane, cmd, receiver, payload):
+        return MarginingLaneStatus(
+            receiver_number=MarginingReceiverNumber.BROADCAST,
+            margin_type=cmd,
+            usage_model=0,
+            margin_payload=(0x0 << 6) | 0,
+        )
+    return _side_effect
 
 
 def _make_point(direction: str, step: int, passed: bool) -> MarginPoint:
@@ -364,7 +369,7 @@ class TestExecuteSingleSweep:
         if caps is None:
             caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(return_value=_make_status_complete())
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
         return engine
 
     def test_successful_sweep_returns_result(self):
@@ -428,7 +433,7 @@ class TestExecuteSingleSweep:
     def test_failing_points_produce_zero_eye(self):
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=2, num_voltage=2))
-        engine._margin_single_point = MagicMock(return_value=_make_status_fail())
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_fail_side_effect())
         caps = _make_caps(num_timing=2, num_voltage=2)
         result = engine._execute_single_sweep(
             lane=0,
@@ -451,7 +456,7 @@ class TestSweepLane:
         engine = _create_engine()
         caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(return_value=_make_status_complete())
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
         engine.reset_lane = MagicMock()
         # NRZ speed so _resolve_receiver keeps BROADCAST unchanged
         engine._get_link_state = MagicMock(return_value=(4, True, False))
@@ -508,7 +513,7 @@ class TestSweepLanePAM4:
         engine = _create_engine()
         caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(return_value=_make_status_complete())
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
         engine.reset_lane = MagicMock()
         return engine
 
@@ -569,12 +574,18 @@ class TestSweepLanePAM4:
         # Fail on the second margin_single_point call (during first eye sweep)
         call_count = 0
 
-        def _fail_on_second(*args, **kwargs):
+        def _fail_on_second(lane, cmd, receiver, payload):
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
                 raise RuntimeError("hw fail during pam4")
-            return _make_status_complete()
+            pld = (0x2 << 6) | 0
+            return MarginingLaneStatus(
+                receiver_number=MarginingReceiverNumber.BROADCAST,
+                margin_type=cmd,
+                usage_model=0,
+                margin_payload=pld,
+            )
 
         engine._margin_single_point = MagicMock(side_effect=_fail_on_second)
         engine.reset_lane = MagicMock()
@@ -601,7 +612,7 @@ class TestSweepLanePAM4:
         # by returning different statuses per direction
         caps = _make_caps(num_timing=1, num_voltage=1)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(return_value=_make_status_complete(20))
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
         engine.reset_lane = MagicMock()
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_bal")
@@ -612,7 +623,7 @@ class TestSweepLanePAM4:
         engine = _create_engine()
         caps = _make_caps(num_timing=1, num_voltage=1)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(return_value=_make_status_complete(20))
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
         engine.reset_lane = MagicMock()
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_worst")
