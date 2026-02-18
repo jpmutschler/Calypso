@@ -723,7 +723,12 @@ class LaneMarginingEngine:
 
             for step in range(1, num_steps + 1):
                 payload = step & 0x3F
-                if direction in ("left", "down"):
+                # Per PCIe 6.0.1 Table 7-51:
+                #   Timing: direction in bit 7 (0=right/decrease, 1=left/increase)
+                #   Voltage: direction in bit 6 (0=up/increase, 1=down/decrease)
+                if direction == "left":
+                    payload |= 1 << 7
+                elif direction == "down":
                     payload |= 1 << 6
 
                 status = self._margin_single_point(lane, cmd, receiver, payload)
@@ -1004,11 +1009,11 @@ class LaneMarginingEngine:
                             percent=(overall_current / overall_total) * 100,
                         )
 
-                # Each receiver gets its own capabilities query — this also
-                # sends GO_TO_NORMAL which "wakes up" the receiver for margining.
-                # Capabilities are port-level (identical across receivers), but
-                # the per-receiver report/reset sequence may be needed.
-                result = self._execute_single_sweep(lane, rx, _progress)
+                # Reset before each eye to ensure clean state, then sweep.
+                # Use pre-fetched caps (from Rx A) — some hardware only responds
+                # to report commands on RECEIVER_A.
+                self.reset_lane(lane, rx)
+                result = self._execute_single_sweep(lane, rx, _progress, caps=caps)
                 eye_results.append(result)
                 completed_steps += steps_per_eye
 

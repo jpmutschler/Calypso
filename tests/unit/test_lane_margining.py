@@ -547,16 +547,15 @@ class TestSweepLanePAM4:
     def test_pam4_resets_each_receiver(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_reset")
-        # reset_lane called: 1x after pre-flight + 3x per eye = 4
-        assert engine.reset_lane.call_count == 4
+        # reset_lane called: 1x after pre-flight + 3x before each eye + 3x after each eye = 7
+        assert engine.reset_lane.call_count == 7
 
-    def test_pam4_queries_caps_per_receiver(self):
+    def test_pam4_queries_caps_once_with_receiver_a(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_caps")
-        # Capabilities queried: 1x pre-flight (RECEIVER_A) + 3x per eye sweep
-        assert engine.get_capabilities.call_count == 4
-        # Pre-flight always uses RECEIVER_A
-        engine.get_capabilities.assert_any_call(
+        # Capabilities queried once with RECEIVER_A — some hardware only
+        # responds to report commands on RECEIVER_A, so we cache and reuse.
+        engine.get_capabilities.assert_called_once_with(
             lane=0, receiver=MarginingReceiverNumber.RECEIVER_A,
         )
 
@@ -593,8 +592,8 @@ class TestSweepLanePAM4:
         engine.reset_lane = MagicMock()
         with pytest.raises(RuntimeError, match="hw fail during pam4"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_err")
-        # Should attempt to reset: 1x after pre-flight + 3x error cleanup = 4
-        assert engine.reset_lane.call_count == 4
+        # Should attempt to reset: 1x after pre-flight + 1x before first eye + 3x error cleanup = 5
+        assert engine.reset_lane.call_count == 5
         # Error cleanup resets include all 3 receivers (calls with 2 args)
         error_resets = [
             call.args[1]
