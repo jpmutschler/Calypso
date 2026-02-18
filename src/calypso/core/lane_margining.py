@@ -359,6 +359,16 @@ class LaneMarginingEngine:
 
         Returns (payload, None) on success or (None, last_status) on timeout.
         """
+        # Log status register state before we begin
+        pre_status = self._read_lane_status(lane)
+        logger.debug(
+            "report_pre_status",
+            payload=f"0x{report_payload:02X}",
+            status_type=pre_status.margin_type.name,
+            status_receiver=pre_status.receiver_number,
+            status_payload=f"0x{pre_status.margin_payload:02X}",
+        )
+
         # Clear to NO_COMMAND (mandatory per spec Section 7.7.8.4)
         clear = MarginingLaneControl(
             receiver_number=receiver,
@@ -377,6 +387,18 @@ class LaneMarginingEngine:
             margin_payload=report_payload,
         )
         self._write_lane_control(lane, control)
+
+        # Readback to verify write took effect
+        offset = self._lane_control_offset(lane)
+        readback = self._cfg_read(offset)
+        ctrl_word = readback & 0xFFFF
+        expected = control.to_register()
+        if ctrl_word != expected:
+            logger.warning(
+                "report_ctrl_mismatch",
+                expected=f"0x{expected:04X}",
+                readback=f"0x{ctrl_word:04X}",
+            )
 
         # Poll until status margin_type echoes the command
         deadline = time.monotonic() + _POLL_TIMEOUT_S
@@ -424,6 +446,10 @@ class LaneMarginingEngine:
         # Both attempts failed — build diagnostic message
         diag = self._read_diag()
         diag["margining_offset"] = f"0x{self._margining_offset:X}"
+        # Read raw lane DWORD for complete picture
+        offset = self._lane_control_offset(lane)
+        raw_dword = self._cfg_read(offset)
+        diag["raw_lane_dword"] = f"0x{raw_dword:08X}"
         control = MarginingLaneControl(
             receiver_number=receiver,
             margin_type=MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL,
@@ -509,17 +535,32 @@ class LaneMarginingEngine:
         receiver = self._resolve_receiver(receiver, speed_code)
 
         # Cancel any in-progress margining from a previous sweep.
-        # After a sweep, the status register retains a MARGIN_TIMING/VOLTAGE
-        # response and the receiver may ignore report commands until reset.
-        self._clear_lane_command(lane, receiver)
+        # At Gen6 PAM4, use PAM4_BROADCAST to reset ALL 3 receivers at once.
+        reset_rx = (
+            MarginingReceiverNumber.PAM4_BROADCAST
+            if get_modulation_for_speed(speed_code) == Modulation.PAM4
+            else receiver
+        )
+        self._clear_lane_command(lane, reset_rx)
         go_normal = MarginingLaneControl(
-            receiver_number=receiver,
+            receiver_number=reset_rx,
             margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
             usage_model=0,
             margin_payload=0,
         )
         self._write_lane_control(lane, go_normal)
-        time.sleep(0.1)  # 100ms for the receiver to process the reset
+
+        # Poll until the status register confirms GO_TO_NORMAL was processed
+        go_deadline = time.monotonic() + 2.0
+        while time.monotonic() < go_deadline:
+            time.sleep(_POLL_INTERVAL_S)
+            status = self._read_lane_status(lane)
+            if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
+                break
+
+        # Extra settle after GO_TO_NORMAL before sending report commands
+        self._clear_lane_command(lane, receiver)
+        time.sleep(0.1)
 
         def _report(payload: int) -> int:
             return self._send_report_command(lane, receiver, payload)
