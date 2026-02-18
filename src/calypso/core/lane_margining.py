@@ -523,7 +523,11 @@ class LaneMarginingEngine:
         while time.monotonic() < deadline:
             time.sleep(_POLL_INTERVAL_S)
             status = self._read_lane_status(lane)
-            if not status.is_in_progress:
+            # Must match our command type AND not be in-progress.
+            # Without the margin_type check, stale responses from prior
+            # commands (e.g. GO_TO_NORMAL_SETTINGS after reset_lane) would
+            # be accepted immediately since their status_code != 1.
+            if status.margin_type == cmd and not status.is_in_progress:
                 return status
 
         # Timed out - return last status
