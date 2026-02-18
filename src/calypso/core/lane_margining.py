@@ -653,13 +653,43 @@ class LaneMarginingEngine:
         # Timed out — return last status for diagnostics
         return self._read_lane_status(lane)
 
+    def _go_to_normal_and_confirm(
+        self, lane: int, receiver: MarginingReceiverNumber
+    ) -> None:
+        """Send GO_TO_NORMAL_SETTINGS and poll until the status register confirms.
+
+        This ensures the status register's margin_type changes to
+        GO_TO_NORMAL_SETTINGS, flushing any stale response from a previous
+        command. Critical between directions that share the same margin_type
+        (right→left timing, up→down voltage) to prevent the next direction's
+        poll from matching stale data.
+        """
+        self._clear_lane_command(lane, receiver)
+        control = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, control)
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            time.sleep(_POLL_INTERVAL_S)
+            status = self._read_lane_status(lane)
+            if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
+                return
+        logger.warning(
+            "go_to_normal_confirm_timeout", lane=lane, receiver=int(receiver)
+        )
+
     def reset_lane(
         self, lane: int, receiver: MarginingReceiverNumber = MarginingReceiverNumber.BROADCAST
     ) -> None:
         """Send GO_TO_NORMAL_SETTINGS to restore normal operation.
 
         At Gen6 PAM4, uses PAM4_BROADCAST (111b) instead of BROADCAST (000b)
-        to reset all three receivers simultaneously.
+        to reset all three receivers simultaneously. Polls until the status
+        register confirms the reset took effect.
         """
         # At Gen6, receiver 000b is reserved — use PAM4_BROADCAST for resets
         speed_code, _, _ = self._get_link_state()
@@ -669,16 +699,7 @@ class LaneMarginingEngine:
         ):
             receiver = MarginingReceiverNumber.PAM4_BROADCAST
 
-        # Clear to NO_COMMAND first so the receiver sees a valid transition
-        self._clear_lane_command(lane, receiver)
-
-        control = MarginingLaneControl(
-            receiver_number=receiver,
-            margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
-            usage_model=0,
-            margin_payload=0,
-        )
-        self._write_lane_control(lane, control)
+        self._go_to_normal_and_confirm(lane, receiver)
 
     def _execute_single_sweep(
         self,
@@ -715,7 +736,25 @@ class LaneMarginingEngine:
             ("down", MarginingCmd.MARGIN_VOLTAGE, num_voltage, voltage_points),
         ]
 
+        prev_cmd: MarginingCmd | None = None
         for direction, cmd, num_steps, point_list in directions:
+            # Between directions sharing the same margin_type (right→left
+            # timing, up→down voltage), send GO_TO_NORMAL to flush stale
+            # data from the status register.  Without this, the first step's
+            # poll matches the previous direction's last response because
+            # both share the same margin_type (e.g., MARGIN_TIMING).
+            # GO_TO_NORMAL changes the status register's margin_type to
+            # GO_TO_NORMAL_SETTINGS, which won't match the next direction's
+            # MARGIN_TIMING/MARGIN_VOLTAGE poll.
+            if prev_cmd is not None and prev_cmd == cmd:
+                logger.debug(
+                    "direction_transition_reset",
+                    direction=direction,
+                    margin_type=cmd.name,
+                )
+                self._go_to_normal_and_confirm(lane, receiver)
+            prev_cmd = cmd
+
             dir_status_codes: dict[int, int] = {}  # status_code -> count
             dir_error_counts: dict[int, int] = {}  # margin_value -> count
             dir_passed = 0

@@ -370,6 +370,7 @@ class TestExecuteSingleSweep:
             caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
+        engine._go_to_normal_and_confirm = MagicMock()
         return engine
 
     def test_successful_sweep_returns_result(self):
@@ -434,6 +435,7 @@ class TestExecuteSingleSweep:
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=2, num_voltage=2))
         engine._margin_single_point = MagicMock(side_effect=_margin_point_fail_side_effect())
+        engine._go_to_normal_and_confirm = MagicMock()
         caps = _make_caps(num_timing=2, num_voltage=2)
         result = engine._execute_single_sweep(
             lane=0,
@@ -457,6 +459,7 @@ class TestSweepLane:
         caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         # NRZ speed so _resolve_receiver keeps BROADCAST unchanged
         engine._get_link_state = MagicMock(return_value=(4, True, False))
@@ -493,6 +496,7 @@ class TestSweepLane:
         caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=RuntimeError("hw fail"))
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         engine._get_link_state = MagicMock(return_value=(4, True, False))
         with pytest.raises(RuntimeError, match="hw fail"):
@@ -514,6 +518,7 @@ class TestSweepLanePAM4:
         caps = _make_caps(num_timing=2, num_voltage=2)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         return engine
 
@@ -589,6 +594,7 @@ class TestSweepLanePAM4:
             )
 
         engine._margin_single_point = MagicMock(side_effect=_fail_on_second)
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         with pytest.raises(RuntimeError, match="hw fail during pam4"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_err")
@@ -614,6 +620,7 @@ class TestSweepLanePAM4:
         caps = _make_caps(num_timing=1, num_voltage=1)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_bal")
@@ -625,6 +632,7 @@ class TestSweepLanePAM4:
         caps = _make_caps(num_timing=1, num_voltage=1)
         engine.get_capabilities = MagicMock(return_value=caps)
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
+        engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_worst")
