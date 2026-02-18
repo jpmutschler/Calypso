@@ -23,9 +23,9 @@ class MarginPoint(BaseModel):
 
     direction: str  # "left", "right", "up", "down"
     step: int
-    margin_value: int
-    status_code: int  # 0=too_close, 1=in_progress, 2=setup_for_nak, 3=complete
-    passed: bool  # status_code == 3 and margin_value > 0
+    margin_value: int  # error count (bits [5:0]), 0 = no errors
+    status_code: int  # 0=error_exceeded, 1=setup, 2=margining_passed, 3=NAK
+    passed: bool  # status_code == 2 (margining executed, errors within limit)
 
 
 class EyeSweepResult(BaseModel):

@@ -75,10 +75,13 @@ def _make_caps(
     )
 
 
-def _make_status_complete(margin_value: int = 20) -> MarginingLaneStatus:
-    """Build a lane status with status_code=3 (complete) and given margin_value."""
-    # status_code occupies bits [7:6] of margin_payload, margin_value is [5:0]
-    payload = (0x3 << 6) | (margin_value & 0x3F)
+def _make_status_complete(error_count: int = 0) -> MarginingLaneStatus:
+    """Build a lane status with status_code=2 (margining passed).
+
+    Per PCIe spec, status 10b (2) = margining executed with errors within limit.
+    error_count (bits [5:0]) = number of detected errors (0 = no errors = best).
+    """
+    payload = (0x2 << 6) | (error_count & 0x3F)
     return MarginingLaneStatus(
         receiver_number=MarginingReceiverNumber.BROADCAST,
         margin_type=MarginingCmd.MARGIN_TIMING,
@@ -88,7 +91,7 @@ def _make_status_complete(margin_value: int = 20) -> MarginingLaneStatus:
 
 
 def _make_status_fail() -> MarginingLaneStatus:
-    """Build a lane status with status_code=0 (too_close), margin_value=0."""
+    """Build a lane status with status_code=0 (too many errors)."""
     return MarginingLaneStatus(
         receiver_number=MarginingReceiverNumber.BROADCAST,
         margin_type=MarginingCmd.MARGIN_TIMING,
@@ -101,8 +104,8 @@ def _make_point(direction: str, step: int, passed: bool) -> MarginPoint:
     return MarginPoint(
         direction=direction,
         step=step,
-        margin_value=20 if passed else 0,
-        status_code=3 if passed else 0,
+        margin_value=0 if passed else 20,  # 0 errors = passed, >0 errors = failed
+        status_code=2 if passed else 0,  # 2 = margining passed, 0 = error exceeded
         passed=passed,
     )
 

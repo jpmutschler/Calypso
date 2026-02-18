@@ -274,19 +274,45 @@ class MarginingLaneStatus:
 
     @property
     def status_code(self) -> int:
+        """Step Margin Execution Status (bits [7:6] of margin payload).
+
+        Per PCIe 6.0.1 Section 7.7.8.5 / OCP-LMT:
+          00b (0) = Too many errors — device returned to default settings
+          01b (1) = Setup — receiver preparing, hasn't started margining
+          10b (2) = Margining in progress / passed — receiver executed command
+          11b (3) = NAK — unsupported operation
+        """
         return (self.margin_payload >> 6) & 0x3
 
     @property
-    def margin_value(self) -> int:
+    def error_count(self) -> int:
+        """MErrorCount — detected errors during margining (bits [5:0])."""
         return self.margin_payload & 0x3F
 
     @property
-    def is_complete(self) -> bool:
-        return self.status_code == 0x3
+    def margin_value(self) -> int:
+        """Alias for error_count (backward compat)."""
+        return self.error_count
 
     @property
-    def is_in_progress(self) -> bool:
+    def is_passed(self) -> bool:
+        """Status 10b: margining executed, errors within limit."""
+        return self.status_code == 0x2
+
+    @property
+    def is_error_exceeded(self) -> bool:
+        """Status 00b: too many errors, device returned to default."""
+        return self.status_code == 0x0
+
+    @property
+    def is_setup(self) -> bool:
+        """Status 01b: receiver preparing for margin command."""
         return self.status_code == 0x1
+
+    @property
+    def is_nak(self) -> bool:
+        """Status 11b: NAK, unsupported operation."""
+        return self.status_code == 0x3
 
     @classmethod
     def from_register(cls, value: int) -> MarginingLaneStatus:

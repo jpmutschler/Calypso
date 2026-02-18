@@ -523,11 +523,13 @@ class LaneMarginingEngine:
         while time.monotonic() < deadline:
             time.sleep(_POLL_INTERVAL_S)
             status = self._read_lane_status(lane)
-            # Must match our command type AND not be in-progress.
+            # Must match our command type AND be past setup phase.
+            # Status codes: 0=error_exceeded, 1=setup, 2=passed, 3=NAK.
+            # We poll past status 1 (setup) and accept 0/2/3 as final.
             # Without the margin_type check, stale responses from prior
             # commands (e.g. GO_TO_NORMAL_SETTINGS after reset_lane) would
-            # be accepted immediately since their status_code != 1.
-            if status.margin_type == cmd and not status.is_in_progress:
+            # be accepted immediately.
+            if status.margin_type == cmd and not status.is_setup:
                 return status
 
         # Timed out - return last status
@@ -612,7 +614,9 @@ class LaneMarginingEngine:
                 if timed_out:
                     dir_timed_out += 1
 
-                passed = status.is_complete and status.margin_value > 0
+                # Per PCIe spec, status_code 2 (10b) = margining passed
+                # (errors within limit). Status 0 = too many errors (fail).
+                passed = status.is_passed
                 if passed:
                     dir_passed += 1
                 dir_status_codes[status.status_code] = (
