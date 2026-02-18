@@ -535,6 +535,7 @@ def _eye_diagram_content(device_id: str) -> None:
                 _caps_chip("Voltage Steps", str(caps.get("num_voltage_steps", 0)))
                 _caps_chip("Max Timing Offset", str(caps.get("max_timing_offset", 0)))
                 _caps_chip("Max Voltage Offset", str(caps.get("max_voltage_offset", 0)))
+                _caps_chip("Sample Count", str(caps.get("sample_count", 0)))
                 ind_v = caps.get("ind_up_down_voltage", False)
                 ind_t = caps.get("ind_left_right_timing", False)
                 _caps_chip("Ind Up/Down V", "Yes" if ind_v else "No")

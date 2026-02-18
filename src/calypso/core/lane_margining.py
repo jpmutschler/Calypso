@@ -127,6 +127,7 @@ def _build_caps_response(caps: LaneMarginCapabilities) -> LaneMarginCapabilities
         num_voltage_steps=caps.num_voltage_steps,
         ind_up_down_voltage=caps.ind_up_down_voltage,
         ind_left_right_timing=caps.ind_left_right_timing,
+        sample_count=caps.sample_count,
     )
 
 
