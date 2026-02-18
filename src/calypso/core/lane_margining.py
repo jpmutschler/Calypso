@@ -59,9 +59,9 @@ _pam4_active_sweeps: dict[str, PAM4SweepProgress] = {}
 _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 
 _POLL_INTERVAL_S = 0.02  # 20ms between status register reads
-_POLL_TIMEOUT_S = 5.0  # 5s max per margin point (PAM4 receivers may be slow)
+_POLL_TIMEOUT_S = 2.0  # 2s max per margin point
 _CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
-_MIN_DWELL_S = 1.0  # 1s dwell — matches pcilmr default, gives receiver time to measure
+_MIN_DWELL_S = 0.2  # 200ms dwell — gives receiver time to measure before polling
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -613,15 +613,16 @@ class LaneMarginingEngine:
 
         Clears to NO_COMMAND first (mandatory per spec Section 7.7.8.4),
         writes the margin command, waits a minimum dwell time, then polls
-        for a response that matches BOTH the command type AND receiver number.
+        for a response where margin_type matches the command.
 
-        The receiver_number check is critical for PAM4 3-eye sweeps: after
-        sweeping Rx A, the status register retains Rx A's last response.
-        Without checking receiver_number, Rx B/C commands would immediately
-        accept Rx A's stale response (same margin_type, different receiver).
+        The dwell time prevents stale data from the previous step (consecutive
+        commands with the same margin_type). Between receivers, the
+        GO_TO_NORMAL reset changes margin_type in the status register,
+        making stale cross-receiver data distinguishable.
 
-        The dwell time prevents stale same-receiver data (consecutive
-        commands to the same receiver that produce identical responses).
+        receiver_number is NOT checked in the poll because some hardware
+        echoes receiver_number=0 (BROADCAST) regardless of the addressed
+        receiver, causing legitimate responses to be rejected.
         """
         # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
@@ -634,22 +635,17 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, control)
 
-        # Minimum dwell before accepting — prevents stale same-receiver data
+        # Minimum dwell before accepting — prevents stale same-type data
         time.sleep(_MIN_DWELL_S)
 
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             status = self._read_lane_status(lane)
 
-            # Accept when:
-            #  1) margin_type matches our command (not stale NO_COMMAND etc.)
-            #  2) receiver_number matches (not stale from a different receiver)
-            #  3) not in setup phase (status_code != 1, receiver still preparing)
-            if (
-                status.margin_type == cmd
-                and status.receiver_number == receiver
-                and not status.is_setup
-            ):
+            # Accept when margin_type matches and not in setup phase.
+            # receiver_number is intentionally not checked — some hardware
+            # echoes a different receiver_number than addressed.
+            if status.margin_type == cmd and not status.is_setup:
                 return status
 
             time.sleep(_POLL_INTERVAL_S)
@@ -732,10 +728,8 @@ class LaneMarginingEngine:
 
                 status = self._margin_single_point(lane, cmd, receiver, payload)
 
-                # Check if poll timed out (margin_type or receiver_number mismatch)
-                timed_out = (
-                    status.margin_type != cmd or status.receiver_number != receiver
-                )
+                # Check if poll timed out (margin_type mismatch means no response)
+                timed_out = status.margin_type != cmd
                 if timed_out:
                     dir_timed_out += 1
 
@@ -1010,7 +1004,11 @@ class LaneMarginingEngine:
                             percent=(overall_current / overall_total) * 100,
                         )
 
-                result = self._execute_single_sweep(lane, rx, _progress, caps=caps)
+                # Each receiver gets its own capabilities query — this also
+                # sends GO_TO_NORMAL which "wakes up" the receiver for margining.
+                # Capabilities are port-level (identical across receivers), but
+                # the per-receiver report/reset sequence may be needed.
+                result = self._execute_single_sweep(lane, rx, _progress)
                 eye_results.append(result)
                 completed_steps += steps_per_eye
 

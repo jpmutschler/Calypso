@@ -550,11 +550,13 @@ class TestSweepLanePAM4:
         # reset_lane called: 1x after pre-flight + 3x per eye = 4
         assert engine.reset_lane.call_count == 4
 
-    def test_pam4_queries_caps_once_with_receiver_a(self):
+    def test_pam4_queries_caps_per_receiver(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_caps")
-        # Capabilities queried once with RECEIVER_A (port-level property)
-        engine.get_capabilities.assert_called_once_with(
+        # Capabilities queried: 1x pre-flight (RECEIVER_A) + 3x per eye sweep
+        assert engine.get_capabilities.call_count == 4
+        # Pre-flight always uses RECEIVER_A
+        engine.get_capabilities.assert_any_call(
             lane=0, receiver=MarginingReceiverNumber.RECEIVER_A,
         )
 
