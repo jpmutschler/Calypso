@@ -181,15 +181,26 @@ class MarginingCapBits(IntFlag):
 
 
 class MarginingCmd(IntEnum):
-    """Lane Margining command types (Table 7-51)."""
+    """Lane Margining command types (PCIe 6.0.1 Table 7-51).
+
+    3-bit Margin Type field encoding (bits [5:3] of control/status register):
+        000b = No Command
+        001b = Access Receiver Margin Control
+        010b = Margin with Timing
+        011b = Margin with Voltage
+        100b = Go to Normal Settings
+        101b = Vendor Defined
+        110b = Vendor Defined
+        111b = Reserved
+    """
 
     NO_COMMAND = 0x0
     ACCESS_RECEIVER_MARGIN_CONTROL = 0x1
-    MARGIN_TIMING = 0x3
-    MARGIN_VOLTAGE = 0x4
+    MARGIN_TIMING = 0x2
+    MARGIN_VOLTAGE = 0x3
+    GO_TO_NORMAL_SETTINGS = 0x4
     VENDOR_DEFINED_1 = 0x5
     VENDOR_DEFINED_2 = 0x6
-    GO_TO_NORMAL_SETTINGS = 0x7
 
 
 class MarginingReceiverNumber(IntEnum):
