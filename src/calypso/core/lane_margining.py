@@ -131,6 +131,24 @@ def _build_caps_response(caps: LaneMarginCapabilities) -> LaneMarginCapabilities
     )
 
 
+def _count_sweep_steps(caps: LaneMarginCapabilities) -> int:
+    """Count the number of margining steps for a single-receiver sweep.
+
+    Respects ind_left_right_timing and ind_up_down_voltage capability flags:
+    when a flag is False, only one direction is swept (right or up) and the
+    result is mirrored, halving the step count for that axis.
+    """
+    timing_dirs = 2 if caps.ind_left_right_timing else 1
+    voltage_dirs = 2 if caps.ind_up_down_voltage else 1
+    return (caps.num_timing_steps * timing_dirs) + (caps.num_voltage_steps * voltage_dirs)
+
+
+# Maximum consecutive timeouts before bailing out of a direction.
+# When a receiver is non-responsive, every step takes the full poll timeout.
+# Bailing early saves minutes of wasted time.
+_MAX_CONSECUTIVE_TIMEOUTS = 5
+
+
 def _compute_eye_dimensions(
     timing_points: list[MarginPoint],
     voltage_points: list[MarginPoint],
@@ -710,7 +728,11 @@ class LaneMarginingEngine:
     ) -> EyeSweepResult:
         """Core sweep for one receiver. No module-level state writes.
 
-        Sweeps timing (right, left) and voltage (up, down) directions.
+        Sweeps timing and voltage directions, respecting the ind_left_right_timing
+        and ind_up_down_voltage capability flags.  When an independent flag is
+        False, only one direction is swept and the result is mirrored for the
+        opposite direction.
+
         Calls progress_callback(current_step, total_steps) after each point.
         If caps is provided, skips the hardware capabilities query.
         """
@@ -720,32 +742,49 @@ class LaneMarginingEngine:
             caps = self.get_capabilities(lane=lane, receiver=receiver)
         num_timing = caps.num_timing_steps
         num_voltage = caps.num_voltage_steps
-        total_steps = (num_timing * 2) + (num_voltage * 2)
+        total_steps = _count_sweep_steps(caps)
 
         if total_steps == 0:
             raise ValueError("Device reports 0 margining steps (margining not supported)")
+
+        logger.info(
+            "sweep_capabilities",
+            receiver=int(receiver),
+            num_timing=num_timing,
+            num_voltage=num_voltage,
+            ind_left_right=caps.ind_left_right_timing,
+            ind_up_down=caps.ind_up_down_voltage,
+            total_steps=total_steps,
+        )
 
         timing_points: list[MarginPoint] = []
         voltage_points: list[MarginPoint] = []
         step_count = 0
 
+        # Build direction list based on capability flags.  Per PCIe 6.0.1
+        # Section 7.7.8, when ind_left_right_timing is False the timing
+        # margins are symmetric — sweep only one direction and mirror.
+        # Same for ind_up_down_voltage.
         directions: list[tuple[str, MarginingCmd, int, list[MarginPoint]]] = [
             ("right", MarginingCmd.MARGIN_TIMING, num_timing, timing_points),
-            ("left", MarginingCmd.MARGIN_TIMING, num_timing, timing_points),
-            ("up", MarginingCmd.MARGIN_VOLTAGE, num_voltage, voltage_points),
-            ("down", MarginingCmd.MARGIN_VOLTAGE, num_voltage, voltage_points),
         ]
+        if caps.ind_left_right_timing:
+            directions.append(
+                ("left", MarginingCmd.MARGIN_TIMING, num_timing, timing_points),
+            )
+        directions.append(
+            ("up", MarginingCmd.MARGIN_VOLTAGE, num_voltage, voltage_points),
+        )
+        if caps.ind_up_down_voltage:
+            directions.append(
+                ("down", MarginingCmd.MARGIN_VOLTAGE, num_voltage, voltage_points),
+            )
 
         prev_cmd: MarginingCmd | None = None
         for direction, cmd, num_steps, point_list in directions:
             # Between directions sharing the same margin_type (right→left
             # timing, up→down voltage), send GO_TO_NORMAL to flush stale
-            # data from the status register.  Without this, the first step's
-            # poll matches the previous direction's last response because
-            # both share the same margin_type (e.g., MARGIN_TIMING).
-            # GO_TO_NORMAL changes the status register's margin_type to
-            # GO_TO_NORMAL_SETTINGS, which won't match the next direction's
-            # MARGIN_TIMING/MARGIN_VOLTAGE poll.
+            # data from the status register.
             if prev_cmd is not None and prev_cmd == cmd:
                 logger.debug(
                     "direction_transition_reset",
@@ -759,8 +798,40 @@ class LaneMarginingEngine:
             dir_error_counts: dict[int, int] = {}  # margin_value -> count
             dir_passed = 0
             dir_timed_out = 0
+            consecutive_timeouts = 0
 
             for step in range(1, num_steps + 1):
+                # Early bailout: if receiver is non-responsive (many consecutive
+                # timeouts), skip remaining steps for this direction.  Each
+                # timeout costs the full poll timeout (~2s), so bailing early
+                # saves minutes on non-responsive receivers (e.g., Rx B/C).
+                if consecutive_timeouts >= _MAX_CONSECUTIVE_TIMEOUTS:
+                    remaining = num_steps - step + 1
+                    logger.warning(
+                        "direction_bailout",
+                        direction=direction,
+                        receiver=int(receiver),
+                        after_step=step - 1,
+                        consecutive_timeouts=consecutive_timeouts,
+                        remaining_skipped=remaining,
+                    )
+                    # Fill remaining steps as timed-out failures
+                    for skip_step in range(step, num_steps + 1):
+                        point_list.append(
+                            MarginPoint(
+                                direction=direction,
+                                step=skip_step,
+                                margin_value=0,
+                                status_code=0,
+                                passed=False,
+                            )
+                        )
+                        dir_timed_out += 1
+                        step_count += 1
+                        if progress_callback is not None:
+                            progress_callback(step_count, total_steps)
+                    break
+
                 payload = step & 0x3F
                 # Per PCIe 6.0.1 Table 7-51:
                 #   Timing: direction in bit 7 (0=right/decrease, 1=left/increase)
@@ -776,6 +847,9 @@ class LaneMarginingEngine:
                 timed_out = status.margin_type != cmd
                 if timed_out:
                     dir_timed_out += 1
+                    consecutive_timeouts += 1
+                else:
+                    consecutive_timeouts = 0
 
                 # Per PCIe spec, status_code 2 (10b) = margining passed
                 # (errors within limit). Status 0 = too many errors (fail).
@@ -835,6 +909,34 @@ class LaneMarginingEngine:
                 error_count_dist=dir_error_counts,
             )
 
+        # Mirror single-direction data when independent capability is False.
+        # Per PCIe 6.0.1 Section 7.7.8, symmetric margins mean we only need
+        # to measure one direction; the opposite is identical.
+        if not caps.ind_left_right_timing:
+            for p in list(timing_points):
+                if p.direction == "right":
+                    timing_points.append(
+                        MarginPoint(
+                            direction="left",
+                            step=p.step,
+                            margin_value=p.margin_value,
+                            status_code=p.status_code,
+                            passed=p.passed,
+                        )
+                    )
+        if not caps.ind_up_down_voltage:
+            for p in list(voltage_points):
+                if p.direction == "up":
+                    voltage_points.append(
+                        MarginPoint(
+                            direction="down",
+                            step=p.step,
+                            margin_value=p.margin_value,
+                            status_code=p.status_code,
+                            passed=p.passed,
+                        )
+                    )
+
         eye_w_steps, eye_h_steps, eye_w_ui, eye_h_mv = _compute_eye_dimensions(
             timing_points,
             voltage_points,
@@ -886,7 +988,7 @@ class LaneMarginingEngine:
 
         # Pre-flight: get total steps for progress tracking
         caps = self.get_capabilities(lane=lane, receiver=receiver)
-        total_steps = (caps.num_timing_steps * 2) + (caps.num_voltage_steps * 2)
+        total_steps = _count_sweep_steps(caps)
 
         if total_steps == 0:
             error_msg = "Device reports 0 margining steps (margining not supported)"
@@ -976,7 +1078,7 @@ class LaneMarginingEngine:
         # properties per PCIe 6.0.1 Table 7-52, identical across all receivers.
         # Some hardware only responds to report commands on RECEIVER_A.
         caps = self.get_capabilities(lane=lane, receiver=MarginingReceiverNumber.RECEIVER_A)
-        steps_per_eye = (caps.num_timing_steps * 2) + (caps.num_voltage_steps * 2)
+        steps_per_eye = _count_sweep_steps(caps)
 
         # Reset lane after pre-flight so each eye sweep starts from a clean state
         self.reset_lane(lane)

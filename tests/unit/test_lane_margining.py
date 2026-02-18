@@ -11,6 +11,7 @@ from calypso.core.lane_margining import (
     _check_balance,
     _build_caps_response,
     _compute_eye_dimensions,
+    _count_sweep_steps,
     get_pam4_sweep_progress,
     get_pam4_sweep_result,
     get_sweep_progress,
@@ -259,6 +260,46 @@ class TestComputeEyeDimensions:
 
 
 # ---------------------------------------------------------------------------
+# _count_sweep_steps
+# ---------------------------------------------------------------------------
+
+
+class TestCountSweepSteps:
+    def test_all_independent(self):
+        caps = _make_caps(num_timing=10, num_voltage=8)
+        # ind_left_right=True, ind_up_down=True → 2 timing dirs + 2 voltage dirs
+        assert _count_sweep_steps(caps) == (10 * 2) + (8 * 2)  # 36
+
+    def test_no_independent_timing(self):
+        caps = _make_caps(num_timing=10, num_voltage=8)
+        caps = LaneMarginCapabilities(
+            **{**caps.__dict__, "ind_left_right_timing": False}
+        )
+        # Only right timing → 10 + (8 * 2) = 26
+        assert _count_sweep_steps(caps) == 10 + 16
+
+    def test_no_independent_voltage(self):
+        caps = _make_caps(num_timing=10, num_voltage=8)
+        caps = LaneMarginCapabilities(
+            **{**caps.__dict__, "ind_up_down_voltage": False}
+        )
+        # Only up voltage → (10 * 2) + 8 = 28
+        assert _count_sweep_steps(caps) == 20 + 8
+
+    def test_neither_independent(self):
+        caps = _make_caps(num_timing=31, num_voltage=63)
+        caps = LaneMarginCapabilities(
+            **{
+                **caps.__dict__,
+                "ind_left_right_timing": False,
+                "ind_up_down_voltage": False,
+            }
+        )
+        # Only right + up → 31 + 63 = 94
+        assert _count_sweep_steps(caps) == 94
+
+
+# ---------------------------------------------------------------------------
 # State getters: NRZ
 # ---------------------------------------------------------------------------
 
@@ -446,6 +487,66 @@ class TestExecuteSingleSweep:
         assert result.eye_height_steps == 0
         assert result.eye_width_ui == 0.0
         assert result.eye_height_mv == 0.0
+
+    def test_mirrors_when_ind_flags_false(self):
+        """When ind_left_right/ind_up_down are False, only sweeps one direction
+        and mirrors the result, producing points for both directions."""
+        caps = LaneMarginCapabilities(
+            max_timing_offset=25,
+            max_voltage_offset=50,
+            num_timing_steps=2,
+            num_voltage_steps=2,
+            sample_count=39,
+            sample_rate_voltage=False,
+            sample_rate_timing=False,
+            ind_up_down_voltage=False,
+            ind_left_right_timing=False,
+        )
+        engine = self._make_engine_with_mocked_hw(caps)
+        result = engine._execute_single_sweep(
+            lane=0,
+            receiver=MarginingReceiverNumber.BROADCAST,
+            caps=caps,
+        )
+        # Only right+up swept (2+2=4 margin_single_point calls), then mirrored
+        assert engine._margin_single_point.call_count == 4
+        # But result contains all 4 directions via mirroring
+        assert len(result.timing_points) == 4  # 2 right + 2 mirrored left
+        assert len(result.voltage_points) == 4  # 2 up + 2 mirrored down
+        right_pts = [p for p in result.timing_points if p.direction == "right"]
+        left_pts = [p for p in result.timing_points if p.direction == "left"]
+        assert len(right_pts) == 2
+        assert len(left_pts) == 2
+        # Mirrored points should have same values
+        for rp, lp in zip(right_pts, left_pts):
+            assert rp.step == lp.step
+            assert rp.margin_value == lp.margin_value
+            assert rp.passed == lp.passed
+
+    def test_progress_with_ind_flags_false(self):
+        """Progress callback receives correct total when directions are halved."""
+        caps = LaneMarginCapabilities(
+            max_timing_offset=25,
+            max_voltage_offset=50,
+            num_timing_steps=2,
+            num_voltage_steps=2,
+            sample_count=39,
+            sample_rate_voltage=False,
+            sample_rate_timing=False,
+            ind_up_down_voltage=False,
+            ind_left_right_timing=False,
+        )
+        engine = self._make_engine_with_mocked_hw(caps)
+        callback = MagicMock()
+        engine._execute_single_sweep(
+            lane=0,
+            receiver=MarginingReceiverNumber.BROADCAST,
+            progress_callback=callback,
+            caps=caps,
+        )
+        # Only 4 steps swept (right 2 + up 2), not 8
+        assert callback.call_count == 4
+        callback.assert_called_with(4, 4)
 
 
 # ---------------------------------------------------------------------------
