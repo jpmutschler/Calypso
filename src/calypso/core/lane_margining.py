@@ -61,7 +61,7 @@ _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 _POLL_INTERVAL_S = 0.02  # 20ms between status register reads
 _POLL_TIMEOUT_S = 5.0  # 5s max per margin point (PAM4 receivers may be slow)
 _CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
-_GO_NORMAL_TIMEOUT_S = 0.5  # 500ms to confirm GO_TO_NORMAL_SETTINGS response
+_MIN_DWELL_S = 0.15  # 150ms before accepting — prevents stale same-receiver data
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -557,49 +557,20 @@ class LaneMarginingEngine:
     ) -> MarginingLaneStatus:
         """Issue a single margining command and poll until complete or timeout.
 
-        Uses GO_TO_NORMAL_SETTINGS as a pre-clear to force a detectable status
-        register transition.  Unlike NO_COMMAND (which does not update the
-        status register), GO_TO_NORMAL_SETTINGS generates a real response.
-        This guarantees that the subsequent margin command's response can be
-        distinguished from a stale previous response — the status register
-        must transition from GO_TO_NORMAL_SETTINGS to MARGIN_TIMING/VOLTAGE.
+        Clears to NO_COMMAND first (mandatory per spec Section 7.7.8.4),
+        writes the margin command, waits a minimum dwell time, then polls
+        for a response that matches BOTH the command type AND receiver number.
 
-        Without this, consecutive same-type commands that both pass with 0
-        errors produce identical raw register values, making it impossible to
-        tell whether we're reading the old or new response.
+        The receiver_number check is critical for PAM4 3-eye sweeps: after
+        sweeping Rx A, the status register retains Rx A's last response.
+        Without checking receiver_number, Rx B/C commands would immediately
+        accept Rx A's stale response (same margin_type, different receiver).
+
+        The dwell time prevents stale same-receiver data (consecutive
+        commands to the same receiver that produce identical responses).
         """
-        # Phase 1: Force a known status register state with GO_TO_NORMAL_SETTINGS.
-        # This resets the receiver's margin offset and, critically, writes a
-        # response with margin_type=GO_TO_NORMAL_SETTINGS into the status register.
+        # Clear to NO_COMMAND first (mandatory per spec Section 7.7.8.4)
         self._clear_lane_command(lane, receiver)
-        go_normal = MarginingLaneControl(
-            receiver_number=receiver,
-            margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
-            usage_model=0,
-            margin_payload=0,
-        )
-        self._write_lane_control(lane, go_normal)
-
-        # Wait for GO_TO_NORMAL_SETTINGS response — confirms the status register
-        # no longer contains stale data from a previous margin command.
-        go_deadline = time.monotonic() + _GO_NORMAL_TIMEOUT_S
-        while time.monotonic() < go_deadline:
-            status = self._read_lane_status(lane)
-            if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
-                break
-            time.sleep(_POLL_INTERVAL_S)
-
-        # Phase 2: Standard margin command with NO_COMMAND transition.
-        # Per PCIe 6.0.1 Section 7.7.8.4, the receiver processes commands when
-        # it sees a transition FROM No Command to a command value.
-        clear = MarginingLaneControl(
-            receiver_number=receiver,
-            margin_type=MarginingCmd.NO_COMMAND,
-            usage_model=0,
-            margin_payload=0,
-        )
-        self._write_lane_control(lane, clear)
-        time.sleep(_CLEAR_SETTLE_S)
 
         control = MarginingLaneControl(
             receiver_number=receiver,
@@ -609,13 +580,24 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, control)
 
-        # Phase 3: Poll for margin response. Status must transition from
-        # GO_TO_NORMAL_SETTINGS (confirmed above) to our command's margin_type.
+        # Minimum dwell before accepting — prevents stale same-receiver data
+        time.sleep(_MIN_DWELL_S)
+
         deadline = time.monotonic() + _POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             status = self._read_lane_status(lane)
-            if status.margin_type == cmd and not status.is_setup:
+
+            # Accept when:
+            #  1) margin_type matches our command (not stale NO_COMMAND etc.)
+            #  2) receiver_number matches (not stale from a different receiver)
+            #  3) not in setup phase (status_code != 1, receiver still preparing)
+            if (
+                status.margin_type == cmd
+                and status.receiver_number == receiver
+                and not status.is_setup
+            ):
                 return status
+
             time.sleep(_POLL_INTERVAL_S)
 
         # Timed out — return last status for diagnostics
@@ -695,8 +677,10 @@ class LaneMarginingEngine:
 
                 status = self._margin_single_point(lane, cmd, receiver, payload)
 
-                # Check if poll timed out (response margin_type doesn't match)
-                timed_out = status.margin_type != cmd
+                # Check if poll timed out (margin_type or receiver_number mismatch)
+                timed_out = (
+                    status.margin_type != cmd or status.receiver_number != receiver
+                )
                 if timed_out:
                     dir_timed_out += 1
 
@@ -718,8 +702,10 @@ class LaneMarginingEngine:
                         direction=direction,
                         step=step,
                         receiver=int(receiver),
+                        status_receiver=int(status.receiver_number),
                         margin_type=status.margin_type.name,
                         margin_type_match=status.margin_type == cmd,
+                        receiver_match=status.receiver_number == receiver,
                         status_code=status.status_code,
                         margin_value=status.margin_value,
                         margin_payload=f"0x{status.margin_payload:02X}",
