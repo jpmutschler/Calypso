@@ -894,11 +894,14 @@ class LaneMarginingEngine:
                 #   - error_count == 0: zero errors detected (industry standard
                 #     criterion; some receivers report status_code=0 even with
                 #     0 errors due to firmware quirks)
+                # NAK (status_code 3) means "cannot execute" — never passed,
+                # even though margin_value may read 0.
                 # If timed out, the response is stale — treat as failed
                 # regardless of the status_code in the stale payload.
                 passed = (
                     (status.is_passed or status.error_count == 0)
                     and not timed_out
+                    and status.status_code != 3
                 )
                 if passed:
                     dir_passed += 1

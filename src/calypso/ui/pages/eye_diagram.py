@@ -291,67 +291,95 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     def _render_eye_chart(chart, data: dict, accent_color: str):
-        """Populate a single eye chart with a 2D eye diagram heatmap.
+        """Populate a single eye chart with a 2D eye diagram.
 
-        Interpolates the 1D timing and voltage sweeps into a 2D surface:
-        for each (timing_step, voltage_step) combination, the estimated
-        error is timing_error + voltage_error.  This produces a recognisable
-        eye shape with green at center (low error) fading to red at edges.
+        Uses step-distance (L1/diamond norm) to create the eye shape:
+        each grid point is colored by its normalized distance from center.
+        Center = green (eye open), edges = red (eye closed).  The measured
+        eye boundary diamond is overlaid.
+
+        For receivers that didn't respond (all timeouts), shows a
+        'No Data' annotation instead of a misleading heatmap.
         """
         caps = data.get("capabilities", {})
         num_timing = caps.get("num_timing_steps", 1)
         num_voltage = caps.get("num_voltage_steps", 1)
 
-        # Build error-count lookups from the measured 1D sweeps.
-        # Use "right" for timing and "up" for voltage (the primary dirs).
-        timing_err: dict[int, int] = {}
-        for pt in data.get("timing_points", []):
-            if pt["direction"] == "right":
-                timing_err[pt["step"]] = pt.get("margin_value", 0)
+        # Detect whether this receiver produced real data.
+        # Real data has varying error counts; timeout/stale data is constant.
+        right_pts = [
+            p for p in data.get("timing_points", []) if p["direction"] == "right"
+        ]
+        up_pts = [
+            p for p in data.get("voltage_points", [])
+            if p["direction"] == "up" and p.get("status_code", 0) != 3
+        ]
+        right_values = {p["margin_value"] for p in right_pts}
+        up_values = {p["margin_value"] for p in up_pts}
 
-        voltage_err: dict[int, int] = {}
-        max_usable_v = 0
-        for pt in data.get("voltage_points", []):
-            if pt["direction"] == "up":
-                if pt.get("status_code", 0) == 3:  # NAK — beyond usable range
-                    continue
-                voltage_err[pt["step"]] = pt.get("margin_value", 0)
-                max_usable_v = max(max_usable_v, pt["step"])
-
-        max_t = max(timing_err.keys()) if timing_err else 0
-        max_v = max_usable_v if max_usable_v > 0 else num_voltage
-
-        # Generate 2D grid with combined error estimate.
-        # Step 0 = nominal sampling point — assumed 0 errors (link works).
-        points: list[list[float]] = []  # [x_ui, y_mv, combined_error]
-        max_combined = 1
-
-        t_steps = list(range(0, max_t + 1))
-        v_steps = list(range(0, max_v + 1))
-
-        for t in t_steps:
-            t_e = timing_err.get(t, 0) if t > 0 else 0
-            x = (t / num_timing) * 0.5 if num_timing > 0 else 0.0
-            for v in v_steps:
-                v_e = voltage_err.get(v, 0) if v > 0 else 0
-                y = (v / num_voltage) * 500.0 if num_voltage > 0 else 0.0
-                combined = t_e + v_e
-                if combined > max_combined:
-                    max_combined = combined
-                # Mirror into all 4 quadrants (avoid duplicating axes)
-                x_vals = (x, -x) if t > 0 else (x,)
-                y_vals = (y, -y) if v > 0 else (y,)
-                for xv in x_vals:
-                    for yv in y_vals:
-                        points.append([round(xv, 4), round(yv, 2), combined])
-
-        # Dynamic symbol size: fill the grid without excessive overlap.
-        grid_steps = max(max_t, max_v, 1)
-        sym_size = max(5, min(14, 360 // grid_steps))
-
-        # Eye boundary diamond (if there are passing points)
+        # If both axes show ≤2 unique values (e.g. {0, 28} from stale + padding)
+        # AND no measurable eye opening, treat as "no data".
         eye_w = data.get("eye_width_ui", 0)
         eye_h = data.get("eye_height_mv", 0)
+        no_data = (
+            len(right_values) <= 2
+            and len(up_values) <= 2
+            and eye_w == 0
+            and eye_h == 0
+        )
+
+        if no_data:
+            chart.options["series"] = []
+            chart.options["graphic"] = {
+                "elements": [{
+                    "type": "text",
+                    "left": "center",
+                    "top": "middle",
+                    "style": {
+                        "text": "No Data\nReceiver did not respond",
+                        "fontSize": 16,
+                        "fontWeight": "bold",
+                        "fill": COLORS.text_muted,
+                        "textAlign": "center",
+                    },
+                }],
+            }
+            chart.options.pop("visualMap", None)
+            chart.update()
+            return
+
+        # Clear any previous "No Data" graphic.
+        chart.options.pop("graphic", None)
+
+        # Find usable voltage range (last step before NAK).
+        max_usable_v = 0
+        for pt in up_pts:
+            max_usable_v = max(max_usable_v, pt["step"])
+        max_v = max_usable_v if max_usable_v > 0 else num_voltage
+        max_t = num_timing
+
+        # Build 2D grid using diamond distance from center.
+        # Distance = |t_frac| + |v_frac| where each axis is normalized
+        # to 0..1 across its measurement range.  This naturally produces
+        # a diamond (eye) shape: center = 0, corners = 2.
+        points: list[list[float]] = []
+
+        for t in range(0, max_t + 1):
+            t_frac = t / max_t if max_t > 0 else 0.0
+            x_ui = (t / num_timing) * 0.5 if num_timing > 0 else 0.0
+            for v in range(0, max_v + 1):
+                v_frac = v / max_v if max_v > 0 else 0.0
+                y_mv = (v / num_voltage) * 500.0 if num_voltage > 0 else 0.0
+                distance = t_frac + v_frac
+                # Mirror into all 4 quadrants
+                x_vals = (x_ui, -x_ui) if t > 0 else (x_ui,)
+                y_vals = (y_mv, -y_mv) if v > 0 else (y_mv,)
+                for xv in x_vals:
+                    for yv in y_vals:
+                        points.append([round(xv, 4), round(yv, 2), round(distance, 3)])
+
+        grid_steps = max(max_t, max_v, 1)
+        sym_size = max(5, min(14, 360 // grid_steps))
 
         series: list[dict] = [
             {
@@ -363,6 +391,7 @@ def _eye_diagram_content(device_id: str) -> None:
             },
         ]
 
+        # Eye boundary diamond overlay.
         if eye_w > 0 or eye_h > 0:
             hw = round(eye_w / 2, 4)
             hh = round(eye_h / 2, 2)
@@ -377,13 +406,13 @@ def _eye_diagram_content(device_id: str) -> None:
             })
 
         chart.options["visualMap"] = {
-            "min": 0,
-            "max": max_combined,
+            "min": 0.0,
+            "max": 2.0,
             "dimension": 2,
             "inRange": {
                 "color": ["#4CAF50", "#8BC34A", "#FFEB3B", "#FF9800", "#F44336"],
             },
-            "text": [f"Errors: {max_combined}", "Errors: 0"],
+            "text": ["Edge", "Center"],
             "textStyle": {"color": COLORS.text_secondary},
             "right": 10,
         }
