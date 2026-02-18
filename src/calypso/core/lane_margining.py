@@ -508,6 +508,19 @@ class LaneMarginingEngine:
         # At Gen6 (64 GT/s), receiver 000b is reserved — auto-resolve to a valid value
         receiver = self._resolve_receiver(receiver, speed_code)
 
+        # Cancel any in-progress margining from a previous sweep.
+        # After a sweep, the status register retains a MARGIN_TIMING/VOLTAGE
+        # response and the receiver may ignore report commands until reset.
+        self._clear_lane_command(lane, receiver)
+        go_normal = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, go_normal)
+        time.sleep(0.1)  # 100ms for the receiver to process the reset
+
         def _report(payload: int) -> int:
             return self._send_report_command(lane, receiver, payload)
 
