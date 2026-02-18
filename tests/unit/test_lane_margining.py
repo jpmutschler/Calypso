@@ -11,7 +11,9 @@ from calypso.core.lane_margining import (
     _check_balance,
     _build_caps_response,
     _compute_eye_dimensions,
+    _contiguous_passing_steps,
     _count_sweep_steps,
+    _error_threshold_from_sample_count,
     get_pam4_sweep_progress,
     get_pam4_sweep_result,
     get_sweep_progress,
@@ -68,7 +70,7 @@ def _make_caps(
         max_voltage_offset=max_voltage_offset,
         num_timing_steps=num_timing,
         num_voltage_steps=num_voltage,
-        sample_count=39,
+        sample_count=0,
         sample_rate_voltage=False,
         sample_rate_timing=False,
         ind_up_down_voltage=True,
@@ -111,12 +113,23 @@ def _margin_point_fail_side_effect():
     return _side_effect
 
 
-def _make_point(direction: str, step: int, passed: bool) -> MarginPoint:
+def _make_point(
+    direction: str,
+    step: int,
+    passed: bool,
+    *,
+    margin_value: int | None = None,
+    status_code: int | None = None,
+) -> MarginPoint:
+    if margin_value is None:
+        margin_value = 0 if passed else 20
+    if status_code is None:
+        status_code = 2 if passed else 0
     return MarginPoint(
         direction=direction,
         step=step,
-        margin_value=0 if passed else 20,  # 0 errors = passed, >0 errors = failed
-        status_code=2 if passed else 0,  # 2 = margining passed, 0 = error exceeded
+        margin_value=margin_value,
+        status_code=status_code,
         passed=passed,
     )
 
@@ -221,38 +234,144 @@ class TestBuildCapsResponse:
 
 
 # ---------------------------------------------------------------------------
+# _error_threshold_from_sample_count
+# ---------------------------------------------------------------------------
+
+
+class TestErrorThreshold:
+    def test_sample_count_0(self):
+        # 128 * 2^0 = 128 samples, 128 * 0.01 = 1.28 → 1
+        assert _error_threshold_from_sample_count(0) == 1
+
+    def test_sample_count_3(self):
+        # 128 * 2^3 = 1024 samples, 1024 * 0.01 = 10.24 → 10
+        assert _error_threshold_from_sample_count(3) == 10
+
+    def test_sample_count_7(self):
+        # 128 * 2^7 = 16384 samples, 16384 * 0.01 = 163 → capped at 63
+        assert _error_threshold_from_sample_count(7) == 63
+
+    def test_minimum_is_1(self):
+        # Even if math gives 0, threshold should be at least 1
+        assert _error_threshold_from_sample_count(0) >= 1
+
+
+# ---------------------------------------------------------------------------
+# _contiguous_passing_steps
+# ---------------------------------------------------------------------------
+
+
+class TestContiguousPassingSteps:
+    def test_all_pass(self):
+        pts = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=2),
+            _make_point("right", 3, False, margin_value=3),
+        ]
+        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 3
+
+    def test_stops_at_first_failure(self):
+        pts = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=2),
+            _make_point("right", 3, False, margin_value=10),  # exceeds threshold
+            _make_point("right", 4, False, margin_value=1),  # below, but non-contiguous
+        ]
+        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 2
+
+    def test_stops_at_nak(self):
+        pts = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=2, status_code=3),  # NAK
+        ]
+        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 1
+
+    def test_first_step_fails(self):
+        pts = [_make_point("right", 1, False, margin_value=20)]
+        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 0
+
+    def test_empty_list(self):
+        assert _contiguous_passing_steps([], "right", error_threshold=5) == 0
+
+    def test_filters_by_direction(self):
+        pts = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("left", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=20),  # fails
+        ]
+        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 1
+        assert _contiguous_passing_steps(pts, "left", error_threshold=5) == 1
+
+    def test_unsorted_input(self):
+        pts = [
+            _make_point("up", 3, False, margin_value=2),
+            _make_point("up", 1, False, margin_value=1),
+            _make_point("up", 2, False, margin_value=1),
+        ]
+        assert _contiguous_passing_steps(pts, "up", error_threshold=5) == 3
+
+
+# ---------------------------------------------------------------------------
 # _compute_eye_dimensions
 # ---------------------------------------------------------------------------
 
 
 class TestComputeEyeDimensions:
-    def test_basic_dimensions(self):
+    def test_basic_dimensions_with_zero_errors(self):
+        """Points with margin_value=0 pass any threshold >= 0."""
         timing = [
-            _make_point("right", 1, True),
-            _make_point("right", 2, True),
-            _make_point("right", 3, False),
-            _make_point("left", 1, True),
-            _make_point("left", 2, True),
+            _make_point("right", 1, True, margin_value=0),
+            _make_point("right", 2, True, margin_value=0),
+            _make_point("right", 3, False, margin_value=20),
+            _make_point("left", 1, True, margin_value=0),
+            _make_point("left", 2, True, margin_value=0),
         ]
         voltage = [
-            _make_point("up", 1, True),
-            _make_point("up", 2, True),
-            _make_point("down", 1, True),
+            _make_point("up", 1, True, margin_value=0),
+            _make_point("up", 2, True, margin_value=0),
+            _make_point("down", 1, True, margin_value=0),
         ]
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(timing, voltage, 4, 4)
-        # max_right=2, max_left=2 → width_steps=4
-        # max_up=2, max_down=1 → height_steps=3
-        assert w_steps == 4
-        assert h_steps == 3
-        # w_ui = steps_to_timing_ui(2,4)+steps_to_timing_ui(2,4) = 0.25+0.25 = 0.5
-        assert w_ui == pytest.approx(0.5, abs=0.01)
-        # h_mv = steps_to_voltage_mv(2,4)+steps_to_voltage_mv(1,4) = 250+125 = 375
-        assert h_mv == pytest.approx(375.0, abs=1.0)
+        # sample_count=0 → threshold=1, but margin_value=0 ≤ 1
+        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
+            timing, voltage, 4, 4, sample_count=0,
+        )
+        assert w_steps == 4  # right=2 + left=2
+        assert h_steps == 3  # up=2 + down=1
+
+    def test_threshold_based_boundary(self):
+        """Non-zero errors below threshold count as inside the eye."""
+        timing = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=2),
+            _make_point("right", 3, False, margin_value=5),
+            _make_point("right", 4, False, margin_value=15),
+            _make_point("left", 1, False, margin_value=1),
+            _make_point("left", 2, False, margin_value=8),
+        ]
+        voltage = [
+            _make_point("up", 1, False, margin_value=3),
+            _make_point("up", 2, False, margin_value=5),
+            _make_point("up", 3, False, margin_value=20),
+            _make_point("down", 1, False, margin_value=4),
+            _make_point("down", 2, False, margin_value=12),
+        ]
+        # sample_count=3 → threshold=10
+        w_steps, h_steps, _, _ = _compute_eye_dimensions(
+            timing, voltage, 10, 10, sample_count=3,
+        )
+        # right: steps 1(1),2(2),3(5) pass (≤10), step 4(15) fails → 3
+        # left: steps 1(1) pass, step 2(8) pass → 2
+        assert w_steps == 5  # 3 + 2
+        # up: steps 1(3),2(5) pass, step 3(20) fails → 2
+        # down: step 1(4) pass, step 2(12) fails → 1
+        assert h_steps == 3  # 2 + 1
 
     def test_no_passing_points(self):
-        timing = [_make_point("right", 1, False), _make_point("left", 1, False)]
-        voltage = [_make_point("up", 1, False), _make_point("down", 1, False)]
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(timing, voltage, 4, 4)
+        timing = [_make_point("right", 1, False, margin_value=20)]
+        voltage = [_make_point("up", 1, False, margin_value=20)]
+        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
+            timing, voltage, 4, 4, sample_count=0,
+        )
         assert w_steps == 0
         assert h_steps == 0
         assert w_ui == 0.0
@@ -262,6 +381,28 @@ class TestComputeEyeDimensions:
         w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions([], [], 4, 4)
         assert w_steps == 0
         assert h_steps == 0
+
+    def test_physical_units_conversion(self):
+        """Verify UI and mV conversion from contiguous step counts."""
+        timing = [
+            _make_point("right", 1, True, margin_value=0),
+            _make_point("right", 2, True, margin_value=0),
+            _make_point("left", 1, True, margin_value=0),
+            _make_point("left", 2, True, margin_value=0),
+        ]
+        voltage = [
+            _make_point("up", 1, True, margin_value=0),
+            _make_point("down", 1, True, margin_value=0),
+        ]
+        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
+            timing, voltage, 4, 4, sample_count=0,
+        )
+        assert w_steps == 4
+        assert h_steps == 2
+        # w_ui = steps_to_timing_ui(2,4)+steps_to_timing_ui(2,4) = 0.25+0.25 = 0.5
+        assert w_ui == pytest.approx(0.5, abs=0.01)
+        # h_mv = steps_to_voltage_mv(1,4)+steps_to_voltage_mv(1,4) = 125+125 = 250
+        assert h_mv == pytest.approx(250.0, abs=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +642,7 @@ class TestExecuteSingleSweep:
             max_voltage_offset=50,
             num_timing_steps=2,
             num_voltage_steps=2,
-            sample_count=39,
+            sample_count=0,
             sample_rate_voltage=False,
             sample_rate_timing=False,
             ind_up_down_voltage=False,
@@ -535,7 +676,7 @@ class TestExecuteSingleSweep:
             max_voltage_offset=50,
             num_timing_steps=2,
             num_voltage_steps=2,
-            sample_count=39,
+            sample_count=0,
             sample_rate_voltage=False,
             sample_rate_timing=False,
             ind_up_down_voltage=False,

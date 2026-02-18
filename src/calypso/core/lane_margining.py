@@ -148,33 +148,71 @@ def _count_sweep_steps(caps: LaneMarginCapabilities) -> int:
 # Bailing early saves minutes of wasted time.
 _MAX_CONSECUTIVE_TIMEOUTS = 5
 
+# Target BER for eye boundary determination.
+# Points with BER below this threshold are considered "inside the eye".
+# 1% BER is a practical default — at low sample counts (128 symbols)
+# it translates to just 1 error, while at high sample counts it scales up.
+_EYE_BOUNDARY_BER = 0.01
+
+
+def _error_threshold_from_sample_count(sample_count: int) -> int:
+    """Derive the error-count threshold from the PCIe sample count capability.
+
+    PCIe 6.0.1 Section 7.7.8: total_samples = 128 * 2^sample_count.
+    Returns the maximum error_count considered "inside the eye" at the
+    target BER (_EYE_BOUNDARY_BER).
+    """
+    total_samples = 128 * (1 << min(sample_count, 20))
+    threshold = int(total_samples * _EYE_BOUNDARY_BER)
+    return max(1, min(63, threshold))  # At least 1, capped at max reportable
+
+
+def _contiguous_passing_steps(
+    points: list[MarginPoint],
+    direction: str,
+    error_threshold: int,
+) -> int:
+    """Find the last contiguous step from center where error <= threshold.
+
+    Walks outward from step 1 in order; stops at the first step that
+    exceeds the threshold or receives a NAK (status_code == 3).
+    Returns the step number of the last passing step, or 0 if step 1 fails.
+    """
+    dir_points = sorted(
+        (p for p in points if p.direction == direction),
+        key=lambda p: p.step,
+    )
+    max_step = 0
+    for p in dir_points:
+        if p.status_code == 3:  # NAK — beyond receiver range
+            break
+        if p.margin_value > error_threshold:
+            break
+        max_step = p.step
+    return max_step
+
 
 def _compute_eye_dimensions(
     timing_points: list[MarginPoint],
     voltage_points: list[MarginPoint],
     num_timing: int,
     num_voltage: int,
+    sample_count: int = 0,
 ) -> tuple[int, int, float, float]:
-    """Compute eye width/height in steps and physical units.
+    """Compute eye width/height using threshold-based contiguous boundary.
+
+    Walks outward from center (step 0) in each direction.  The eye boundary
+    is the last contiguous step where error_count <= a threshold derived
+    from *sample_count* and the target BER (_EYE_BOUNDARY_BER).
 
     Returns (eye_width_steps, eye_height_steps, eye_width_ui, eye_height_mv).
     """
-    max_right = max(
-        (p.step for p in timing_points if p.direction == "right" and p.passed),
-        default=0,
-    )
-    max_left = max(
-        (p.step for p in timing_points if p.direction == "left" and p.passed),
-        default=0,
-    )
-    max_up = max(
-        (p.step for p in voltage_points if p.direction == "up" and p.passed),
-        default=0,
-    )
-    max_down = max(
-        (p.step for p in voltage_points if p.direction == "down" and p.passed),
-        default=0,
-    )
+    error_threshold = _error_threshold_from_sample_count(sample_count)
+
+    max_right = _contiguous_passing_steps(timing_points, "right", error_threshold)
+    max_left = _contiguous_passing_steps(timing_points, "left", error_threshold)
+    max_up = _contiguous_passing_steps(voltage_points, "up", error_threshold)
+    max_down = _contiguous_passing_steps(voltage_points, "down", error_threshold)
 
     eye_width_steps = max_left + max_right
     eye_height_steps = max_up + max_down
@@ -948,6 +986,7 @@ class LaneMarginingEngine:
             voltage_points,
             num_timing,
             num_voltage,
+            sample_count=caps.sample_count,
         )
 
         elapsed_ms = int(time.monotonic() * 1000) - start_ms
