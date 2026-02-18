@@ -95,13 +95,18 @@ def _margin_point_side_effect(error_count: int = 0):
 
 
 def _margin_point_fail_side_effect():
-    """Create a side_effect for _margin_single_point with status_code=0 (too many errors)."""
+    """Create a side_effect for _margin_single_point with status_code=0 and errors.
+
+    Returns status_code=0 (too many errors) with error_count=20 so the point
+    fails both the spec criterion (status_code != 2) and the error_count
+    criterion (error_count > 0).
+    """
     def _side_effect(lane, cmd, receiver, payload):
         return MarginingLaneStatus(
             receiver_number=MarginingReceiverNumber.BROADCAST,
             margin_type=cmd,
             usage_model=0,
-            margin_payload=(0x0 << 6) | 0,
+            margin_payload=(0x0 << 6) | 20,
         )
     return _side_effect
 

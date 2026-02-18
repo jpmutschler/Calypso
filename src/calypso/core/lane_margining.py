@@ -851,11 +851,17 @@ class LaneMarginingEngine:
                 else:
                     consecutive_timeouts = 0
 
-                # Per PCIe spec, status_code 2 (10b) = margining passed
-                # (errors within limit). Status 0 = too many errors (fail).
+                # A point "passes" when the receiver reports clean margin:
+                #   - status_code 2 (10b): spec "margining passed" (no errors)
+                #   - error_count == 0: zero errors detected (industry standard
+                #     criterion; some receivers report status_code=0 even with
+                #     0 errors due to firmware quirks)
                 # If timed out, the response is stale — treat as failed
                 # regardless of the status_code in the stale payload.
-                passed = status.is_passed and not timed_out
+                passed = (
+                    (status.is_passed or status.error_count == 0)
+                    and not timed_out
+                )
                 if passed:
                     dir_passed += 1
                 dir_status_codes[status.status_code] = (

@@ -291,13 +291,22 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     def _render_eye_chart(chart, data: dict, accent_color: str):
-        """Populate a single eye chart with sweep data."""
+        """Populate a single eye chart with sweep data.
+
+        Uses error_count-based coloring:
+          - Pass (0 errors): green circles
+          - Low errors (1-5): amber circles
+          - High errors (>5): red diamonds
+          - NAK (unsupported step): gray triangles
+        """
         caps = data.get("capabilities", {})
         num_timing = caps.get("num_timing_steps", 1)
         num_voltage = caps.get("num_voltage_steps", 1)
 
         pass_points: list[list[float]] = []
-        fail_points: list[list[float]] = []
+        low_err_points: list[list[float]] = []
+        high_err_points: list[list[float]] = []
+        nak_points: list[list[float]] = []
 
         max_pass_right = 0.0
         max_pass_left = 0.0
@@ -305,6 +314,8 @@ def _eye_diagram_content(device_id: str) -> None:
             step = pt["step"]
             direction = pt["direction"]
             passed = pt["passed"]
+            error_count = pt.get("margin_value", 0)
+            status_code = pt.get("status_code", 0)
 
             x_ui = (step / num_timing) * 0.5 if num_timing > 0 else 0.0
             if direction == "left":
@@ -317,8 +328,12 @@ def _eye_diagram_content(device_id: str) -> None:
                     max_pass_right = x_ui
                 if direction == "left" and abs(x_ui) > abs(max_pass_left):
                     max_pass_left = x_ui
+            elif status_code == 3:
+                nak_points.append(point)
+            elif error_count <= 5:
+                low_err_points.append(point)
             else:
-                fail_points.append(point)
+                high_err_points.append(point)
 
         max_pass_up = 0.0
         max_pass_down = 0.0
@@ -326,6 +341,8 @@ def _eye_diagram_content(device_id: str) -> None:
             step = pt["step"]
             direction = pt["direction"]
             passed = pt["passed"]
+            error_count = pt.get("margin_value", 0)
+            status_code = pt.get("status_code", 0)
 
             y_mv = (step / num_voltage) * 500.0 if num_voltage > 0 else 0.0
             if direction == "down":
@@ -338,8 +355,12 @@ def _eye_diagram_content(device_id: str) -> None:
                     max_pass_up = y_mv
                 if direction == "down" and abs(y_mv) > abs(max_pass_down):
                     max_pass_down = y_mv
+            elif status_code == 3:
+                nak_points.append(point)
+            elif error_count <= 5:
+                low_err_points.append(point)
             else:
-                fail_points.append(point)
+                high_err_points.append(point)
 
         boundary_points = [
             [max_pass_right, 0.0],
@@ -349,32 +370,54 @@ def _eye_diagram_content(device_id: str) -> None:
             [max_pass_right, 0.0],
         ]
 
-        chart.options["series"] = [
-            {
-                "name": "Pass",
+        series: list[dict] = []
+        if pass_points:
+            series.append({
+                "name": "Pass (0 errors)",
                 "type": "scatter",
                 "data": pass_points,
                 "itemStyle": {"color": COLORS.green},
+                "symbolSize": 10,
+                "symbol": "circle",
+            })
+        if low_err_points:
+            series.append({
+                "name": "Low Errors (1-5)",
+                "type": "scatter",
+                "data": low_err_points,
+                "itemStyle": {"color": "#FFB74D"},
                 "symbolSize": 8,
                 "symbol": "circle",
-            },
-            {
-                "name": "Fail",
+            })
+        if high_err_points:
+            series.append({
+                "name": "High Errors (>5)",
                 "type": "scatter",
-                "data": fail_points,
+                "data": high_err_points,
                 "itemStyle": {"color": COLORS.red},
                 "symbolSize": 8,
                 "symbol": "diamond",
-            },
-            {
+            })
+        if nak_points:
+            series.append({
+                "name": "NAK (unsupported)",
+                "type": "scatter",
+                "data": nak_points,
+                "itemStyle": {"color": "#616161"},
+                "symbolSize": 6,
+                "symbol": "triangle",
+            })
+        if any(p != [0.0, 0.0] for p in boundary_points):
+            series.append({
                 "name": "Eye Boundary",
                 "type": "line",
                 "data": boundary_points,
                 "lineStyle": {"color": accent_color, "width": 2, "type": "dashed"},
                 "itemStyle": {"color": accent_color},
                 "showSymbol": False,
-            },
-        ]
+            })
+
+        chart.options["series"] = series
         chart.update()
 
     def _render_nrz_results_summary(data: dict):
