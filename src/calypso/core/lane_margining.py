@@ -61,7 +61,7 @@ _pam4_sweep_results: dict[str, PAM4SweepResult] = {}
 _POLL_INTERVAL_S = 0.02  # 20ms between status register reads
 _POLL_TIMEOUT_S = 5.0  # 5s max per margin point (PAM4 receivers may be slow)
 _CLEAR_SETTLE_S = 0.03  # 30ms for NO_COMMAND PHY ordered set round-trip
-_MIN_DWELL_S = 0.15  # 150ms before accepting — prevents stale same-receiver data
+_MIN_DWELL_S = 1.0  # 1s dwell — matches pcilmr default, gives receiver time to measure
 
 
 def get_sweep_progress(device_id: str, lane: int) -> SweepProgress:
@@ -667,6 +667,7 @@ class LaneMarginingEngine:
 
         for direction, cmd, num_steps, point_list in directions:
             dir_status_codes: dict[int, int] = {}  # status_code -> count
+            dir_error_counts: dict[int, int] = {}  # margin_value -> count
             dir_passed = 0
             dir_timed_out = 0
 
@@ -695,8 +696,8 @@ class LaneMarginingEngine:
                     dir_status_codes.get(status.status_code, 0) + 1
                 )
 
-                # Log first 3 points per direction for diagnostics
-                if step <= 3:
+                # Log first 3 and last 3 points per direction for diagnostics
+                if step <= 3 or step > num_steps - 3:
                     logger.info(
                         "margin_point_detail",
                         direction=direction,
@@ -713,6 +714,9 @@ class LaneMarginingEngine:
                         timed_out=timed_out,
                     )
 
+                dir_error_counts[status.margin_value] = (
+                    dir_error_counts.get(status.margin_value, 0) + 1
+                )
                 point_list.append(
                     MarginPoint(
                         direction=direction,
@@ -726,7 +730,8 @@ class LaneMarginingEngine:
                 if progress_callback is not None:
                     progress_callback(step_count, total_steps)
 
-            # Summary per direction
+            # Summary per direction — includes error count distribution
+            # to distinguish real data (varying counts) from stale data (all same)
             logger.info(
                 "margin_direction_summary",
                 direction=direction,
@@ -735,6 +740,7 @@ class LaneMarginingEngine:
                 passed=dir_passed,
                 timed_out=dir_timed_out,
                 status_code_dist=dir_status_codes,
+                error_count_dist=dir_error_counts,
             )
 
         eye_w_steps, eye_h_steps, eye_w_ui, eye_h_mv = _compute_eye_dimensions(
