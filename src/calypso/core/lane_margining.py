@@ -596,24 +596,68 @@ class LaneMarginingEngine:
         ]
 
         for direction, cmd, num_steps, point_list in directions:
+            dir_status_codes: dict[int, int] = {}  # status_code -> count
+            dir_passed = 0
+            dir_timed_out = 0
+
             for step in range(1, num_steps + 1):
                 payload = step & 0x3F
                 if direction in ("left", "down"):
                     payload |= 1 << 6
 
                 status = self._margin_single_point(lane, cmd, receiver, payload)
+
+                # Check if poll timed out (response margin_type doesn't match)
+                timed_out = status.margin_type != cmd
+                if timed_out:
+                    dir_timed_out += 1
+
+                passed = status.is_complete and status.margin_value > 0
+                if passed:
+                    dir_passed += 1
+                dir_status_codes[status.status_code] = (
+                    dir_status_codes.get(status.status_code, 0) + 1
+                )
+
+                # Log first 3 points per direction for diagnostics
+                if step <= 3:
+                    logger.info(
+                        "margin_point_detail",
+                        direction=direction,
+                        step=step,
+                        receiver=int(receiver),
+                        margin_type=status.margin_type.name,
+                        margin_type_match=status.margin_type == cmd,
+                        status_code=status.status_code,
+                        margin_value=status.margin_value,
+                        margin_payload=f"0x{status.margin_payload:02X}",
+                        passed=passed,
+                        timed_out=timed_out,
+                    )
+
                 point_list.append(
                     MarginPoint(
                         direction=direction,
                         step=step,
                         margin_value=status.margin_value,
                         status_code=status.status_code,
-                        passed=(status.is_complete and status.margin_value > 0),
+                        passed=passed,
                     )
                 )
                 step_count += 1
                 if progress_callback is not None:
                     progress_callback(step_count, total_steps)
+
+            # Summary per direction
+            logger.info(
+                "margin_direction_summary",
+                direction=direction,
+                receiver=int(receiver),
+                total_points=num_steps,
+                passed=dir_passed,
+                timed_out=dir_timed_out,
+                status_code_dist=dir_status_codes,
+            )
 
         eye_w_steps, eye_h_steps, eye_w_ui, eye_h_mv = _compute_eye_dimensions(
             timing_points,
