@@ -329,33 +329,12 @@ class TestResolveReceiver:
 # ---------------------------------------------------------------------------
 
 
-def _make_status_no_command() -> MarginingLaneStatus:
-    """Build a lane status with margin_type=NO_COMMAND."""
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.BROADCAST,
-        margin_type=MarginingCmd.NO_COMMAND,
-        usage_model=0,
-        margin_payload=0,
-    )
-
-
-def _make_status_go_to_normal() -> MarginingLaneStatus:
-    """Build a lane status with margin_type=GO_TO_NORMAL_SETTINGS."""
-    return MarginingLaneStatus(
-        receiver_number=MarginingReceiverNumber.BROADCAST,
-        margin_type=MarginingCmd.GO_TO_NORMAL_SETTINGS,
-        usage_model=0,
-        margin_payload=0x9C,
-    )
-
-
 class TestClearLaneCommand:
     @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
     def test_writes_no_command(self):
         """Writes NO_COMMAND control word to the lane."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(return_value=_make_status_no_command())
         engine._clear_lane_command(0, MarginingReceiverNumber.BROADCAST)
         engine._write_lane_control.assert_called_once()
         control = engine._write_lane_control.call_args[0][1]
@@ -366,25 +345,9 @@ class TestClearLaneCommand:
         """Preserves the receiver number in the NO_COMMAND control word."""
         engine = _create_engine()
         engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(return_value=_make_status_no_command())
         engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_A)
         control = engine._write_lane_control.call_args[0][1]
         assert control.receiver_number == MarginingReceiverNumber.RECEIVER_A
-
-    @patch("calypso.core.lane_margining._CLEAR_SETTLE_S", 0)
-    def test_waits_for_go_to_normal_to_clear(self):
-        """Polls until GO_TO_NORMAL_SETTINGS clears on receiver switch."""
-        engine = _create_engine()
-        engine._write_lane_control = MagicMock()
-        engine._read_lane_status = MagicMock(
-            side_effect=[
-                _make_status_go_to_normal(),  # receiver switch in progress
-                _make_status_go_to_normal(),  # still transitioning
-                _make_status_no_command(),  # cleared
-            ]
-        )
-        engine._clear_lane_command(0, MarginingReceiverNumber.RECEIVER_B)
-        assert engine._read_lane_status.call_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -576,22 +539,21 @@ class TestSweepLanePAM4:
     def test_pam4_resets_each_receiver(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_reset")
-        # reset_lane called once per eye (3x)
-        assert engine.reset_lane.call_count == 3
+        # reset_lane called: 1x after pre-flight + 3x per eye = 4
+        assert engine.reset_lane.call_count == 4
 
-    def test_pam4_queries_caps_for_each_receiver(self):
+    def test_pam4_queries_caps_once_with_receiver_a(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_caps")
-        # get_capabilities called 3x (one per receiver) during pre-flight
-        assert engine.get_capabilities.call_count == 3
-        receivers = [call.kwargs.get("receiver") for call in engine.get_capabilities.call_args_list]
-        assert MarginingReceiverNumber.RECEIVER_A in receivers
-        assert MarginingReceiverNumber.RECEIVER_B in receivers
-        assert MarginingReceiverNumber.RECEIVER_C in receivers
+        # Capabilities queried once with RECEIVER_A (port-level property)
+        engine.get_capabilities.assert_called_once_with(
+            lane=0, receiver=MarginingReceiverNumber.RECEIVER_A,
+        )
 
     def test_pam4_zero_steps_raises(self):
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=0, num_voltage=0))
+        engine.reset_lane = MagicMock()
         with pytest.raises(ValueError, match="0 margining steps"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_zero")
         progress = get_pam4_sweep_progress("pam4_zero", 0)
@@ -615,12 +577,17 @@ class TestSweepLanePAM4:
         engine.reset_lane = MagicMock()
         with pytest.raises(RuntimeError, match="hw fail during pam4"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_err")
-        # Should attempt to reset all 3 receivers on error
-        assert engine.reset_lane.call_count == 3
-        reset_receivers = {call.args[1] for call in engine.reset_lane.call_args_list}
-        assert MarginingReceiverNumber.RECEIVER_A in reset_receivers
-        assert MarginingReceiverNumber.RECEIVER_B in reset_receivers
-        assert MarginingReceiverNumber.RECEIVER_C in reset_receivers
+        # Should attempt to reset: 1x after pre-flight + 3x error cleanup = 4
+        assert engine.reset_lane.call_count == 4
+        # Error cleanup resets include all 3 receivers (calls with 2 args)
+        error_resets = [
+            call.args[1]
+            for call in engine.reset_lane.call_args_list
+            if len(call.args) > 1
+        ]
+        assert MarginingReceiverNumber.RECEIVER_A in error_resets
+        assert MarginingReceiverNumber.RECEIVER_B in error_resets
+        assert MarginingReceiverNumber.RECEIVER_C in error_resets
         progress = get_pam4_sweep_progress("pam4_err", 0)
         assert progress.status == "error"
 

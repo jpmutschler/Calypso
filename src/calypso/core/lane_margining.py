@@ -333,10 +333,9 @@ class LaneMarginingEngine:
         Margin Type field before writing a new margin command. The receiver only
         processes commands when it sees a transition FROM No Command.
 
-        After the initial settle, checks for GO_TO_NORMAL_SETTINGS in the status
-        register. This response appears when switching receiver numbers — the
-        previously addressed receiver auto-resets per spec. We must wait for it
-        to clear before the new receiver can process commands.
+        Uses a fixed 100ms settle delay. The status register is NOT polled because
+        NO_COMMAND does not generate its own response — the status retains the
+        last non-NO_COMMAND response indefinitely.
         """
         clear = MarginingLaneControl(
             receiver_number=receiver,
@@ -346,23 +345,6 @@ class LaneMarginingEngine:
         )
         self._write_lane_control(lane, clear)
         time.sleep(_CLEAR_SETTLE_S)
-
-        # If a receiver switch triggered GO_TO_NORMAL_SETTINGS from the previous
-        # receiver, wait for that transition to complete. Without this, the new
-        # receiver won't process subsequent commands.
-        status = self._read_lane_status(lane)
-        if status.margin_type == MarginingCmd.GO_TO_NORMAL_SETTINGS:
-            logger.debug(
-                "clear_waiting_for_go_to_normal",
-                lane=lane,
-                receiver=int(receiver),
-            )
-            deadline = time.monotonic() + _POLL_TIMEOUT_S
-            while time.monotonic() < deadline:
-                time.sleep(_CLEAR_SETTLE_S)
-                status = self._read_lane_status(lane)
-                if status.margin_type != MarginingCmd.GO_TO_NORMAL_SETTINGS:
-                    break
 
     def _send_report_command(
         self,
@@ -765,16 +747,17 @@ class LaneMarginingEngine:
                 percent=0.0,
             )
 
-        # Pre-flight: query capabilities for each receiver to compute total steps
-        per_eye_caps: list[LaneMarginCapabilities] = []
-        per_eye_steps: list[int] = []
-        for rx in PAM4_RECEIVERS:
-            caps = self.get_capabilities(lane=lane, receiver=rx)
-            per_eye_caps.append(caps)
-            steps = (caps.num_timing_steps * 2) + (caps.num_voltage_steps * 2)
-            per_eye_steps.append(steps)
+        # Pre-flight: query capabilities once with RECEIVER_A.
+        # Capabilities (num_timing_steps, num_voltage_steps, etc.) are port-level
+        # properties per PCIe 6.0.1 Table 7-52, identical across all receivers.
+        # Some hardware only responds to report commands on RECEIVER_A.
+        caps = self.get_capabilities(lane=lane, receiver=MarginingReceiverNumber.RECEIVER_A)
+        steps_per_eye = (caps.num_timing_steps * 2) + (caps.num_voltage_steps * 2)
 
-        overall_total = sum(per_eye_steps)
+        # Reset lane after pre-flight so each eye sweep starts from a clean state
+        self.reset_lane(lane)
+
+        overall_total = steps_per_eye * len(PAM4_RECEIVERS)
         if overall_total == 0:
             error_msg = "Device reports 0 margining steps for all PAM4 receivers"
             with _lock:
@@ -806,8 +789,8 @@ class LaneMarginingEngine:
         completed_steps = 0
 
         try:
-            for eye_idx, (rx, label, eye_caps) in enumerate(
-                zip(PAM4_RECEIVERS, PAM4_EYE_LABELS, per_eye_caps)
+            for eye_idx, (rx, label) in enumerate(
+                zip(PAM4_RECEIVERS, PAM4_EYE_LABELS)
             ):
                 with _lock:
                     _pam4_active_sweeps[key] = PAM4SweepProgress(
@@ -841,9 +824,9 @@ class LaneMarginingEngine:
                             percent=(overall_current / overall_total) * 100,
                         )
 
-                result = self._execute_single_sweep(lane, rx, _progress, caps=eye_caps)
+                result = self._execute_single_sweep(lane, rx, _progress, caps=caps)
                 eye_results.append(result)
-                completed_steps += per_eye_steps[eye_idx]
+                completed_steps += steps_per_eye
 
                 # Reset after each eye sweep
                 self.reset_lane(lane, rx)
