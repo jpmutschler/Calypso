@@ -201,6 +201,7 @@ class MarginingCmd(IntEnum):
     GO_TO_NORMAL_SETTINGS = 0x4
     VENDOR_DEFINED_1 = 0x5
     VENDOR_DEFINED_2 = 0x6
+    RESERVED = 0x7
 
 
 class MarginingReceiverNumber(IntEnum):
