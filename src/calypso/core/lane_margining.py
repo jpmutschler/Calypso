@@ -346,6 +346,47 @@ class LaneMarginingEngine:
         self._write_lane_control(lane, clear)
         time.sleep(_CLEAR_SETTLE_S)
 
+    def _try_report_command(
+        self,
+        lane: int,
+        receiver: MarginingReceiverNumber,
+        report_payload: int,
+        settle_s: float = _CLEAR_SETTLE_S,
+    ) -> tuple[int | None, MarginingLaneStatus | None]:
+        """Single attempt at sending a report command.
+
+        Returns (payload, None) on success or (None, last_status) on timeout.
+        """
+        # Clear to NO_COMMAND (mandatory per spec Section 7.7.8.4)
+        clear = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.NO_COMMAND,
+            usage_model=0,
+            margin_payload=0,
+        )
+        self._write_lane_control(lane, clear)
+        time.sleep(settle_s)
+
+        # Write the actual report command
+        control = MarginingLaneControl(
+            receiver_number=receiver,
+            margin_type=MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL,
+            usage_model=0,
+            margin_payload=report_payload,
+        )
+        self._write_lane_control(lane, control)
+
+        # Poll until status margin_type echoes the command
+        deadline = time.monotonic() + _POLL_TIMEOUT_S
+        last_status: MarginingLaneStatus | None = None
+        while time.monotonic() < deadline:
+            time.sleep(_POLL_INTERVAL_S)
+            last_status = self._read_lane_status(lane)
+            if last_status.margin_type == MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL:
+                return last_status.margin_payload, None
+
+        return None, last_status
+
     def _send_report_command(
         self,
         lane: int,
@@ -357,31 +398,36 @@ class LaneMarginingEngine:
         Returns the 8-bit margin_payload from the Lane Status response register.
         Per PCIe 6.0.1, clears to NO_COMMAND first so the receiver sees a valid
         transition, then polls until the response margin_type echoes back.
-        """
-        # Step 1: Clear to NO_COMMAND (mandatory per spec Section 7.7.8.4)
-        self._clear_lane_command(lane, receiver)
 
-        # Step 2: Write the actual report command
+        If the first attempt times out (e.g. stale GO_TO_NORMAL_SETTINGS after a
+        previous sweep), retries once with a longer settle time.
+        """
+        # First attempt with normal settle time
+        result, last_status = self._try_report_command(lane, receiver, report_payload)
+        if result is not None:
+            return result
+
+        # First attempt failed — retry with longer settle (500ms)
+        logger.warning(
+            "report_command_retry",
+            payload=f"0x{report_payload:02X}",
+            last_status_type=last_status.margin_type.name if last_status else "none",
+        )
+        result, last_status = self._try_report_command(
+            lane, receiver, report_payload, settle_s=0.5,
+        )
+        if result is not None:
+            return result
+
+        # Both attempts failed — build diagnostic message
+        diag = self._read_diag()
+        diag["margining_offset"] = f"0x{self._margining_offset:X}"
         control = MarginingLaneControl(
             receiver_number=receiver,
             margin_type=MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL,
             usage_model=0,
             margin_payload=report_payload,
         )
-        self._write_lane_control(lane, control)
-
-        # Step 3: Poll until status margin_type echoes the command
-        deadline = time.monotonic() + _POLL_TIMEOUT_S
-        last_status: MarginingLaneStatus | None = None
-        while time.monotonic() < deadline:
-            time.sleep(_POLL_INTERVAL_S)
-            last_status = self._read_lane_status(lane)
-            if last_status.margin_type == MarginingCmd.ACCESS_RECEIVER_MARGIN_CONTROL:
-                return last_status.margin_payload
-
-        # Timeout — build diagnostic message
-        diag = self._read_diag()
-        diag["margining_offset"] = f"0x{self._margining_offset:X}"
         diag["control_written"] = f"0x{control.to_register():04X}"
         if last_status is not None:
             diag["last_status_type"] = last_status.margin_type.name
