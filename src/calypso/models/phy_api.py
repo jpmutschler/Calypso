@@ -27,6 +27,7 @@ class MarginPoint(BaseModel):
     margin_value: int  # error count (bits [5:0]), 0 = no errors
     status_code: int  # 0=error_exceeded, 1=setup, 2=margining_passed, 3=NAK
     passed: bool  # status_code == 2 (margining executed, errors within limit)
+    timed_out: bool = False  # True when receiver didn't respond (stale/padded data)
 
 
 class EyeSweepResult(BaseModel):

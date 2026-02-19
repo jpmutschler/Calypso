@@ -154,6 +154,10 @@ _MAX_CONSECUTIVE_TIMEOUTS = 5
 # it translates to just 1 error, while at high sample counts it scales up.
 _EYE_BOUNDARY_BER = 0.01
 
+# Normalized error threshold for the visual eye boundary.
+# Uses the same 0–1 normalization as the heatmap; 0.5 = halfway to max error.
+_EYE_NORM_THRESHOLD = 0.5
+
 
 def _error_threshold_from_sample_count(sample_count: int) -> int:
     """Derive the error-count threshold from the PCIe sample count capability.
@@ -222,22 +226,70 @@ def _compute_eye_dimensions(
     voltage_points: list[MarginPoint],
     num_timing: int,
     num_voltage: int,
-    sample_count: int = 0,
+    sample_count: int = 0,  # kept for API compat; unused by normalized approach
 ) -> _EyeDimensions:
-    """Compute eye width/height using threshold-based contiguous boundary.
+    """Compute eye width/height using normalized-error boundary.
 
-    Walks outward from center (step 0) in each direction.  The eye boundary
-    is the last contiguous step where error_count <= a threshold derived
-    from *sample_count* and the target BER (_EYE_BOUNDARY_BER).
+    Uses the **same normalization** as the 2D heatmap so the eye boundary
+    overlay aligns with the visual.  Per-direction errors are normalized
+    to 0–1 (by max error when a gradient exists, by step-distance when
+    errors are constant).  The eye boundary is the last contiguous step
+    in each direction where normalized error ≤ _EYE_NORM_THRESHOLD.
 
     Returns an _EyeDimensions with total and per-direction values.
     """
-    error_threshold = _error_threshold_from_sample_count(sample_count)
+    # --- Group usable points (exclude NAK and timed-out) by direction ---
+    dir_pts: dict[str, list[MarginPoint]] = {
+        "right": [], "left": [], "up": [], "down": [],
+    }
+    for p in timing_points:
+        if p.status_code != 3 and not p.timed_out:
+            dir_pts[p.direction].append(p)
+    for p in voltage_points:
+        if p.status_code != 3 and not p.timed_out:
+            dir_pts[p.direction].append(p)
 
-    max_right = _contiguous_passing_steps(timing_points, "right", error_threshold)
-    max_left = _contiguous_passing_steps(timing_points, "left", error_threshold)
-    max_up = _contiguous_passing_steps(voltage_points, "up", error_threshold)
-    max_down = _contiguous_passing_steps(voltage_points, "down", error_threshold)
+    # --- Detect gradient per axis ---
+    t_errors = [
+        p.margin_value for d in ("right", "left")
+        for p in dir_pts[d] if p.margin_value > 0
+    ]
+    v_errors = [
+        p.margin_value for d in ("up", "down")
+        for p in dir_pts[d] if p.margin_value > 0
+    ]
+    t_has_gradient = len(set(t_errors)) > 1
+    v_has_gradient = len(set(v_errors)) > 1
+    max_t_err = max(t_errors) if t_errors else 1
+    max_v_err = max(v_errors) if v_errors else 1
+
+    # --- Max usable step per direction (for no-gradient fallback) ---
+    max_usable: dict[str, int] = {}
+    for d in ("right", "left", "up", "down"):
+        steps = [p.step for p in dir_pts[d]]
+        max_usable[d] = max(steps) if steps else 0
+
+    # --- Find boundary step per direction ---
+    def _boundary_step(direction: str, is_timing: bool) -> int:
+        pts = sorted(dir_pts[direction], key=lambda p: p.step)
+        has_grad = t_has_gradient if is_timing else v_has_gradient
+        m_err = max_t_err if is_timing else max_v_err
+        mx = max_usable[direction]
+        boundary = 0
+        for p in pts:
+            if has_grad:
+                norm = p.margin_value / m_err if m_err > 0 else 1.0
+            else:
+                norm = p.step / mx if mx > 0 else 1.0
+            if norm > _EYE_NORM_THRESHOLD:
+                break
+            boundary = p.step
+        return boundary
+
+    max_right = _boundary_step("right", is_timing=True)
+    max_left = _boundary_step("left", is_timing=True)
+    max_up = _boundary_step("up", is_timing=False)
+    max_down = _boundary_step("down", is_timing=False)
 
     right_ui = steps_to_timing_ui(max_right, num_timing)
     left_ui = steps_to_timing_ui(max_left, num_timing)
@@ -893,6 +945,7 @@ class LaneMarginingEngine:
                                 margin_value=0,
                                 status_code=0,
                                 passed=False,
+                                timed_out=True,
                             )
                         )
                         dir_timed_out += 1
@@ -968,6 +1021,7 @@ class LaneMarginingEngine:
                         margin_value=status.margin_value,
                         status_code=status.status_code,
                         passed=passed,
+                        timed_out=timed_out,
                     )
                 )
                 step_count += 1
@@ -1000,6 +1054,7 @@ class LaneMarginingEngine:
                             margin_value=p.margin_value,
                             status_code=p.status_code,
                             passed=p.passed,
+                            timed_out=p.timed_out,
                         )
                     )
         if not caps.ind_up_down_voltage:
@@ -1012,6 +1067,7 @@ class LaneMarginingEngine:
                             margin_value=p.margin_value,
                             status_code=p.status_code,
                             passed=p.passed,
+                            timed_out=p.timed_out,
                         )
                     )
 

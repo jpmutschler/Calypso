@@ -120,6 +120,7 @@ def _make_point(
     *,
     margin_value: int | None = None,
     status_code: int | None = None,
+    timed_out: bool = False,
 ) -> MarginPoint:
     if margin_value is None:
         margin_value = 0 if passed else 20
@@ -131,6 +132,7 @@ def _make_point(
         margin_value=margin_value,
         status_code=status_code,
         passed=passed,
+        timed_out=timed_out,
     )
 
 
@@ -317,82 +319,110 @@ class TestContiguousPassingSteps:
 
 
 class TestComputeEyeDimensions:
-    def test_basic_dimensions_with_zero_errors(self):
-        """Points with margin_value=0 pass any threshold >= 0."""
+    def test_gradient_boundary_at_half_max(self):
+        """Boundary is the last step where normalized error ≤ 0.5."""
+        # Linear gradient: error = step * 2 → max_err = 20
         timing = [
-            _make_point("right", 1, True, margin_value=0),
-            _make_point("right", 2, True, margin_value=0),
-            _make_point("right", 3, False, margin_value=20),
-            _make_point("left", 1, True, margin_value=0),
-            _make_point("left", 2, True, margin_value=0),
+            *[_make_point("right", s, False, margin_value=s * 2) for s in range(1, 11)],
+            *[_make_point("left", s, False, margin_value=s * 2) for s in range(1, 11)],
         ]
+        # Steeper gradient: error = step * 4 → max_err = 40
         voltage = [
-            _make_point("up", 1, True, margin_value=0),
-            _make_point("up", 2, True, margin_value=0),
-            _make_point("down", 1, True, margin_value=0),
+            *[_make_point("up", s, False, margin_value=s * 4) for s in range(1, 11)],
+            *[_make_point("down", s, False, margin_value=s * 4) for s in range(1, 11)],
         ]
-        # sample_count=0 → threshold=1, but margin_value=0 ≤ 1
-        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
-        assert eye.width_steps == 4  # right=2 + left=2
-        assert eye.height_steps == 3  # up=2 + down=1
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10)
+        # right: max_t_err=20.  step 5: 10/20=0.5 → pass, step 6: 12/20=0.6 → stop
+        # left: same → 5
+        assert eye.width_steps == 10  # 5 + 5
+        # up: max_v_err=40.  step 5: 20/40=0.5 → pass, step 6: 24/40=0.6 → stop
+        # down: same → 5
+        assert eye.height_steps == 10  # 5 + 5
 
-    def test_threshold_based_boundary(self):
-        """Non-zero errors below threshold count as inside the eye."""
+    def test_constant_errors_use_step_distance(self):
+        """When errors are constant (no gradient), step distance is used."""
+        # Timing has gradient (errors 1..10)
         timing = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=2),
-            _make_point("right", 3, False, margin_value=5),
-            _make_point("right", 4, False, margin_value=15),
-            _make_point("left", 1, False, margin_value=1),
-            _make_point("left", 2, False, margin_value=8),
+            *[_make_point("right", s, False, margin_value=s) for s in range(1, 11)],
         ]
+        # Voltage is constant (error=5 for all steps, like real hardware)
         voltage = [
-            _make_point("up", 1, False, margin_value=3),
-            _make_point("up", 2, False, margin_value=5),
-            _make_point("up", 3, False, margin_value=20),
-            _make_point("down", 1, False, margin_value=4),
-            _make_point("down", 2, False, margin_value=12),
+            *[_make_point("up", s, False, margin_value=5) for s in range(1, 11)],
         ]
-        # sample_count=3 → threshold=10
-        eye = _compute_eye_dimensions(timing, voltage, 10, 10, sample_count=3)
-        # right: steps 1(1),2(2),3(5) pass (≤10), step 4(15) fails → 3
-        # left: steps 1(1) pass, step 2(8) pass → 2
-        assert eye.width_steps == 5  # 3 + 2
-        # up: steps 1(3),2(5) pass, step 3(20) fails → 2
-        # down: step 1(4) pass, step 2(12) fails → 1
-        assert eye.height_steps == 3  # 2 + 1
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10)
+        # right: max_t_err=10.  step 5: 5/10=0.5→pass, step 6: 0.6→stop → 5
+        assert eye.width_steps == 5  # only right direction
+        # up (no gradient, step distance): step 5: 5/10=0.5→pass, 6: 0.6→stop → 5
+        assert eye.height_steps == 5
 
-    def test_per_direction_margins(self):
+    def test_asymmetric_per_direction(self):
         """Per-direction values support asymmetric eye boundaries."""
         timing = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=2),
-            _make_point("right", 3, False, margin_value=5),
-            _make_point("right", 4, False, margin_value=15),
-            _make_point("left", 1, False, margin_value=1),
-            _make_point("left", 2, False, margin_value=8),
+            *[_make_point("right", s, False, margin_value=s) for s in range(1, 11)],
+            # left has steeper errors → smaller boundary
+            *[_make_point("left", s, False, margin_value=s * 3) for s in range(1, 11)],
         ]
         voltage = [
-            _make_point("up", 1, False, margin_value=3),
-            _make_point("up", 2, False, margin_value=5),
-            _make_point("up", 3, False, margin_value=20),
-            _make_point("down", 1, False, margin_value=4),
-            _make_point("down", 2, False, margin_value=12),
+            *[_make_point("up", s, False, margin_value=s * 2) for s in range(1, 11)],
+            *[_make_point("down", s, False, margin_value=s * 5) for s in range(1, 11)],
         ]
-        eye = _compute_eye_dimensions(timing, voltage, 10, 10, sample_count=3)
-        # right=3 steps, left=2 steps → asymmetric
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10)
+        # max_t_err = 30 (left step 10: 30). right step 5: 5/30=0.167→pass...
+        # right: step 15 would be 0.5 but only 10 steps, all ≤ 10/30=0.333 → 10
+        # left: step 5: 15/30=0.5→pass, step 6: 18/30=0.6→stop → 5
         assert eye.right_ui > eye.left_ui
         assert eye.width_ui == pytest.approx(eye.right_ui + eye.left_ui)
         assert eye.height_mv == pytest.approx(eye.up_mv + eye.down_mv)
+        # max_v_err = 50 (down step 10: 50). up step 5: 10/50=0.2→pass...
+        # up: all ≤ 20/50=0.4 → 10.  down: step 5: 25/50=0.5→pass, step 6: 0.6→stop → 5
+        assert eye.up_mv > eye.down_mv
 
-    def test_no_passing_points(self):
+    def test_single_high_error_no_opening(self):
+        """Single point at max error → no eye opening."""
         timing = [_make_point("right", 1, False, margin_value=20)]
         voltage = [_make_point("up", 1, False, margin_value=20)]
-        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
+        eye = _compute_eye_dimensions(timing, voltage, 4, 4)
+        # Only 1 point each direction: no gradient, step 1/1=1.0 > 0.5 → 0
         assert eye.width_steps == 0
         assert eye.height_steps == 0
         assert eye.width_ui == 0.0
         assert eye.height_mv == 0.0
+
+    def test_nak_excluded_from_boundary(self):
+        """NAK (status_code=3) points are excluded from boundary calc."""
+        timing = [
+            *[_make_point("right", s, False, margin_value=s) for s in range(1, 11)],
+        ]
+        voltage = [
+            # Steps 1-5 real data, steps 6-10 NAK
+            *[_make_point("up", s, False, margin_value=s * 2) for s in range(1, 6)],
+            *[_make_point("up", s, False, margin_value=0, status_code=3)
+              for s in range(6, 11)],
+        ]
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10)
+        # Voltage up: NAK excluded, so max_v_err=10 (from steps 1-5).
+        # step 2: 4/10=0.4→pass, step 3: 6/10=0.6→stop → boundary=2
+        assert eye.height_steps == 2
+
+    def test_timed_out_excluded_from_boundary(self):
+        """Timed-out (stale/padded) points are excluded from boundary calc."""
+        timing = [
+            # 5 real timed-out points (stale error=28) + 5 padded (error=0)
+            *[_make_point("right", s, False, margin_value=28, timed_out=True)
+              for s in range(1, 6)],
+            *[_make_point("right", s, False, margin_value=0, timed_out=True)
+              for s in range(6, 11)],
+        ]
+        voltage = [
+            *[_make_point("up", s, False, margin_value=28, timed_out=True)
+              for s in range(1, 6)],
+            *[_make_point("up", s, False, margin_value=0, timed_out=True)
+              for s in range(6, 11)],
+        ]
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10)
+        # All points timed out → no usable data → 0 in all dimensions
+        assert eye.width_steps == 0
+        assert eye.height_steps == 0
 
     def test_empty_lists(self):
         eye = _compute_eye_dimensions([], [], 4, 4)
@@ -401,22 +431,22 @@ class TestComputeEyeDimensions:
 
     def test_physical_units_conversion(self):
         """Verify UI and mV conversion from contiguous step counts."""
+        # 20 steps per direction with linear gradient → boundary at step 10
         timing = [
-            _make_point("right", 1, True, margin_value=0),
-            _make_point("right", 2, True, margin_value=0),
-            _make_point("left", 1, True, margin_value=0),
-            _make_point("left", 2, True, margin_value=0),
+            *[_make_point("right", s, False, margin_value=s) for s in range(1, 21)],
+            *[_make_point("left", s, False, margin_value=s) for s in range(1, 21)],
         ]
         voltage = [
-            _make_point("up", 1, True, margin_value=0),
-            _make_point("down", 1, True, margin_value=0),
+            *[_make_point("up", s, False, margin_value=s) for s in range(1, 21)],
+            *[_make_point("down", s, False, margin_value=s) for s in range(1, 21)],
         ]
-        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
-        assert eye.width_steps == 4
-        assert eye.height_steps == 2
-        # w_ui = steps_to_timing_ui(2,4)+steps_to_timing_ui(2,4) = 0.25+0.25 = 0.5
+        eye = _compute_eye_dimensions(timing, voltage, 20, 40)
+        # max_t_err=20.  step 10: 10/20=0.5→pass, step 11: 0.55→stop → 10
+        assert eye.width_steps == 20  # 10 + 10
+        assert eye.height_steps == 20  # 10 + 10
+        # w_ui = steps_to_timing_ui(10,20)+steps_to_timing_ui(10,20) = 0.25+0.25 = 0.5
         assert eye.width_ui == pytest.approx(0.5, abs=0.01)
-        # h_mv = steps_to_voltage_mv(1,4)+steps_to_voltage_mv(1,4) = 125+125 = 250
+        # h_mv = steps_to_voltage_mv(10,40)+steps_to_voltage_mv(10,40) = 125+125 = 250
         assert eye.height_mv == pytest.approx(250.0, abs=1.0)
 
 
@@ -633,7 +663,8 @@ class TestExecuteSingleSweep:
         )
         engine.get_capabilities.assert_called_once()
 
-    def test_failing_points_produce_zero_eye(self):
+    def test_constant_errors_use_step_distance_boundary(self):
+        """Constant errors (no gradient) → step-distance fallback for boundary."""
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=2, num_voltage=2))
         engine._margin_single_point = MagicMock(side_effect=_margin_point_fail_side_effect())
@@ -644,10 +675,10 @@ class TestExecuteSingleSweep:
             receiver=MarginingReceiverNumber.BROADCAST,
             caps=caps,
         )
-        assert result.eye_width_steps == 0
-        assert result.eye_height_steps == 0
-        assert result.eye_width_ui == 0.0
-        assert result.eye_height_mv == 0.0
+        # All points have error=20 (no gradient) → step distance fallback.
+        # With 2 steps: step 1/2=0.5 ≤ threshold → boundary=1 per direction.
+        assert result.eye_width_steps == 2  # right=1 + left=1
+        assert result.eye_height_steps == 2  # up=1 + down=1
 
     def test_mirrors_when_ind_flags_false(self):
         """When ind_left_right/ind_up_down are False, only sweeps one direction

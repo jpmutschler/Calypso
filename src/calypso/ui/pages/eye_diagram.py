@@ -308,13 +308,16 @@ def _eye_diagram_content(device_id: str) -> None:
         num_voltage = caps.get("num_voltage_steps", 1)
 
         # --- No-data detection ---
-        # Real data has varying error counts; timeout/stale data is constant.
+        # Exclude timed-out/padded points — they carry stale or zero data.
         right_pts = [
-            p for p in data.get("timing_points", []) if p["direction"] == "right"
+            p for p in data.get("timing_points", [])
+            if p["direction"] == "right" and not p.get("timed_out", False)
         ]
         up_pts = [
             p for p in data.get("voltage_points", [])
-            if p["direction"] == "up" and p.get("status_code", 0) != 3
+            if p["direction"] == "up"
+            and p.get("status_code", 0) != 3
+            and not p.get("timed_out", False)
         ]
         right_values = {p["margin_value"] for p in right_pts}
         up_values = {p["margin_value"] for p in up_pts}
@@ -350,16 +353,17 @@ def _eye_diagram_content(device_id: str) -> None:
 
         chart.options.pop("graphic", None)
 
-        # --- Build per-direction error lookups ---
+        # --- Build per-direction error lookups (exclude timed-out/NAK) ---
         dir_err: dict[str, dict[int, int]] = {
             "right": {}, "left": {}, "up": {}, "down": {},
         }
         for pt in data.get("timing_points", []):
-            dir_err[pt["direction"]][pt["step"]] = pt.get("margin_value", 0)
+            if not pt.get("timed_out", False):
+                dir_err[pt["direction"]][pt["step"]] = pt.get("margin_value", 0)
 
         max_usable_v = 0
         for pt in data.get("voltage_points", []):
-            if pt.get("status_code", 0) == 3:  # NAK — beyond usable range
+            if pt.get("status_code", 0) == 3 or pt.get("timed_out", False):
                 continue
             dir_err[pt["direction"]][pt["step"]] = pt.get("margin_value", 0)
             if pt["direction"] in ("up", "down"):
