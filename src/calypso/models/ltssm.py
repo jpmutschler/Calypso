@@ -71,6 +71,61 @@ LTSSM_STATE_CATEGORY: dict[str, int] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# PCIe 6.0.1 Sub-state names per top-level state
+#
+# Sub-state byte values follow the PCIe spec presentation order (Section
+# 4.2.6).  An empty string means the sub-state index IS the top-state name
+# itself (e.g. top=3 sub=0 → "L0").  States with no defined sub-states
+# (Hot Reset, Disabled) use an empty dict — sub=0 renders the top name,
+# anything else falls back to hex.
+# ---------------------------------------------------------------------------
+
+_LTSSM_SUB_STATES: dict[int, dict[int, str]] = {
+    LtssmTopState.DETECT: {
+        0: "Detect.Quiet",
+        1: "Detect.Active",
+    },
+    LtssmTopState.POLLING: {
+        0: "Polling.Active",
+        1: "Polling.Configuration",
+        2: "Polling.Compliance",
+    },
+    LtssmTopState.CONFIGURATION: {
+        0: "Config.Linkwidth.Start",
+        1: "Config.Linkwidth.Accept",
+        2: "Config.Lanenum.Wait",
+        3: "Config.Lanenum.Accept",
+        4: "Config.Complete",
+        5: "Config.Idle",
+    },
+    LtssmTopState.L0: {
+        0: "L0",
+        1: "L0s.Entry",
+        2: "L0s.Idle",
+        3: "L0s.FTS",
+        4: "L1.Entry",
+        5: "L1.Idle",
+        6: "L2.Idle",
+        7: "L2.TransmitWake",
+    },
+    LtssmTopState.RECOVERY: {
+        0: "Recovery.RcvrLock",
+        1: "Recovery.Speed",
+        2: "Recovery.RcvrCfg",
+        3: "Recovery.Idle",
+        4: "Recovery.Equalization",
+    },
+    LtssmTopState.LOOPBACK: {
+        0: "Loopback.Entry",
+        1: "Loopback.Active",
+        2: "Loopback.Exit",
+    },
+    LtssmTopState.HOT_RESET: {},
+    LtssmTopState.DISABLED: {},
+}
+
+
 LINK_SPEED_NAMES: dict[int, str] = {
     0: "Gen1 (2.5 GT/s)",
     1: "Gen2 (5.0 GT/s)",
@@ -84,18 +139,23 @@ LINK_SPEED_NAMES: dict[int, str] = {
 def ltssm_state_name(code: int) -> str:
     """Return the human-readable name for a 12-bit LTSSM state code.
 
-    Pure top-state (sub=0x00) returns just the name, e.g. "L0".
-    Non-zero sub-state appends it, e.g. "DETECT (sub=0x01)".
+    Uses PCIe 6.0.1 Section 4.2.6 sub-state naming.  Known sub-states
+    render as e.g. "Recovery.RcvrLock"; unknown sub-states fall back to
+    hex, e.g. "RECOVERY (sub=0x09)".
     """
     top = ltssm_top_state(code)
     sub = ltssm_sub_state(code)
     try:
-        name = LtssmTopState(top).name
+        top_name = LtssmTopState(top).name
     except ValueError:
         return f"UNKNOWN_0x{code:03X}"
+    sub_table = _LTSSM_SUB_STATES.get(top, {})
+    sub_name = sub_table.get(sub)
+    if sub_name is not None:
+        return sub_name
     if sub == 0:
-        return name
-    return f"{name} (sub=0x{sub:02X})"
+        return top_name
+    return f"{top_name} (sub=0x{sub:02X})"
 
 
 def link_speed_name(code: int) -> str:

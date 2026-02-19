@@ -146,8 +146,8 @@ def _t1_2_ltssm_validation(
 
         # Check for illegal direct jumps (basic sanity)
         # Legal: Detect -> Polling -> Config -> L0 (simplified)
-        has_detect = any("DETECT" in s for s in state_names)
-        has_polling = any("POLLING" in s for s in state_names)
+        has_detect = any("Detect" in s for s in state_names)
+        has_polling = any("Polling" in s for s in state_names)
 
         if reached_l0 and result.settled:
             verdict = Verdict.PASS
