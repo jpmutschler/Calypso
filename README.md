@@ -195,7 +195,7 @@ calypso phy lane-eq 0 --port-number 112 --num-lanes 4
 calypso phy serdes-diag 0 --port-number 112
 calypso phy port-control 0 --port-number 112
 calypso phy cmd-status 0 --port-number 112
-calypso phy utp-test 0 --port-number 112 --pattern LFSR31 --rate 32GT
+calypso phy utp-test 0 --port-number 112 --pattern prbs31 --rate 4
 calypso phy margining 0
 ```
 
@@ -203,12 +203,24 @@ calypso phy margining 0
 
 ```bash
 calypso mcu --port COM3 discover             # Discover on serial
+calypso mcu --port COM3 version              # Firmware version
 calypso mcu --port COM3 health               # Thermal/power/fan
 calypso mcu --port COM3 ports                # Port status
 calypso mcu --port COM3 errors               # Error counters
 calypso mcu --port COM3 errors --clear       # Clear counters
 calypso mcu --port COM3 config               # Mode/clock/spread/FLIT
 calypso mcu --port COM3 bist                 # Built-In Self Test
+```
+
+### I2C/I3C Bus (via MCU Serial)
+
+```bash
+calypso mcu --port COM3 i2c-scan -c 0 -ch a              # Scan I2C bus on connector 0, channel a
+calypso mcu --port COM3 i2c-read -c 0 -ch a -a 0x50 -r 0 -n 16  # Read 16 bytes from I2C device
+calypso mcu --port COM3 i2c-write -c 0 -ch a -a 0x50 -d 0x00,0x01  # Write bytes to I2C device
+calypso mcu --port COM3 i3c-scan -c 0 -ch a              # Run I3C ENTDAA discovery
+calypso mcu --port COM3 i3c-read -c 0 -ch a -a 0x08 -r 0 -n 16  # Read from I3C target
+calypso mcu --port COM3 i3c-write -c 0 -ch a -a 0x08 -r 0 -d 0x00  # Write to I3C target
 ```
 
 ### NVMe-MI (via MCU Serial)
@@ -321,6 +333,7 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Error Counters | `/mcu/errors` | Per-port error counts with clear |
 | Configuration | `/mcu/config` | Mode, clock, spread spectrum, FLIT |
 | Diagnostics | `/mcu/diagnostics` | BIST and diagnostic tools |
+| I2C/I3C Bus | `/mcu/bus` | I2C/I3C bus scan, read, write, I3C ENTDAA discovery |
 | NVMe Drives | `/mcu/nvme` | NVMe-MI drive discovery, SMART health, per-controller detail, auto-refresh |
 
 ## Transport Layers

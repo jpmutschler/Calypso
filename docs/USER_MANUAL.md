@@ -612,21 +612,25 @@ PCIe Lane Margining eye diagram visualization with automated sweep and analysis.
 2. Click **Check Capabilities** to verify margining support and read step limits:
    - Timing Steps / Max Timing Offset (UI)
    - Voltage Steps / Max Voltage Offset (mV)
+   - Sample Count (number of samples per measurement point)
    - Independent up/down voltage, left/right timing capability flags
    - **Modulation auto-detection:** The page queries the current link speed and displays "NRZ (Single Eye)" for Gen1-5 or "PAM4 (3 Eyes)" for Gen6
+   - **Unsupported margining detection:** If the device reports 0 margining steps, Calypso displays a clear error message instead of attempting a sweep
 3. Click **Start Sweep** to begin automated margining
 4. Monitor progress bar (updates every 500ms)
 5. View the completed eye diagram(s)
 
 #### NRZ Mode (Gen1-5)
 
-A single scatter plot showing the margining results:
+A 2D heatmap visualization showing the margining results:
 
 - **X-axis:** Timing Offset (UI)
 - **Y-axis:** Voltage Offset (mV)
-- **Green circles:** Pass points (within margin)
-- **Red diamonds:** Fail points (margin exceeded)
-- **Cyan dashed boundary:** Calculated eye boundary
+- **Color gradient:** Green (center/passing) through yellow/orange to red (edge/failing), representing normalized error distance from the eye center
+- **Dashed diamond boundary:** Asymmetric eye boundary showing per-direction margins (left/right timing, up/down voltage)
+- **No Data detection:** If a receiver doesn't respond (all timeouts), a "No Data" message is displayed instead of a misleading empty chart
+
+The heatmap normalizes timing and voltage error data independently so both axes contribute equally to the visualization. When an axis has no error gradient, step-distance is used as a proxy. The result is an elliptical/irregular eye shape that reflects the actual measured data -- wider when timing margin is larger, asymmetric when left and right margins differ.
 
 #### PAM4 Mode (Gen6)
 
@@ -636,7 +640,7 @@ PCIe Gen6 uses PAM4 signaling with 4 voltage levels, creating 3 vertically stack
 - **Middle Eye (Receiver B)** -- blue accent
 - **Lower Eye (Receiver C)** -- purple accent
 
-Each eye is displayed as its own scatter plot with independent width/height measurements. The progress label shows the current eye being swept (e.g., "PAM4 - Upper Eye (1/3) - Step 24/144 (17%)").
+Each eye is displayed as its own heatmap with independent width/height measurements and asymmetric boundary overlays. Non-responsive receivers (e.g., devices that don't support PAM4 margining on a particular eye) show "No Data" instead of a misleading chart. The progress label shows the current eye being swept (e.g., "PAM4 - Upper Eye (1/3) - Step 24/144 (17%)"). Before starting the PAM4 sweep, Calypso probes each receiver to skip non-responsive ones automatically.
 
 **PAM4 Aggregate Summary** (below the 3 charts):
 
@@ -687,14 +691,17 @@ Displayed metrics:
 | Lane Reversal | Whether lane reversal is active |
 | Rx Eval Count | Receiver evaluation count |
 
-LTSSM states are color-coded by category:
-- **Red:** Detect, Disabled, Hot Reset
-- **Orange:** Polling, Loopback
-- **Yellow:** Configuration
-- **Blue:** Recovery
+LTSSM states are decoded from 12-bit hardware registers using PCIe 6.0.1 Section 4.2.6 sub-state naming. The upper nibble (bits [11:8]) identifies the top-level state, while the lower byte (bits [7:0]) identifies the sub-state within it. For example, `0x400` decodes as "Recovery.RcvrLock" and `0x305` as "L1.Idle".
+
+States are color-coded by category:
+- **Red:** Detect (Detect.Quiet, Detect.Active), Disabled, Hot Reset
+- **Orange:** Polling (Polling.Active, Polling.Configuration, Polling.Compliance), Loopback (Entry, Active, Exit)
+- **Yellow:** Configuration (Config.Linkwidth.Start, Config.Linkwidth.Accept, Config.Lanenum.Wait, Config.Lanenum.Accept, Config.Complete, Config.Idle)
+- **Blue:** Recovery (Recovery.RcvrLock, Recovery.Speed, Recovery.RcvrCfg, Recovery.Idle, Recovery.Equalization)
 - **Green:** L0 (normal operation)
-- **Cyan:** L0s
-- **Purple:** L1
+- **Cyan:** L0s (L0s.Entry, L0s.Idle, L0s.FTS)
+- **Purple:** L1 (L1.Entry, L1.Idle)
+- **Muted:** L2 (L2.Idle, L2.TransmitWake)
 
 Enable **Auto-refresh** (1-second interval) for continuous monitoring during link training.
 
@@ -1544,6 +1551,51 @@ calypso mcu --port PORT set_mode {1|2|3|4}
 
 # Show configuration
 calypso mcu --port PORT config
+```
+
+### I2C/I3C Bus (via MCU Serial)
+
+```bash
+# Scan I2C bus for responding devices
+calypso mcu --port PORT i2c-scan --connector C --channel CH
+
+# Read bytes from I2C device
+calypso mcu --port PORT i2c-read --connector C --channel CH \
+    --address 0xAA [--register 0x00] [--count 16]
+
+# Write bytes to I2C device
+calypso mcu --port PORT i2c-write --connector C --channel CH \
+    --address 0xAA --data 0x00,0x01,...
+
+# Run I3C ENTDAA discovery
+calypso mcu --port PORT i3c-scan --connector C --channel CH
+
+# Read from I3C target device
+calypso mcu --port PORT i3c-read --connector C --channel CH \
+    --address 0xAA [--register 0x0000] [--count 16]
+
+# Write to I3C target device
+calypso mcu --port PORT i3c-write --connector C --channel CH \
+    --address 0xAA [--register 0x0000] --data 0x00,0x01,...
+```
+
+| Option | Description |
+|--------|-------------|
+| `--connector, -c` | Connector index (0-5) |
+| `--channel, -ch` | I2C/I3C channel (`a` or `b`) |
+| `--address, -a` | Target device address (hex or decimal) |
+| `--register, -r` | Register offset (hex or decimal, default 0) |
+| `--count, -n` | Number of bytes to read (default 16) |
+| `--data, -d` | Comma-separated hex/decimal bytes to write |
+
+### NVMe-MI (via MCU Serial)
+
+```bash
+# Scan all connectors for NVMe drives
+calypso mcu --port PORT nvme discover
+
+# Poll SMART health from a drive
+calypso mcu --port PORT nvme health --connector C --channel CH [--address 0x6A]
 ```
 
 ### NVMe Workloads (Linux only)
