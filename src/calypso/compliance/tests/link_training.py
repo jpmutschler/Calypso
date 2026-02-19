@@ -19,7 +19,7 @@ from calypso.compliance.models import (
 from calypso.compliance.thresholds import GEN_NAME_TO_SPEED_CODE
 from calypso.core.ltssm_trace import LtssmTracer
 from calypso.core.pcie_config import PcieConfigReader
-from calypso.models.ltssm import LtssmState
+from calypso.models.ltssm import LtssmTopState, ltssm_top_state
 from calypso.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -83,33 +83,37 @@ def _t1_1_speed_negotiation(
                     verdict = Verdict.FAIL
                     msg = f"Expected {expected}, achieved {achieved}"
 
-                results.append(TestResult(
-                    test_id="T1.1",
-                    test_name=f"Speed Negotiation ({gen_name})",
-                    suite_id=SUITE,
-                    verdict=verdict,
-                    spec_reference="PCIe 6.0.1 Section 7.5.3.6",
-                    criteria=f"Link must train to {gen_name}",
-                    message=msg,
-                    measured_values={
-                        "target_speed": gen_name,
-                        "achieved_speed": achieved,
-                        "width": status.current_width,
-                    },
-                    duration_ms=_elapsed(t_start),
-                    port_number=port.port_number,
-                ))
+                results.append(
+                    TestResult(
+                        test_id="T1.1",
+                        test_name=f"Speed Negotiation ({gen_name})",
+                        suite_id=SUITE,
+                        verdict=verdict,
+                        spec_reference="PCIe 6.0.1 Section 7.5.3.6",
+                        criteria=f"Link must train to {gen_name}",
+                        message=msg,
+                        measured_values={
+                            "target_speed": gen_name,
+                            "achieved_speed": achieved,
+                            "width": status.current_width,
+                        },
+                        duration_ms=_elapsed(t_start),
+                        port_number=port.port_number,
+                    )
+                )
             except Exception as exc:
-                results.append(TestResult(
-                    test_id="T1.1",
-                    test_name=f"Speed Negotiation ({gen_name})",
-                    suite_id=SUITE,
-                    verdict=Verdict.ERROR,
-                    spec_reference="PCIe 6.0.1 Section 7.5.3.6",
-                    message=str(exc),
-                    duration_ms=_elapsed(t_start),
-                    port_number=port.port_number,
-                ))
+                results.append(
+                    TestResult(
+                        test_id="T1.1",
+                        test_name=f"Speed Negotiation ({gen_name})",
+                        suite_id=SUITE,
+                        verdict=Verdict.ERROR,
+                        spec_reference="PCIe 6.0.1 Section 7.5.3.6",
+                        message=str(exc),
+                        duration_ms=_elapsed(t_start),
+                        port_number=port.port_number,
+                    )
+                )
     finally:
         # Restore original target speed
         if original_speed_code >= 1:
@@ -138,12 +142,12 @@ def _t1_2_ltssm_validation(
         state_names = [t.state_name for t in transitions]
 
         # Check that we reached L0
-        reached_l0 = result.final_state == LtssmState.L0
+        reached_l0 = ltssm_top_state(result.final_state) == LtssmTopState.L0
 
         # Check for illegal direct jumps (basic sanity)
         # Legal: Detect -> Polling -> Config -> L0 (simplified)
-        has_detect = any("Detect" in s for s in state_names)
-        has_polling = any("Polling" in s for s in state_names)
+        has_detect = any("DETECT" in s for s in state_names)
+        has_polling = any("POLLING" in s for s in state_names)
 
         if reached_l0 and result.settled:
             verdict = Verdict.PASS
@@ -155,37 +159,41 @@ def _t1_2_ltssm_validation(
             verdict = Verdict.FAIL
             msg = f"Did not reach L0. Final state: {result.final_state_name}"
 
-        return [TestResult(
-            test_id="T1.2",
-            test_name="LTSSM State Validation",
-            suite_id=SUITE,
-            verdict=verdict,
-            spec_reference="PCIe 6.0.1 Section 4.2.6",
-            criteria="Link must follow legal LTSSM sequence and reach L0",
-            message=msg,
-            measured_values={
-                "transitions": len(transitions),
-                "state_sequence": state_names,
-                "final_state": result.final_state_name,
-                "duration_ms": result.duration_ms,
-                "settled": result.settled,
-                "saw_detect": has_detect,
-                "saw_polling": has_polling,
-            },
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        )]
+        return [
+            TestResult(
+                test_id="T1.2",
+                test_name="LTSSM State Validation",
+                suite_id=SUITE,
+                verdict=verdict,
+                spec_reference="PCIe 6.0.1 Section 4.2.6",
+                criteria="Link must follow legal LTSSM sequence and reach L0",
+                message=msg,
+                measured_values={
+                    "transitions": len(transitions),
+                    "state_sequence": state_names,
+                    "final_state": result.final_state_name,
+                    "duration_ms": result.duration_ms,
+                    "settled": result.settled,
+                    "saw_detect": has_detect,
+                    "saw_polling": has_polling,
+                },
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        ]
     except Exception as exc:
-        return [TestResult(
-            test_id="T1.2",
-            test_name="LTSSM State Validation",
-            suite_id=SUITE,
-            verdict=Verdict.ERROR,
-            spec_reference="PCIe 6.0.1 Section 4.2.6",
-            message=str(exc),
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        )]
+        return [
+            TestResult(
+                test_id="T1.2",
+                test_name="LTSSM State Validation",
+                suite_id=SUITE,
+                verdict=Verdict.ERROR,
+                spec_reference="PCIe 6.0.1 Section 4.2.6",
+                message=str(exc),
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        ]
 
 
 def _t1_3_eq_phase_verification(
@@ -202,17 +210,19 @@ def _t1_3_eq_phase_verification(
     # EQ only relevant at Gen3+ (8GT/s and above)
     speed_code = GEN_NAME_TO_SPEED_CODE.get(current_speed, 0)
     if speed_code < 3:
-        results.append(TestResult(
-            test_id="T1.3",
-            test_name="EQ Phase Verification",
-            suite_id=SUITE,
-            verdict=Verdict.SKIP,
-            spec_reference="PCIe 6.0.1 Section 4.2.3",
-            criteria="EQ required at 8GT/s+",
-            message=f"Current speed {current_speed} < Gen3, EQ not applicable",
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        ))
+        results.append(
+            TestResult(
+                test_id="T1.3",
+                test_name="EQ Phase Verification",
+                suite_id=SUITE,
+                verdict=Verdict.SKIP,
+                spec_reference="PCIe 6.0.1 Section 4.2.3",
+                criteria="EQ required at 8GT/s+",
+                message=f"Current speed {current_speed} < Gen3, EQ not applicable",
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        )
         return results
 
     # Check 16GT EQ status
@@ -234,23 +244,25 @@ def _t1_3_eq_phase_verification(
             verdict = Verdict.FAIL
             msg = "16GT EQ not complete"
 
-        results.append(TestResult(
-            test_id="T1.3",
-            test_name="EQ Phase Verification (16GT)",
-            suite_id=SUITE,
-            verdict=verdict,
-            spec_reference="PCIe 6.0.1 Section 4.2.3",
-            criteria="EQ phases must complete successfully",
-            message=msg,
-            measured_values={
-                "complete": eq_16.complete,
-                "phase1": eq_16.phase1_success,
-                "phase2": eq_16.phase2_success,
-                "phase3": eq_16.phase3_success,
-            },
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        ))
+        results.append(
+            TestResult(
+                test_id="T1.3",
+                test_name="EQ Phase Verification (16GT)",
+                suite_id=SUITE,
+                verdict=verdict,
+                spec_reference="PCIe 6.0.1 Section 4.2.3",
+                criteria="EQ phases must complete successfully",
+                message=msg,
+                measured_values={
+                    "complete": eq_16.complete,
+                    "phase1": eq_16.phase1_success,
+                    "phase2": eq_16.phase2_success,
+                    "phase3": eq_16.phase3_success,
+                },
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        )
 
     # Check 32GT EQ status if at Gen5+
     if speed_code >= 5:
@@ -269,36 +281,40 @@ def _t1_3_eq_phase_verification(
                 verdict = Verdict.FAIL
                 msg = "32GT EQ not complete"
 
-            results.append(TestResult(
-                test_id="T1.3",
-                test_name="EQ Phase Verification (32GT)",
-                suite_id=SUITE,
-                verdict=verdict,
-                spec_reference="PCIe 6.0.1 Section 4.2.3",
-                criteria="32GT EQ must complete",
-                message=msg,
-                measured_values={
-                    "complete": eq_32.complete,
-                    "phase1": eq_32.phase1_success,
-                    "phase2": eq_32.phase2_success,
-                    "phase3": eq_32.phase3_success,
-                    "no_eq_needed": eq_32.no_eq_needed,
-                },
-                duration_ms=_elapsed(t_start),
-                port_number=port.port_number,
-            ))
+            results.append(
+                TestResult(
+                    test_id="T1.3",
+                    test_name="EQ Phase Verification (32GT)",
+                    suite_id=SUITE,
+                    verdict=verdict,
+                    spec_reference="PCIe 6.0.1 Section 4.2.3",
+                    criteria="32GT EQ must complete",
+                    message=msg,
+                    measured_values={
+                        "complete": eq_32.complete,
+                        "phase1": eq_32.phase1_success,
+                        "phase2": eq_32.phase2_success,
+                        "phase3": eq_32.phase3_success,
+                        "no_eq_needed": eq_32.no_eq_needed,
+                    },
+                    duration_ms=_elapsed(t_start),
+                    port_number=port.port_number,
+                )
+            )
 
     if not results:
-        results.append(TestResult(
-            test_id="T1.3",
-            test_name="EQ Phase Verification",
-            suite_id=SUITE,
-            verdict=Verdict.SKIP,
-            spec_reference="PCIe 6.0.1 Section 4.2.3",
-            message="No EQ capability registers found",
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        ))
+        results.append(
+            TestResult(
+                test_id="T1.3",
+                test_name="EQ Phase Verification",
+                suite_id=SUITE,
+                verdict=Verdict.SKIP,
+                spec_reference="PCIe 6.0.1 Section 4.2.3",
+                message="No EQ capability registers found",
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        )
 
     return results
 
@@ -323,33 +339,37 @@ def _t1_4_recovery_baseline(
             verdict = Verdict.FAIL
             msg = f"{recovery_count} recovery entries during {config.idle_wait_s}s idle period"
 
-        return [TestResult(
-            test_id="T1.4",
-            test_name="Recovery Count Baseline",
-            suite_id=SUITE,
-            verdict=verdict,
-            spec_reference="PCIe 6.0.1 Section 4.2.6.3",
-            criteria="Zero recoveries during idle period",
-            message=msg,
-            measured_values={
-                "recovery_count": recovery_count,
-                "rx_eval_count": rx_eval,
-                "idle_wait_s": config.idle_wait_s,
-            },
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        )]
+        return [
+            TestResult(
+                test_id="T1.4",
+                test_name="Recovery Count Baseline",
+                suite_id=SUITE,
+                verdict=verdict,
+                spec_reference="PCIe 6.0.1 Section 4.2.6.3",
+                criteria="Zero recoveries during idle period",
+                message=msg,
+                measured_values={
+                    "recovery_count": recovery_count,
+                    "rx_eval_count": rx_eval,
+                    "idle_wait_s": config.idle_wait_s,
+                },
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        ]
     except Exception as exc:
-        return [TestResult(
-            test_id="T1.4",
-            test_name="Recovery Count Baseline",
-            suite_id=SUITE,
-            verdict=Verdict.ERROR,
-            spec_reference="PCIe 6.0.1 Section 4.2.6.3",
-            message=str(exc),
-            duration_ms=_elapsed(t_start),
-            port_number=port.port_number,
-        )]
+        return [
+            TestResult(
+                test_id="T1.4",
+                test_name="Recovery Count Baseline",
+                suite_id=SUITE,
+                verdict=Verdict.ERROR,
+                spec_reference="PCIe 6.0.1 Section 4.2.6.3",
+                message=str(exc),
+                duration_ms=_elapsed(t_start),
+                port_number=port.port_number,
+            )
+        ]
 
 
 def _elapsed(start: float) -> float:

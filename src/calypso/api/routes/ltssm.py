@@ -25,6 +25,7 @@ router = APIRouter(tags=["ltssm"])
 
 def _get_switch(device_id: str):
     from calypso.api.app import get_device_registry
+
     registry = get_device_registry()
     sw = registry.get(device_id)
     if sw is None:
@@ -34,6 +35,7 @@ def _get_switch(device_id: str):
 
 def _get_tracer(device_id: str, port_number: int):
     from calypso.core.ltssm_trace import LtssmTracer
+
     sw = _get_switch(device_id)
     return LtssmTracer(sw._device_obj, sw._device_key, port_number)
 
@@ -132,6 +134,7 @@ async def get_retrain_watch_progress(
 ) -> RetrainWatchProgress:
     """Poll the progress of a running retrain-and-watch."""
     from calypso.core.ltssm_trace import get_retrain_progress
+
     return get_retrain_progress(device_id, port_number)
 
 
@@ -145,6 +148,7 @@ async def get_retrain_watch_result(
 ) -> RetrainWatchResult:
     """Get the completed retrain-watch result."""
     from calypso.core.ltssm_trace import get_retrain_result
+
     result = get_retrain_result(device_id, port_number)
     if result is None:
         raise HTTPException(status_code=404, detail="No retrain result available")
@@ -161,7 +165,7 @@ class PtraceConfigRequest(BaseModel):
     trace_point: int = Field(0, ge=0, le=15)
     lane_select: int = Field(0, ge=0, le=15)
     trigger_on_ltssm: bool = False
-    ltssm_trigger_state: int | None = Field(None, ge=0, le=0x1A)
+    ltssm_trigger_state: int | None = Field(None, ge=0, le=7)
 
 
 @router.post("/devices/{device_id}/ltssm/ptrace/configure")

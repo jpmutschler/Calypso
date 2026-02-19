@@ -25,7 +25,7 @@ from calypso.hardware.atlas3_phy import (
     VendorPhyRegs,
 )
 from calypso.models.ltssm import (
-    LtssmState,
+    LtssmTopState,
     LtssmTransition,
     PtraceCaptureEntry,
     PtraceCaptureResult,
@@ -36,6 +36,7 @@ from calypso.models.ltssm import (
     RetrainWatchResult,
     link_speed_name,
     ltssm_state_name,
+    ltssm_top_state,
 )
 from calypso.sdk.registers import read_mapped_register, write_mapped_register
 from calypso.utils.logging import get_logger
@@ -68,10 +69,14 @@ def get_retrain_progress(device_id: str, port_number: int) -> RetrainWatchProgre
     """Get the current retrain-watch progress."""
     key = f"{device_id}:{port_number}"
     with _lock:
-        return _active_retrains.get(key, RetrainWatchProgress(
-            status="idle", port_number=port_number,
-            port_select=_port_select_for(port_number),
-        ))
+        return _active_retrains.get(
+            key,
+            RetrainWatchProgress(
+                status="idle",
+                port_number=port_number,
+                port_select=_port_select_for(port_number),
+            ),
+        )
 
 
 def get_retrain_result(device_id: str, port_number: int) -> RetrainWatchResult | None:
@@ -135,7 +140,8 @@ class LtssmTracer:
         """Read the current LTSSM state code for this port.
 
         Returns:
-            LTSSM state code (see LtssmState enum).
+            12-bit LTSSM code: bits [11:8] = top state (see LtssmTopState),
+            bits [7:0] = sub-state.
         """
         reg = RecoveryDiagnosticRegister(
             port_select=self._port_select,
@@ -154,10 +160,10 @@ class LtssmTracer:
                 port_select=self._port_select,
                 write_val=f"0x{write_val:08X}",
                 raw_read=f"0x{raw:08X}",
-                ltssm_code=f"0x{result.data_value & 0xFF:02X}",
+                ltssm_code=f"0x{result.data_value & 0xFFF:03X}",
             )
             self._ltssm_read_logged = True
-        return result.data_value & 0xFF  # LTSSM state in low byte
+        return result.data_value & 0xFFF  # 12-bit LTSSM code: [11:8]=top, [7:0]=sub
 
     def read_recovery_count(self) -> tuple[int, int]:
         """Read recovery entry count and Rx evaluation count.
@@ -268,11 +274,13 @@ class LtssmTracer:
         try:
             # Read initial LTSSM state before retrain
             initial_state = self.read_ltssm_state()
-            transitions.append(LtssmTransition(
-                timestamp_ms=0.0,
-                state=initial_state,
-                state_name=ltssm_state_name(initial_state),
-            ))
+            transitions.append(
+                LtssmTransition(
+                    timestamp_ms=0.0,
+                    state=initial_state,
+                    state_name=ltssm_state_name(initial_state),
+                )
+            )
 
             # Disable port to force retrain
             ctrl = PortControlRegister(
@@ -308,11 +316,13 @@ class LtssmTracer:
                 elapsed_ms = (time.monotonic() - start_time) * 1000
 
                 if current_state != last_state:
-                    transitions.append(LtssmTransition(
-                        timestamp_ms=round(elapsed_ms, 2),
-                        state=current_state,
-                        state_name=ltssm_state_name(current_state),
-                    ))
+                    transitions.append(
+                        LtssmTransition(
+                            timestamp_ms=round(elapsed_ms, 2),
+                            state=current_state,
+                            state_name=ltssm_state_name(current_state),
+                        )
+                    )
                     last_state = current_state
 
                     with _lock:
@@ -325,11 +335,11 @@ class LtssmTracer:
                         )
 
                 # Check if link reached L0
-                if current_state == LtssmState.L0:
+                if ltssm_top_state(current_state) == LtssmTopState.L0:
                     # Wait a bit to confirm it stays in L0
                     time.sleep(0.100)
                     confirm = self.read_ltssm_state()
-                    if confirm == LtssmState.L0:
+                    if ltssm_top_state(confirm) == LtssmTopState.L0:
                         settled = True
                         break
 
@@ -445,10 +455,12 @@ class LtssmTracer:
             # Write RAM address to select entry, then read data register
             self._write_vendor_reg(VendorPhyRegs.PTRACE_RAM_ADDRESS, i)
             raw = self._read_vendor_reg(VendorPhyRegs.PTRACE_RAM_DATA)
-            entries.append(PtraceCaptureEntry(
-                index=i,
-                raw_data=f"0x{raw:08X}",
-            ))
+            entries.append(
+                PtraceCaptureEntry(
+                    index=i,
+                    raw_data=f"0x{raw:08X}",
+                )
+            )
 
         return PtraceCaptureResult(
             port_number=self._port_number,

@@ -2,6 +2,11 @@
 
 PCIe spec LTSSM (Link Training and Status State Machine) top-level state
 codes and Pydantic models for the LTSSM trace / Ptrace capture feature.
+
+The Atlas3 Recovery Diagnostic register encodes LTSSM state as a 12-bit
+value: bits [11:8] = top-level state, bits [7:0] = sub-state within that
+top-level state.  ``LtssmTopState`` maps the top-level nibble to the
+PCIe-standard LTSSM macro states.
 """
 
 from __future__ import annotations
@@ -12,54 +17,57 @@ from pydantic import BaseModel
 
 
 # ---------------------------------------------------------------------------
-# PCIe 6.0.1 LTSSM Top-Level States
+# PCIe 6.0.1 LTSSM Top-Level States (hardware bits [11:8])
 # ---------------------------------------------------------------------------
 
-class LtssmState(IntEnum):
-    """PCIe 6.0.1 LTSSM top-level states."""
 
-    DETECT_QUIET = 0x00
-    DETECT_ACTIVE = 0x01
-    POLLING_ACTIVE = 0x02
-    POLLING_CONFIGURATION = 0x03
-    POLLING_COMPLIANCE = 0x04
-    CONFIG_LINKWIDTH_START = 0x05
-    CONFIG_LINKWIDTH_ACCEPT = 0x06
-    CONFIG_LANENUM_WAIT = 0x07
-    CONFIG_LANENUM_ACCEPT = 0x08
-    CONFIG_COMPLETE = 0x09
-    CONFIG_IDLE = 0x0A
-    RECOVERY_RCVRLOCK = 0x0B
-    RECOVERY_SPEED = 0x0C
-    RECOVERY_RCVRCFG = 0x0D
-    RECOVERY_IDLE = 0x0E
-    L0 = 0x0F
-    L0S_ENTRY = 0x10
-    L0S_IDLE = 0x11
-    L0S_FTS = 0x12
-    L1_ENTRY = 0x13
-    L1_IDLE = 0x14
-    L2_IDLE = 0x15
-    DISABLED = 0x16
-    LOOPBACK_ENTRY = 0x17
-    LOOPBACK_ACTIVE = 0x18
-    LOOPBACK_EXIT = 0x19
-    HOT_RESET = 0x1A
+class LtssmTopState(IntEnum):
+    """Top-level LTSSM state from hardware bits [11:8].
+
+    Values match the 4-bit encoding in the Atlas3 Recovery Diagnostic
+    register's data_value field (upper nibble of the 12-bit LTSSM code).
+    """
+
+    DETECT = 0
+    POLLING = 1
+    CONFIGURATION = 2
+    L0 = 3
+    RECOVERY = 4
+    LOOPBACK = 5
+    HOT_RESET = 6
+    DISABLED = 7
 
 
-# State category colors for UI display
-LTSSM_STATE_CATEGORY: dict[str, list[int]] = {
-    "Detect": [0x00, 0x01],
-    "Polling": [0x02, 0x03, 0x04],
-    "Configuration": [0x05, 0x06, 0x07, 0x08, 0x09, 0x0A],
-    "Recovery": [0x0B, 0x0C, 0x0D, 0x0E],
-    "L0": [0x0F],
-    "L0s": [0x10, 0x11, 0x12],
-    "L1": [0x13, 0x14],
-    "L2": [0x15],
-    "Disabled": [0x16],
-    "Loopback": [0x17, 0x18, 0x19],
-    "Hot Reset": [0x1A],
+# ---------------------------------------------------------------------------
+# 12-bit LTSSM code helpers
+# ---------------------------------------------------------------------------
+
+
+def ltssm_top_state(raw: int) -> int:
+    """Extract the top-level state from a 12-bit LTSSM code (bits [11:8])."""
+    return (raw >> 8) & 0xF
+
+
+def ltssm_sub_state(raw: int) -> int:
+    """Extract the sub-state from a 12-bit LTSSM code (bits [7:0])."""
+    return raw & 0xFF
+
+
+def is_in_state(raw: int, top: LtssmTopState) -> bool:
+    """Check whether *raw* 12-bit code belongs to *top* state."""
+    return ltssm_top_state(raw) == top
+
+
+# State category mapping — keyed by top-state value for O(1) lookup.
+LTSSM_STATE_CATEGORY: dict[str, int] = {
+    "Detect": LtssmTopState.DETECT,
+    "Polling": LtssmTopState.POLLING,
+    "Configuration": LtssmTopState.CONFIGURATION,
+    "L0": LtssmTopState.L0,
+    "Recovery": LtssmTopState.RECOVERY,
+    "Loopback": LtssmTopState.LOOPBACK,
+    "Hot Reset": LtssmTopState.HOT_RESET,
+    "Disabled": LtssmTopState.DISABLED,
 }
 
 
@@ -74,11 +82,20 @@ LINK_SPEED_NAMES: dict[int, str] = {
 
 
 def ltssm_state_name(code: int) -> str:
-    """Return the human-readable name for an LTSSM state code."""
+    """Return the human-readable name for a 12-bit LTSSM state code.
+
+    Pure top-state (sub=0x00) returns just the name, e.g. "L0".
+    Non-zero sub-state appends it, e.g. "DETECT (sub=0x01)".
+    """
+    top = ltssm_top_state(code)
+    sub = ltssm_sub_state(code)
     try:
-        return LtssmState(code).name
+        name = LtssmTopState(top).name
     except ValueError:
-        return f"UNKNOWN_0x{code:02X}"
+        return f"UNKNOWN_0x{code:03X}"
+    if sub == 0:
+        return name
+    return f"{name} (sub=0x{sub:02X})"
 
 
 def link_speed_name(code: int) -> str:
@@ -89,6 +106,7 @@ def link_speed_name(code: int) -> str:
 # ---------------------------------------------------------------------------
 # Phase 1: Polling / Retrain-and-Watch Models
 # ---------------------------------------------------------------------------
+
 
 class PortLtssmSnapshot(BaseModel):
     """Current LTSSM state snapshot for a port."""
@@ -104,10 +122,10 @@ class PortLtssmSnapshot(BaseModel):
     lane_reversal: bool
     rx_eval_count: int
     # Diagnostic raw register values (hex strings) for troubleshooting
-    diag_reg_base: str = ""           # Absolute BAR 0 offset used
+    diag_reg_base: str = ""  # Absolute BAR 0 offset used
     diag_raw_recovery_diag: str = ""  # Recovery Diagnostic readback
-    diag_raw_phy_status: str = ""     # PHY Additional Status readback
-    diag_raw_phy_cmd_status: str = "" # PHY Cmd/Status (num_ports sanity check)
+    diag_raw_phy_status: str = ""  # PHY Additional Status readback
+    diag_raw_phy_cmd_status: str = ""  # PHY Cmd/Status (num_ports sanity check)
     diag_raw_recovery_prewrite: str = ""  # Recovery Diag BEFORE our write
 
 
@@ -147,6 +165,7 @@ class RetrainWatchProgress(BaseModel):
 # ---------------------------------------------------------------------------
 # Phase 2: Ptrace Capture Models
 # ---------------------------------------------------------------------------
+
 
 class PtraceConfig(BaseModel):
     """Configuration for a Ptrace capture session.

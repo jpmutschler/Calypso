@@ -19,22 +19,23 @@ from enum import IntEnum, IntFlag
 # Register Offsets
 # ---------------------------------------------------------------------------
 
+
 class VendorPhyRegs(IntEnum):
     """Vendor-specific physical layer register offsets (per-station)."""
 
-    PORT_CONTROL = 0x3208       # LTSSM and test pattern control
-    UTP_PATTERN_0 = 0x320C      # User Test Pattern bytes 0-3
-    UTP_PATTERN_4 = 0x3210      # User Test Pattern bytes 4-7
-    UTP_PATTERN_8 = 0x3214      # User Test Pattern bytes 8-11
-    UTP_PATTERN_12 = 0x3218     # User Test Pattern bytes 12-15
-    PHY_CMD_STATUS = 0x321C     # Physical Layer Command/Status
+    PORT_CONTROL = 0x3208  # LTSSM and test pattern control
+    UTP_PATTERN_0 = 0x320C  # User Test Pattern bytes 0-3
+    UTP_PATTERN_4 = 0x3210  # User Test Pattern bytes 4-7
+    UTP_PATTERN_8 = 0x3214  # User Test Pattern bytes 8-11
+    UTP_PATTERN_12 = 0x3218  # User Test Pattern bytes 12-15
+    PHY_CMD_STATUS = 0x321C  # Physical Layer Command/Status
     PHY_ADDITIONAL_STATUS = 0x3254  # Link speed, link down count, lane reversal
     SERDES_DIAG_QUAD0 = 0x3238  # SerDes Diagnostic Data, Quad 0
     SERDES_DIAG_QUAD1 = 0x323C  # SerDes Diagnostic Data, Quad 1
     SERDES_DIAG_QUAD2 = 0x3240  # SerDes Diagnostic Data, Quad 2
     SERDES_DIAG_QUAD3 = 0x3244  # SerDes Diagnostic Data, Quad 3
-    RECOVERY_DIAGNOSTIC = 0x3BC4    # Recovery count / LTSSM state readback
-    LTSSM_STATE_MACHINE = 0x3DAC   # Detailed sub-state readback + override
+    RECOVERY_DIAGNOSTIC = 0x3BC4  # Recovery count / LTSSM state readback
+    LTSSM_STATE_MACHINE = 0x3DAC  # Detailed sub-state readback + override
     # Ptrace Ingress Capture registers
     PTRACE_CAPTURE_CONTROL = 0x4000
     PTRACE_CAPTURE_STATUS = 0x4004
@@ -50,12 +51,13 @@ class VendorPhyRegs(IntEnum):
 # Test Pattern Rate
 # ---------------------------------------------------------------------------
 
+
 class TestPatternRate(IntEnum):
     """Test pattern transmission rate selection (Port Control bits [4:3])."""
 
-    RATE_2_5GT = 0   # Gen1
-    RATE_5_0GT = 1   # Gen2
-    RATE_8_0GT = 2   # Gen3
+    RATE_2_5GT = 0  # Gen1
+    RATE_5_0GT = 1  # Gen2
+    RATE_8_0GT = 2  # Gen3
     RATE_16_0GT = 3  # Gen4
     RATE_32_0GT = 4  # Gen5
     RATE_64_0GT = 5  # Gen6
@@ -65,16 +67,17 @@ class TestPatternRate(IntEnum):
 # Port Control Register (0x3208)
 # ---------------------------------------------------------------------------
 
+
 class _PortControlBits(IntFlag):
     """Port Control Register bit definitions."""
 
-    DISABLE_PORT = 1 << 0          # Forces LTSSM to Detect.Quiet
-    PORT_QUIET = 1 << 1            # Holds port in Detect.Quiet state
-    LOCK_DOWN_FE_PRESET = 1 << 2   # Lock down far-end preset
+    DISABLE_PORT = 1 << 0  # Forces LTSSM to Detect.Quiet
+    PORT_QUIET = 1 << 1  # Holds port in Detect.Quiet state
+    LOCK_DOWN_FE_PRESET = 1 << 2  # Lock down far-end preset
     # Bits 4:3 = Test Pattern Rate (use TestPatternRate)
     # Bits 23:8 = Bypass UTP Alignment Pattern (1 bit per lane)
     # Bits 27:24 = Port Select
-    WRITE_ENABLE = 1 << 31         # Must be set to write control bits
+    WRITE_ENABLE = 1 << 31  # Must be set to write control bits
 
 
 @dataclass
@@ -94,7 +97,7 @@ class PortControlRegister:
     lock_down_fe_preset: bool = False
     test_pattern_rate: TestPatternRate = TestPatternRate.RATE_2_5GT
     bypass_utp_alignment: int = 0  # 16-bit mask, 1 bit per lane
-    port_select: int = 0           # 0-15
+    port_select: int = 0  # 0-15
 
     def to_register(self, write_enable: bool = True) -> int:
         value = 0
@@ -127,6 +130,7 @@ class PortControlRegister:
 # PHY Command/Status Register (0x321C)
 # ---------------------------------------------------------------------------
 
+
 class PhyCmdStatusBits(IntFlag):
     """Physical Layer Command/Status Register bit definitions."""
 
@@ -144,13 +148,13 @@ class PhyCmdStatusRegister:
     Contains station-wide physical layer configuration.
     """
 
-    num_ports: int = 0                       # Read-only, bits [4:0]
+    num_ports: int = 0  # Read-only, bits [4:0]
     upstream_crosslink_enable: bool = True
     downstream_crosslink_enable: bool = True
     lane_reversal_disable: bool = False
     ltssm_wdt_disable: bool = False
-    ltssm_wdt_port_select: int = 0           # bits [15:12]
-    utp_kcode_flags: int = 0                 # bits [31:16], 1 bit per UTP byte
+    ltssm_wdt_port_select: int = 0  # bits [15:12]
+    utp_kcode_flags: int = 0  # bits [31:16], 1 bit per UTP byte
 
     def to_register(self, wdt_write_enable: bool = False) -> int:
         value = self.num_ports & 0x1F
@@ -200,11 +204,11 @@ class SerDesDiagnosticRegister:
     Each quad contains 4 lanes; use lane_select to choose which lane's data.
     """
 
-    utp_expected_data: int = 0   # bits [7:0], RO
-    utp_actual_data: int = 0     # bits [15:8], RO
-    utp_error_count: int = 0     # bits [23:16], RO (saturates at 255)
-    lane_select: int = 0         # bits [25:24], RW
-    utp_sync: bool = False       # bit 31, RO
+    utp_expected_data: int = 0  # bits [7:0], RO
+    utp_actual_data: int = 0  # bits [15:8], RO
+    utp_error_count: int = 0  # bits [23:16], RO (saturates at 255)
+    lane_select: int = 0  # bits [25:24], RW
+    utp_sync: bool = False  # bit 31, RO
 
     @classmethod
     def from_register(cls, value: int) -> SerDesDiagnosticRegister:
@@ -227,6 +231,7 @@ class SerDesDiagnosticRegister:
 # ---------------------------------------------------------------------------
 # User Test Pattern (0x320C - 0x3218)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class UserTestPattern:
@@ -265,26 +270,80 @@ class UserTestPattern:
     @classmethod
     def prbs7(cls) -> UserTestPattern:
         """PRBS-7 approximation pattern (x^7 + x^6 + 1, 127-bit period)."""
-        return cls(pattern=bytes([
-            0x7F, 0xBF, 0xDF, 0xEF, 0xF7, 0xFB, 0xFD, 0x7E,
-            0xBF, 0x5F, 0xAF, 0xD7, 0xEB, 0xF5, 0xFA, 0x7D,
-        ]))
+        return cls(
+            pattern=bytes(
+                [
+                    0x7F,
+                    0xBF,
+                    0xDF,
+                    0xEF,
+                    0xF7,
+                    0xFB,
+                    0xFD,
+                    0x7E,
+                    0xBF,
+                    0x5F,
+                    0xAF,
+                    0xD7,
+                    0xEB,
+                    0xF5,
+                    0xFA,
+                    0x7D,
+                ]
+            )
+        )
 
     @classmethod
     def prbs15(cls) -> UserTestPattern:
         """PRBS-15 approximation pattern (x^15 + x^14 + 1)."""
-        return cls(pattern=bytes([
-            0x00, 0x00, 0x7F, 0xFF, 0x80, 0x00, 0x3F, 0xFF,
-            0xC0, 0x00, 0x1F, 0xFF, 0xE0, 0x00, 0x0F, 0xFF,
-        ]))
+        return cls(
+            pattern=bytes(
+                [
+                    0x00,
+                    0x00,
+                    0x7F,
+                    0xFF,
+                    0x80,
+                    0x00,
+                    0x3F,
+                    0xFF,
+                    0xC0,
+                    0x00,
+                    0x1F,
+                    0xFF,
+                    0xE0,
+                    0x00,
+                    0x0F,
+                    0xFF,
+                ]
+            )
+        )
 
     @classmethod
     def prbs31(cls) -> UserTestPattern:
         """PRBS-31 approximation pattern (x^31 + x^28 + 1)."""
-        return cls(pattern=bytes([
-            0x7F, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x07,
-            0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x3F, 0xFF,
-        ]))
+        return cls(
+            pattern=bytes(
+                [
+                    0x7F,
+                    0xFF,
+                    0xFF,
+                    0xFF,
+                    0x80,
+                    0x00,
+                    0x00,
+                    0x07,
+                    0xFF,
+                    0xFF,
+                    0xFF,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x3F,
+                    0xFF,
+                ]
+            )
+        )
 
     @classmethod
     def alternating(cls) -> UserTestPattern:
@@ -294,10 +353,28 @@ class UserTestPattern:
     @classmethod
     def walking_ones(cls) -> UserTestPattern:
         """Walking ones pattern."""
-        return cls(pattern=bytes([
-            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-        ]))
+        return cls(
+            pattern=bytes(
+                [
+                    0x01,
+                    0x02,
+                    0x04,
+                    0x08,
+                    0x10,
+                    0x20,
+                    0x40,
+                    0x80,
+                    0x01,
+                    0x02,
+                    0x04,
+                    0x08,
+                    0x10,
+                    0x20,
+                    0x40,
+                    0x80,
+                ]
+            )
+        )
 
     @classmethod
     def all_zeros(cls) -> UserTestPattern:
@@ -311,6 +388,7 @@ class UserTestPattern:
 # ---------------------------------------------------------------------------
 # UTP Test Result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class UTPTestResult:
@@ -385,12 +463,21 @@ def get_utp_preset(name: str) -> UserTestPattern:
     return factory()
 
 
-UTP_PRESET_NAMES: list[str] = ["prbs7", "prbs15", "prbs31", "alternating", "walking_ones", "zeros", "ones"]
+UTP_PRESET_NAMES: list[str] = [
+    "prbs7",
+    "prbs15",
+    "prbs31",
+    "alternating",
+    "walking_ones",
+    "zeros",
+    "ones",
+]
 
 
 # ---------------------------------------------------------------------------
 # Quad Diagnostic Helpers
 # ---------------------------------------------------------------------------
+
 
 def get_quad_diag_offset(lane: int) -> tuple[int, int]:
     """Get the quad diagnostic register offset and lane select for a lane.
@@ -412,10 +499,11 @@ def get_quad_diag_offset(lane: int) -> tuple[int, int]:
 # Recovery Diagnostic Register (0x3BC4)
 # ---------------------------------------------------------------------------
 
+
 class _RecoveryDiagBits(IntFlag):
     """Recovery Diagnostic Register bit definitions."""
 
-    LTSSM_STATUS_SELECT = 1 << 30   # 0=recovery count, 1=LTSSM state
+    LTSSM_STATUS_SELECT = 1 << 30  # 0=recovery count, 1=LTSSM state
     CLEAR_RECOVERY_COUNT = 1 << 31  # W1C
 
 
@@ -427,10 +515,10 @@ class RecoveryDiagnosticRegister:
     When ltssm_status_select=1, bits [15:0] = current LTSSM state code.
     """
 
-    data_value: int = 0              # bits [15:0], RO
-    rx_evaluation_count: int = 0     # bits [21:16], RO
-    port_select: int = 0             # bits [27:24], RW
-    speed_select: int = 0            # bits [29:28], RW (0=Gen1..5=Gen6)
+    data_value: int = 0  # bits [15:0], RO
+    rx_evaluation_count: int = 0  # bits [21:16], RO
+    port_select: int = 0  # bits [27:24], RW
+    speed_select: int = 0  # bits [29:28], RW
     ltssm_status_select: bool = False  # bit 30, RW
 
     def to_register(self, clear_recovery_count: bool = False) -> int:
@@ -459,6 +547,7 @@ class RecoveryDiagnosticRegister:
 # PHY Additional Status Register (0x3254)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PhyAdditionalStatusRegister:
     """PHY Additional Status Register (0x3254) field access.
@@ -466,10 +555,10 @@ class PhyAdditionalStatusRegister:
     Provides link speed, link down count, and lane reversal status.
     """
 
-    lane_reversal: bool = False      # bit 1, RO
-    link_down_count: int = 0         # bits [7:3], RO
-    link_speed: int = 0              # bits [10:8], RO (0=Gen1..5=Gen6)
-    port_select: int = 0             # bits [15:12], RW
+    lane_reversal: bool = False  # bit 1, RO
+    link_down_count: int = 0  # bits [7:3], RO
+    link_speed: int = 0  # bits [10:8], RO (0=Gen1..5=Gen6)
+    port_select: int = 0  # bits [15:12], RW
 
     def to_register(self) -> int:
         value = 0
@@ -494,6 +583,7 @@ class PhyAdditionalStatusRegister:
 # LTSSM State Machine Register (0x3DAC)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class LtssmStateMachineRegister:
     """LTSSM State Machine Register (0x3DAC) field access.
@@ -501,9 +591,9 @@ class LtssmStateMachineRegister:
     Provides detailed sub-state readback and override capability.
     """
 
-    state_machine_select: int = 0    # bits [4:0], RW
-    state_machine_value: int = 0     # bits [15:8], RO
-    port_lane_select: int = 0        # bits [19:16], RW
+    state_machine_select: int = 0  # bits [4:0], RW
+    state_machine_value: int = 0  # bits [15:8], RO
+    port_lane_select: int = 0  # bits [19:16], RW
     write_and_hold_enable: bool = False  # bit 25, RW
 
     def to_register(self, write_and_go: bool = False) -> int:
@@ -529,6 +619,7 @@ class LtssmStateMachineRegister:
 # ---------------------------------------------------------------------------
 # Ptrace Capture Control Register (0x4000)
 # ---------------------------------------------------------------------------
+
 
 class _PtraceCaptureControlBits(IntFlag):
     """Ptrace Capture Control Register bit definitions."""
@@ -569,13 +660,14 @@ class PtraceCaptureControlRegister:
 # Ptrace Capture Status Register (0x4004)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PtraceCaptureStatusRegister:
     """Ptrace Capture Status Register (0x4004) field access."""
 
-    capture_active: bool = False     # bit 0, RO
-    trigger_hit: bool = False        # bit 1, RO
-    entries_captured: int = 0        # bits [15:2], RO
+    capture_active: bool = False  # bit 0, RO
+    trigger_hit: bool = False  # bit 1, RO
+    entries_captured: int = 0  # bits [15:2], RO
 
     @classmethod
     def from_register(cls, value: int) -> PtraceCaptureStatusRegister:
@@ -590,13 +682,14 @@ class PtraceCaptureStatusRegister:
 # Ptrace Capture Config Register (0x4008)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PtraceCaptureConfigRegister:
     """Ptrace Capture Config Register (0x4008) field access."""
 
-    cap_port_select: int = 0         # bits [3:0]
-    trace_point_select: int = 0      # bits [7:4]
-    lane_select: int = 0             # bits [11:8]
+    cap_port_select: int = 0  # bits [3:0]
+    trace_point_select: int = 0  # bits [7:4]
+    lane_select: int = 0  # bits [11:8]
 
     def to_register(self) -> int:
         value = self.cap_port_select & 0xF
@@ -617,12 +710,13 @@ class PtraceCaptureConfigRegister:
 # Ptrace Trigger Condition Register (0x4038)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PtraceTriggerCondRegister:
     """Ptrace Trigger Condition Register (0x4038) field access."""
 
-    ltssm_enable: bool = False       # bit 0
-    ltssm_state_match: int = 0       # bits [7:1]
+    ltssm_enable: bool = False  # bit 0
+    ltssm_state_match: int = 0  # bits [7:1]
 
     def to_register(self) -> int:
         value = 0
