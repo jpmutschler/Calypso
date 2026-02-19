@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
+from calypso.core.port_utils import find_port_key
 from calypso.hardware.pcie_registers import (
     ExtCapabilityID,
     LinkStsBits,
@@ -279,7 +280,7 @@ class LaneMarginingEngine:
             reader_device = device
         else:
             # Find and open the target port
-            target_key = self._find_port_key(device_key, port_number)
+            target_key = find_port_key(device_key, port_number)
             if target_key is None:
                 raise ValueError(
                     f"Port {port_number} not found. "
@@ -315,39 +316,6 @@ class LaneMarginingEngine:
             except Exception:
                 logger.debug("close_device_failed", exc_info=True)
             self._port_device = None
-
-    @staticmethod
-    def _find_port_key(
-        mgmt_key: PLX_DEVICE_KEY, port_number: int
-    ) -> PLX_DEVICE_KEY | None:
-        """Find a device key whose hardware PortNumber matches.
-
-        PlxPort (SDK index) does not always equal the hardware PortNumber,
-        so we open each candidate and check get_port_properties().PortNumber.
-        This mirrors the pattern used by PortManager.get_all_port_statuses().
-
-        Candidates are filtered by domain and DeviceId to avoid matching
-        ports on a different switch in multi-switch systems.
-        """
-        from calypso.bindings.constants import PlxApiMode
-
-        all_keys = sdk_device.find_devices(api_mode=PlxApiMode(mgmt_key.ApiMode))
-        for key in all_keys:
-            # Scope to the same switch — skip devices on different domains or chips
-            if key.domain != mgmt_key.domain or key.DeviceId != mgmt_key.DeviceId:
-                continue
-            try:
-                dev = sdk_device.open_device(key)
-                try:
-                    props = sdk_device.get_port_properties(dev)
-                    found = props.PortNumber == port_number
-                finally:
-                    sdk_device.close_device(dev)
-                if found:
-                    return key
-            except Exception:
-                continue
-        return None
 
     def _cfg_read(self, offset: int) -> int:
         """Read a config register via the port's device handle."""
