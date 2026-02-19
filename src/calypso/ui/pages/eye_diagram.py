@@ -291,12 +291,14 @@ def _eye_diagram_content(device_id: str) -> None:
             ui.notify(f"Error: {e}", type="negative")
 
     def _render_eye_chart(chart, data: dict, accent_color: str):
-        """Populate a single eye chart with a 2D eye diagram.
+        """Populate a single eye chart with a data-driven 2D eye diagram.
 
-        Uses step-distance (L1/diamond norm) to create the eye shape:
-        each grid point is colored by its normalized distance from center.
-        Center = green (eye open), edges = red (eye closed).  The measured
-        eye boundary diamond is overlaid.
+        Builds a 2D surface from per-direction error data.  Each axis is
+        normalized independently so both contribute equally.  When an axis
+        has no error gradient (constant errors), step-distance is used as
+        a proxy.  The Euclidean combination sqrt(t² + v²) produces an
+        elliptical/irregular eye that reflects the actual data — wider
+        when timing margin is larger, asymmetric when left ≠ right, etc.
 
         For receivers that didn't respond (all timeouts), shows a
         'No Data' annotation instead of a misleading heatmap.
@@ -305,7 +307,7 @@ def _eye_diagram_content(device_id: str) -> None:
         num_timing = caps.get("num_timing_steps", 1)
         num_voltage = caps.get("num_voltage_steps", 1)
 
-        # Detect whether this receiver produced real data.
+        # --- No-data detection ---
         # Real data has varying error counts; timeout/stale data is constant.
         right_pts = [
             p for p in data.get("timing_points", []) if p["direction"] == "right"
@@ -317,8 +319,6 @@ def _eye_diagram_content(device_id: str) -> None:
         right_values = {p["margin_value"] for p in right_pts}
         up_values = {p["margin_value"] for p in up_pts}
 
-        # If both axes show ≤2 unique values (e.g. {0, 28} from stale + padding)
-        # AND no measurable eye opening, treat as "no data".
         eye_w = data.get("eye_width_ui", 0)
         eye_h = data.get("eye_height_mv", 0)
         no_data = (
@@ -348,35 +348,79 @@ def _eye_diagram_content(device_id: str) -> None:
             chart.update()
             return
 
-        # Clear any previous "No Data" graphic.
         chart.options.pop("graphic", None)
 
-        # Find usable voltage range (last step before NAK).
-        max_usable_v = 0
-        for pt in up_pts:
-            max_usable_v = max(max_usable_v, pt["step"])
-        max_v = max_usable_v if max_usable_v > 0 else num_voltage
-        max_t = num_timing
+        # --- Build per-direction error lookups ---
+        dir_err: dict[str, dict[int, int]] = {
+            "right": {}, "left": {}, "up": {}, "down": {},
+        }
+        for pt in data.get("timing_points", []):
+            dir_err[pt["direction"]][pt["step"]] = pt.get("margin_value", 0)
 
-        # Build 2D grid using diamond distance from center.
-        # Distance = |t_frac| + |v_frac| where each axis is normalized
-        # to 0..1 across its measurement range.  This naturally produces
-        # a diamond (eye) shape: center = 0, corners = 2.
+        max_usable_v = 0
+        for pt in data.get("voltage_points", []):
+            if pt.get("status_code", 0) == 3:  # NAK — beyond usable range
+                continue
+            dir_err[pt["direction"]][pt["step"]] = pt.get("margin_value", 0)
+            if pt["direction"] in ("up", "down"):
+                max_usable_v = max(max_usable_v, pt["step"])
+
+        max_t = num_timing
+        max_v = max_usable_v if max_usable_v > 0 else num_voltage
+
+        # --- Detect gradient per axis ---
+        # When errors are constant (no gradient), normalize by step distance
+        # instead.  This ensures both axes contribute to the 2D shape.
+        all_t_err = [e for d in ("right", "left") for e in dir_err[d].values() if e > 0]
+        all_v_err = [e for d in ("up", "down") for e in dir_err[d].values() if e > 0]
+
+        t_has_gradient = len(set(all_t_err)) > 1
+        v_has_gradient = len(set(all_v_err)) > 1
+        max_t_err = max(all_t_err) if all_t_err else 1
+        max_v_err = max(all_v_err) if all_v_err else 1
+
+        def _t_norm(step: int, direction: str) -> float:
+            if step == 0:
+                return 0.0
+            if t_has_gradient:
+                return min(dir_err[direction].get(step, 0) / max_t_err, 1.0)
+            return step / max_t if max_t > 0 else 0.0
+
+        def _v_norm(step: int, direction: str) -> float:
+            if step == 0:
+                return 0.0
+            if v_has_gradient:
+                return min(dir_err[direction].get(step, 0) / max_v_err, 1.0)
+            return step / max_v if max_v > 0 else 0.0
+
+        # --- Build 2D grid per-quadrant ---
+        # Each quadrant uses its own direction's error data, supporting
+        # asymmetric eyes when left ≠ right or up ≠ down.
         points: list[list[float]] = []
+        quadrants = [
+            ("right", 1, "up", 1),
+            ("left", -1, "up", 1),
+            ("right", 1, "down", -1),
+            ("left", -1, "down", -1),
+        ]
 
         for t in range(0, max_t + 1):
-            t_frac = t / max_t if max_t > 0 else 0.0
             x_ui = (t / num_timing) * 0.5 if num_timing > 0 else 0.0
             for v in range(0, max_v + 1):
-                v_frac = v / max_v if max_v > 0 else 0.0
                 y_mv = (v / num_voltage) * 500.0 if num_voltage > 0 else 0.0
-                distance = t_frac + v_frac
-                # Mirror into all 4 quadrants
-                x_vals = (x_ui, -x_ui) if t > 0 else (x_ui,)
-                y_vals = (y_mv, -y_mv) if v > 0 else (y_mv,)
-                for xv in x_vals:
-                    for yv in y_vals:
-                        points.append([round(xv, 4), round(yv, 2), round(distance, 3)])
+                for t_dir, x_sign, v_dir, y_sign in quadrants:
+                    if t == 0 and x_sign == -1:
+                        continue
+                    if v == 0 and y_sign == -1:
+                        continue
+                    tn = _t_norm(t, t_dir)
+                    vn = _v_norm(v, v_dir)
+                    dist = (tn ** 2 + vn ** 2) ** 0.5
+                    points.append([
+                        round(x_ui * x_sign, 4),
+                        round(y_mv * y_sign, 2),
+                        round(dist, 3),
+                    ])
 
         grid_steps = max(max_t, max_v, 1)
         sym_size = max(5, min(14, 360 // grid_steps))
@@ -391,14 +435,22 @@ def _eye_diagram_content(device_id: str) -> None:
             },
         ]
 
-        # Eye boundary diamond overlay.
-        if eye_w > 0 or eye_h > 0:
-            hw = round(eye_w / 2, 4)
-            hh = round(eye_h / 2, 2)
+        # Eye boundary overlay — uses per-direction margins for asymmetric eyes.
+        mr = data.get("margin_right_ui", eye_w / 2)
+        ml = data.get("margin_left_ui", eye_w / 2)
+        mu = data.get("margin_up_mv", eye_h / 2)
+        md = data.get("margin_down_mv", eye_h / 2)
+        if mr > 0 or ml > 0 or mu > 0 or md > 0:
             series.append({
                 "name": "Eye Boundary",
                 "type": "line",
-                "data": [[hw, 0], [0, hh], [-hw, 0], [0, -hh], [hw, 0]],
+                "data": [
+                    [round(mr, 4), 0],
+                    [0, round(mu, 2)],
+                    [round(-ml, 4), 0],
+                    [0, round(-md, 2)],
+                    [round(mr, 4), 0],
+                ],
                 "lineStyle": {"color": accent_color, "width": 3, "type": "dashed"},
                 "itemStyle": {"color": accent_color},
                 "showSymbol": False,
@@ -407,7 +459,7 @@ def _eye_diagram_content(device_id: str) -> None:
 
         chart.options["visualMap"] = {
             "min": 0.0,
-            "max": 2.0,
+            "max": 1.5,
             "dimension": 2,
             "inRange": {
                 "color": ["#4CAF50", "#8BC34A", "#FFEB3B", "#FF9800", "#F44336"],

@@ -41,6 +41,11 @@ class EyeSweepResult(BaseModel):
     eye_height_steps: int  # max passing voltage step (up + down)
     eye_width_ui: float  # converted to Unit Intervals
     eye_height_mv: float  # converted to millivolts
+    # Per-direction margins for asymmetric eye boundary rendering
+    margin_right_ui: float = 0.0
+    margin_left_ui: float = 0.0
+    margin_up_mv: float = 0.0
+    margin_down_mv: float = 0.0
     sweep_time_ms: int
 
 

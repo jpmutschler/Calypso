@@ -192,20 +192,45 @@ def _contiguous_passing_steps(
     return max_step
 
 
+class _EyeDimensions:
+    """Per-direction eye margin results."""
+
+    __slots__ = (
+        "width_steps", "height_steps", "width_ui", "height_mv",
+        "right_ui", "left_ui", "up_mv", "down_mv",
+    )
+
+    def __init__(
+        self,
+        width_steps: int, height_steps: int,
+        width_ui: float, height_mv: float,
+        right_ui: float, left_ui: float,
+        up_mv: float, down_mv: float,
+    ) -> None:
+        self.width_steps = width_steps
+        self.height_steps = height_steps
+        self.width_ui = width_ui
+        self.height_mv = height_mv
+        self.right_ui = right_ui
+        self.left_ui = left_ui
+        self.up_mv = up_mv
+        self.down_mv = down_mv
+
+
 def _compute_eye_dimensions(
     timing_points: list[MarginPoint],
     voltage_points: list[MarginPoint],
     num_timing: int,
     num_voltage: int,
     sample_count: int = 0,
-) -> tuple[int, int, float, float]:
+) -> _EyeDimensions:
     """Compute eye width/height using threshold-based contiguous boundary.
 
     Walks outward from center (step 0) in each direction.  The eye boundary
     is the last contiguous step where error_count <= a threshold derived
     from *sample_count* and the target BER (_EYE_BOUNDARY_BER).
 
-    Returns (eye_width_steps, eye_height_steps, eye_width_ui, eye_height_mv).
+    Returns an _EyeDimensions with total and per-direction values.
     """
     error_threshold = _error_threshold_from_sample_count(sample_count)
 
@@ -214,15 +239,21 @@ def _compute_eye_dimensions(
     max_up = _contiguous_passing_steps(voltage_points, "up", error_threshold)
     max_down = _contiguous_passing_steps(voltage_points, "down", error_threshold)
 
-    eye_width_steps = max_left + max_right
-    eye_height_steps = max_up + max_down
-    eye_width_ui = steps_to_timing_ui(max_left, num_timing) + steps_to_timing_ui(
-        max_right, num_timing
+    right_ui = steps_to_timing_ui(max_right, num_timing)
+    left_ui = steps_to_timing_ui(max_left, num_timing)
+    up_mv = steps_to_voltage_mv(max_up, num_voltage)
+    down_mv = steps_to_voltage_mv(max_down, num_voltage)
+
+    return _EyeDimensions(
+        width_steps=max_left + max_right,
+        height_steps=max_up + max_down,
+        width_ui=left_ui + right_ui,
+        height_mv=up_mv + down_mv,
+        right_ui=right_ui,
+        left_ui=left_ui,
+        up_mv=up_mv,
+        down_mv=down_mv,
     )
-    eye_height_mv = steps_to_voltage_mv(max_up, num_voltage) + steps_to_voltage_mv(
-        max_down, num_voltage
-    )
-    return eye_width_steps, eye_height_steps, eye_width_ui, eye_height_mv
 
 
 class LaneMarginingEngine:
@@ -984,7 +1015,7 @@ class LaneMarginingEngine:
                         )
                     )
 
-        eye_w_steps, eye_h_steps, eye_w_ui, eye_h_mv = _compute_eye_dimensions(
+        eye = _compute_eye_dimensions(
             timing_points,
             voltage_points,
             num_timing,
@@ -1000,10 +1031,14 @@ class LaneMarginingEngine:
             timing_points=timing_points,
             voltage_points=voltage_points,
             capabilities=_build_caps_response(caps),
-            eye_width_steps=eye_w_steps,
-            eye_height_steps=eye_h_steps,
-            eye_width_ui=round(eye_w_ui, 4),
-            eye_height_mv=round(eye_h_mv, 2),
+            eye_width_steps=eye.width_steps,
+            eye_height_steps=eye.height_steps,
+            eye_width_ui=round(eye.width_ui, 4),
+            eye_height_mv=round(eye.height_mv, 2),
+            margin_right_ui=round(eye.right_ui, 4),
+            margin_left_ui=round(eye.left_ui, 4),
+            margin_up_mv=round(eye.up_mv, 2),
+            margin_down_mv=round(eye.down_mv, 2),
             sweep_time_ms=elapsed_ms,
         )
 

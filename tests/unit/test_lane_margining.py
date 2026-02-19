@@ -332,11 +332,9 @@ class TestComputeEyeDimensions:
             _make_point("down", 1, True, margin_value=0),
         ]
         # sample_count=0 → threshold=1, but margin_value=0 ≤ 1
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
-            timing, voltage, 4, 4, sample_count=0,
-        )
-        assert w_steps == 4  # right=2 + left=2
-        assert h_steps == 3  # up=2 + down=1
+        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
+        assert eye.width_steps == 4  # right=2 + left=2
+        assert eye.height_steps == 3  # up=2 + down=1
 
     def test_threshold_based_boundary(self):
         """Non-zero errors below threshold count as inside the eye."""
@@ -356,31 +354,50 @@ class TestComputeEyeDimensions:
             _make_point("down", 2, False, margin_value=12),
         ]
         # sample_count=3 → threshold=10
-        w_steps, h_steps, _, _ = _compute_eye_dimensions(
-            timing, voltage, 10, 10, sample_count=3,
-        )
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10, sample_count=3)
         # right: steps 1(1),2(2),3(5) pass (≤10), step 4(15) fails → 3
         # left: steps 1(1) pass, step 2(8) pass → 2
-        assert w_steps == 5  # 3 + 2
+        assert eye.width_steps == 5  # 3 + 2
         # up: steps 1(3),2(5) pass, step 3(20) fails → 2
         # down: step 1(4) pass, step 2(12) fails → 1
-        assert h_steps == 3  # 2 + 1
+        assert eye.height_steps == 3  # 2 + 1
+
+    def test_per_direction_margins(self):
+        """Per-direction values support asymmetric eye boundaries."""
+        timing = [
+            _make_point("right", 1, False, margin_value=1),
+            _make_point("right", 2, False, margin_value=2),
+            _make_point("right", 3, False, margin_value=5),
+            _make_point("right", 4, False, margin_value=15),
+            _make_point("left", 1, False, margin_value=1),
+            _make_point("left", 2, False, margin_value=8),
+        ]
+        voltage = [
+            _make_point("up", 1, False, margin_value=3),
+            _make_point("up", 2, False, margin_value=5),
+            _make_point("up", 3, False, margin_value=20),
+            _make_point("down", 1, False, margin_value=4),
+            _make_point("down", 2, False, margin_value=12),
+        ]
+        eye = _compute_eye_dimensions(timing, voltage, 10, 10, sample_count=3)
+        # right=3 steps, left=2 steps → asymmetric
+        assert eye.right_ui > eye.left_ui
+        assert eye.width_ui == pytest.approx(eye.right_ui + eye.left_ui)
+        assert eye.height_mv == pytest.approx(eye.up_mv + eye.down_mv)
 
     def test_no_passing_points(self):
         timing = [_make_point("right", 1, False, margin_value=20)]
         voltage = [_make_point("up", 1, False, margin_value=20)]
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
-            timing, voltage, 4, 4, sample_count=0,
-        )
-        assert w_steps == 0
-        assert h_steps == 0
-        assert w_ui == 0.0
-        assert h_mv == 0.0
+        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
+        assert eye.width_steps == 0
+        assert eye.height_steps == 0
+        assert eye.width_ui == 0.0
+        assert eye.height_mv == 0.0
 
     def test_empty_lists(self):
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions([], [], 4, 4)
-        assert w_steps == 0
-        assert h_steps == 0
+        eye = _compute_eye_dimensions([], [], 4, 4)
+        assert eye.width_steps == 0
+        assert eye.height_steps == 0
 
     def test_physical_units_conversion(self):
         """Verify UI and mV conversion from contiguous step counts."""
@@ -394,15 +411,13 @@ class TestComputeEyeDimensions:
             _make_point("up", 1, True, margin_value=0),
             _make_point("down", 1, True, margin_value=0),
         ]
-        w_steps, h_steps, w_ui, h_mv = _compute_eye_dimensions(
-            timing, voltage, 4, 4, sample_count=0,
-        )
-        assert w_steps == 4
-        assert h_steps == 2
+        eye = _compute_eye_dimensions(timing, voltage, 4, 4, sample_count=0)
+        assert eye.width_steps == 4
+        assert eye.height_steps == 2
         # w_ui = steps_to_timing_ui(2,4)+steps_to_timing_ui(2,4) = 0.25+0.25 = 0.5
-        assert w_ui == pytest.approx(0.5, abs=0.01)
+        assert eye.width_ui == pytest.approx(0.5, abs=0.01)
         # h_mv = steps_to_voltage_mv(1,4)+steps_to_voltage_mv(1,4) = 125+125 = 250
-        assert h_mv == pytest.approx(250.0, abs=1.0)
+        assert eye.height_mv == pytest.approx(250.0, abs=1.0)
 
 
 # ---------------------------------------------------------------------------
