@@ -122,9 +122,9 @@ class SupportedSpeedsVector(BaseModel):
     @property
     def max_supported(self) -> str:
         """Return the highest supported speed string."""
-        for gen, label in reversed(list(enumerate(
-            ["Gen1", "Gen2", "Gen3", "Gen4", "Gen5", "Gen6"], start=1
-        ))):
+        for gen, label in reversed(
+            list(enumerate(["Gen1", "Gen2", "Gen3", "Gen4", "Gen5", "Gen6"], start=1))
+        ):
             if getattr(self, f"gen{gen}", False):
                 return label
         return "Unknown"
@@ -162,6 +162,20 @@ class EqStatus32GT(BaseModel):
     rx_lane_margin_capable: bool = False
     rx_lane_margin_status: bool = False
     eq_bypass_to_highest: bool = False
+    no_eq_needed: bool = False
+    raw_status: int = 0
+    raw_capabilities: int = 0
+
+
+class EqStatus64GT(BaseModel):
+    """Equalization status from Physical Layer 64 GT/s Extended Capability."""
+
+    complete: bool = False
+    phase1_success: bool = False
+    phase2_success: bool = False
+    phase3_success: bool = False
+    link_eq_request: bool = False
+    flit_mode_supported: bool = False
     no_eq_needed: bool = False
     raw_status: int = 0
     raw_capabilities: int = 0

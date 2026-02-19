@@ -16,6 +16,9 @@ from calypso.hardware.pcie_registers import (
     PCIeCapability,
     PCIeCapabilityID,
     PCIeLinkSpeed,
+    PhysLayer64GT,
+    PhysLayer64GTCapBits,
+    PhysLayer64GTStsBits,
     SPEED_STRINGS,
     UncorrErrBits,
 )
@@ -28,6 +31,7 @@ from calypso.models.pcie_config import (
     DeviceControlStatus,
     EqStatus16GT,
     EqStatus32GT,
+    EqStatus64GT,
     LinkCapabilities,
     LinkControlStatus,
     PcieCapabilityInfo,
@@ -149,6 +153,7 @@ def _speed_name(code: int) -> str:
     except (ValueError, KeyError):
         return f"Unknown({code})"
 
+
 # ASPM decode
 _ASPM_MAP: dict[int, str] = {
     0: "none",
@@ -237,11 +242,13 @@ class PcieConfigReader:
             next_ptr = (cap_reg >> 8) & 0xFF
 
             cap_name = _std_cap_name(cap_id)
-            caps.append(PcieCapabilityInfo(
-                cap_id=cap_id,
-                cap_name=cap_name,
-                offset=pointer,
-            ))
+            caps.append(
+                PcieCapabilityInfo(
+                    cap_id=cap_id,
+                    cap_name=cap_name,
+                    offset=pointer,
+                )
+            )
 
             pointer = next_ptr
 
@@ -275,12 +282,14 @@ class PcieConfigReader:
             next_offset = (header >> 20) & 0xFFC
 
             cap_name = _ext_cap_name(cap_id)
-            caps.append(PcieCapabilityInfo(
-                cap_id=cap_id,
-                cap_name=cap_name,
-                offset=offset,
-                version=version,
-            ))
+            caps.append(
+                PcieCapabilityInfo(
+                    cap_id=cap_id,
+                    cap_name=cap_name,
+                    offset=offset,
+                    version=version,
+                )
+            )
 
             offset = next_offset
 
@@ -575,6 +584,31 @@ class PcieConfigReader:
             rx_lane_margin_status=bool(status_reg & (1 << 7)),
             eq_bypass_to_highest=bool(cap_reg & (1 << 0)),
             no_eq_needed=bool(cap_reg & (1 << 1)),
+            raw_status=status_reg,
+            raw_capabilities=cap_reg,
+        )
+
+    def get_eq_status_64gt(self) -> EqStatus64GT | None:
+        """Read equalization status from Physical Layer 64 GT/s Extended Capability.
+
+        Returns:
+            EqStatus64GT with EQ phase status and capabilities, or None if not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.PHYSICAL_LAYER_64GT)
+        if offset is None:
+            return None
+
+        cap_reg = self.read_config_register(offset + PhysLayer64GT.CAP)
+        status_reg = self.read_config_register(offset + PhysLayer64GT.STATUS)
+
+        return EqStatus64GT(
+            complete=bool(status_reg & PhysLayer64GTStsBits.EQ_64GT_COMPLETE),
+            phase1_success=bool(status_reg & PhysLayer64GTStsBits.EQ_64GT_PHASE1_SUCCESS),
+            phase2_success=bool(status_reg & PhysLayer64GTStsBits.EQ_64GT_PHASE2_SUCCESS),
+            phase3_success=bool(status_reg & PhysLayer64GTStsBits.EQ_64GT_PHASE3_SUCCESS),
+            link_eq_request=bool(status_reg & PhysLayer64GTStsBits.LINK_EQ_REQ_64GT),
+            flit_mode_supported=bool(cap_reg & PhysLayer64GTCapBits.FLIT_MODE_SUPPORTED),
+            no_eq_needed=bool(cap_reg & PhysLayer64GTCapBits.NO_EQ_NEEDED),
             raw_status=status_reg,
             raw_capabilities=cap_reg,
         )

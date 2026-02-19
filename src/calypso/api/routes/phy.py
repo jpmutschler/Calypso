@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from calypso.exceptions import CalypsoError
-from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpeedsVector
+from calypso.models.pcie_config import (
+    EqStatus16GT,
+    EqStatus32GT,
+    EqStatus64GT,
+    SupportedSpeedsVector,
+)
 from calypso.models.phy_api import (
     EyeSweepResult,
     LaneMarginCapabilitiesResponse,
@@ -47,6 +52,15 @@ def _get_config_reader(device_id: str):
     return PcieConfigReader(sw._device_obj, sw._device_key)
 
 
+def _get_config_reader_for_port(device_id: str, port_number: int):
+    """Delegate to registers._get_config_reader_for_port for port-aware reads."""
+    from calypso.api.routes.registers import (
+        _get_config_reader_for_port as _shared_helper,
+    )
+
+    return _shared_helper(device_id, port_number)
+
+
 # --- Supported Speeds ---
 
 
@@ -54,10 +68,16 @@ def _get_config_reader(device_id: str):
     "/devices/{device_id}/phy/speeds",
     response_model=SupportedSpeedsVector,
 )
-async def get_supported_speeds(device_id: str) -> SupportedSpeedsVector:
+async def get_supported_speeds(
+    device_id: str,
+    port_number: int = Query(0, ge=0, le=143),
+) -> SupportedSpeedsVector:
     """Read supported link speeds vector from Link Capabilities 2."""
-    reader = _get_config_reader(device_id)
-    return await asyncio.to_thread(reader.get_supported_speeds)
+    reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+    try:
+        return await asyncio.to_thread(reader.get_supported_speeds)
+    finally:
+        cleanup()
 
 
 # --- Equalization Status ---
@@ -66,23 +86,31 @@ async def get_supported_speeds(device_id: str) -> SupportedSpeedsVector:
 class EqStatusResponse(BaseModel):
     eq_16gt: EqStatus16GT | None = None
     eq_32gt: EqStatus32GT | None = None
+    eq_64gt: EqStatus64GT | None = None
 
 
 @router.get(
     "/devices/{device_id}/phy/eq-status",
     response_model=EqStatusResponse,
 )
-async def get_eq_status(device_id: str) -> EqStatusResponse:
-    """Read equalization status from 16 GT/s and 32 GT/s PHY layer capabilities."""
-    reader = _get_config_reader(device_id)
+async def get_eq_status(
+    device_id: str,
+    port_number: int = Query(0, ge=0, le=143),
+) -> EqStatusResponse:
+    """Read equalization status from 16/32/64 GT/s PHY layer capabilities."""
+    reader, cleanup = _get_config_reader_for_port(device_id, port_number)
 
     def _read():
         return EqStatusResponse(
             eq_16gt=reader.get_eq_status_16gt(),
             eq_32gt=reader.get_eq_status_32gt(),
+            eq_64gt=reader.get_eq_status_64gt(),
         )
 
-    return await asyncio.to_thread(_read)
+    try:
+        return await asyncio.to_thread(_read)
+    finally:
+        cleanup()
 
 
 # --- Lane EQ Settings ---
@@ -279,20 +307,6 @@ async def get_phy_cmd_status(
             status_code=500,
             detail=f"Failed to read PHY Command/Status register for port {port_number}: {exc}",
         ) from exc
-
-
-# --- Lane Margining Detection ---
-
-
-@router.get("/devices/{device_id}/phy/lane-margining")
-async def get_lane_margining(device_id: str) -> dict[str, bool | int | None]:
-    """Check if Lane Margining at Receiver capability is present."""
-    reader = _get_config_reader(device_id)
-    offset = await asyncio.to_thread(reader.get_lane_margining_offset)
-    return {
-        "supported": offset is not None,
-        "capability_offset": offset,
-    }
 
 
 # --- UTP Operations ---
@@ -536,9 +550,7 @@ async def start_margining_sweep(
         ) from exc
     except Exception:
         logger.exception("Failed to initialize margining engine")
-        raise HTTPException(
-            status_code=500, detail="An unexpected internal error occurred"
-        )
+        raise HTTPException(status_code=500, detail="An unexpected internal error occurred")
 
     def _run_sweep():
         try:
@@ -547,6 +559,7 @@ async def start_margining_sweep(
             logger.exception("Background sweep failed for lane %d", body.lane)
             # Update progress to "error" so the UI sees the failure
             from calypso.core.lane_margining import _lock, _active_sweeps
+
             with _lock:
                 _active_sweeps[f"{device_id}:{body.lane}"] = SweepProgress(
                     status="error",
@@ -624,18 +637,12 @@ async def reset_margining(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"SDK error resetting lane: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"SDK error resetting lane: {exc}") from exc
     except TimeoutError as exc:
-        raise HTTPException(
-            status_code=504, detail=f"Timed out resetting lane: {exc}"
-        ) from exc
+        raise HTTPException(status_code=504, detail=f"Timed out resetting lane: {exc}") from exc
     except Exception:
         logger.exception("Unexpected error resetting lane %d", body.lane)
-        raise HTTPException(
-            status_code=500, detail="An unexpected internal error occurred"
-        )
+        raise HTTPException(status_code=500, detail="An unexpected internal error occurred")
     return {"status": "reset", "lane": str(body.lane)}
 
 
@@ -685,9 +692,7 @@ async def start_pam4_margining_sweep(
         ) from exc
     except Exception:
         logger.exception("Failed to initialize PAM4 margining engine")
-        raise HTTPException(
-            status_code=500, detail="An unexpected internal error occurred"
-        )
+        raise HTTPException(status_code=500, detail="An unexpected internal error occurred")
 
     def _run_sweep():
         try:
@@ -696,6 +701,7 @@ async def start_pam4_margining_sweep(
             logger.exception("Background PAM4 sweep failed for lane %d", body.lane)
             # Update progress to "error" so the UI sees the failure
             from calypso.core.lane_margining import _lock, _pam4_active_sweeps
+
             with _lock:
                 _pam4_active_sweeps[f"{device_id}:{body.lane}"] = PAM4SweepProgress(
                     status="error",

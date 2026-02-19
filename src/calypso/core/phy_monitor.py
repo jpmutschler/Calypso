@@ -26,7 +26,12 @@ from calypso.hardware.atlas3_phy import (
     VendorPhyRegs,
     get_quad_diag_offset,
 )
-from calypso.models.pcie_config import EqStatus16GT, EqStatus32GT, SupportedSpeedsVector
+from calypso.models.pcie_config import (
+    EqStatus16GT,
+    EqStatus32GT,
+    EqStatus64GT,
+    SupportedSpeedsVector,
+)
 from calypso.models.phy import (
     LaneEqualizationControl,
     PhysLayer16GT,
@@ -87,6 +92,10 @@ class PhyMonitor:
     def get_eq_status_32gt(self) -> EqStatus32GT | None:
         """Read 32 GT/s equalization status and capabilities."""
         return self._config.get_eq_status_32gt()
+
+    def get_eq_status_64gt(self) -> EqStatus64GT | None:
+        """Read 64 GT/s equalization status and capabilities."""
+        return self._config.get_eq_status_64gt()
 
     def has_lane_margining(self) -> bool:
         """Check if Lane Margining at Receiver capability is present."""
@@ -239,19 +248,28 @@ class PhyMonitor:
         for lane in range(num_lanes):
             try:
                 diag = self.get_serdes_diag(lane)
-                results.append(UTPTestResult(
-                    lane=lane,
-                    synced=diag.utp_sync,
-                    error_count=diag.utp_error_count,
-                    expected_on_error=diag.utp_expected_data if diag.utp_error_count > 0 else None,
-                    actual_on_error=diag.utp_actual_data if diag.utp_error_count > 0 else None,
-                ))
+                results.append(
+                    UTPTestResult(
+                        lane=lane,
+                        synced=diag.utp_sync,
+                        error_count=diag.utp_error_count,
+                        expected_on_error=diag.utp_expected_data
+                        if diag.utp_error_count > 0
+                        else None,
+                        actual_on_error=diag.utp_actual_data if diag.utp_error_count > 0 else None,
+                    )
+                )
             except Exception:
                 logger.warning("utp_result_read_failed", lane=lane)
-                results.append(UTPTestResult(
-                    lane=lane, synced=False, error_count=0,
-                    expected_on_error=None, actual_on_error=None,
-                ))
+                results.append(
+                    UTPTestResult(
+                        lane=lane,
+                        synced=False,
+                        error_count=0,
+                        expected_on_error=None,
+                        actual_on_error=None,
+                    )
+                )
         return results
 
     def prepare_utp_test(
