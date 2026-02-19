@@ -813,6 +813,7 @@ class TestSweepLanePAM4:
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect())
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
+        engine._probe_receiver = MagicMock(return_value=True)
         return engine
 
     def test_successful_pam4_sweep(self):
@@ -845,7 +846,7 @@ class TestSweepLanePAM4:
     def test_pam4_resets_each_receiver(self):
         engine = self._make_engine()
         engine.sweep_lane_pam4(lane=0, device_id="pam4_reset")
-        # reset_lane called: 1x after pre-flight + 3x before each eye + 3x after each eye = 7
+        # reset_lane called: 1x after probing + 3x before each eye + 3x after each eye = 7
         assert engine.reset_lane.call_count == 7
 
     def test_pam4_queries_caps_once_with_receiver_a(self):
@@ -861,6 +862,7 @@ class TestSweepLanePAM4:
         engine = _create_engine()
         engine.get_capabilities = MagicMock(return_value=_make_caps(num_timing=0, num_voltage=0))
         engine.reset_lane = MagicMock()
+        engine._probe_receiver = MagicMock(return_value=True)
         with pytest.raises(ValueError, match="0 margining steps"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_zero")
         progress = get_pam4_sweep_progress("pam4_zero", 0)
@@ -889,9 +891,10 @@ class TestSweepLanePAM4:
         engine._margin_single_point = MagicMock(side_effect=_fail_on_second)
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
+        engine._probe_receiver = MagicMock(return_value=True)
         with pytest.raises(RuntimeError, match="hw fail during pam4"):
             engine.sweep_lane_pam4(lane=0, device_id="pam4_err")
-        # Should attempt to reset: 1x after pre-flight + 1x before first eye + 3x error cleanup = 5
+        # Should attempt to reset: 1x after probing + 1x before first eye + 3x error cleanup = 5
         assert engine.reset_lane.call_count == 5
         # Error cleanup resets include all 3 receivers (calls with 2 args)
         error_resets = [
@@ -915,6 +918,7 @@ class TestSweepLanePAM4:
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
+        engine._probe_receiver = MagicMock(return_value=True)
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_bal")
         # All eyes should have the same dimensions since same mock status → balanced
@@ -927,6 +931,7 @@ class TestSweepLanePAM4:
         engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
+        engine._probe_receiver = MagicMock(return_value=True)
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_worst")
         # All eyes identical → worst = same as any individual

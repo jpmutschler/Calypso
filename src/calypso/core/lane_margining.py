@@ -840,6 +840,28 @@ class LaneMarginingEngine:
 
         self._go_to_normal_and_confirm(lane, receiver)
 
+    def _probe_receiver(
+        self,
+        lane: int,
+        receiver: MarginingReceiverNumber,
+    ) -> bool:
+        """Test whether a receiver responds to a report command.
+
+        Per PCIe 6.0.1 Section 7.7.8, capability queries (margin_type=001b)
+        must precede Step Margin commands.  Some devices only accept
+        margining commands from receivers that completed this handshake.
+
+        Sends a single CAPABILITIES report command.  Returns True if the
+        receiver echoes a valid response, False otherwise.
+        """
+        try:
+            result, _ = self._try_report_command(
+                lane, receiver, MarginingReportPayload.CAPABILITIES,
+            )
+            return result is not None
+        except Exception:
+            return False
+
     def _execute_single_sweep(
         self,
         lane: int,
@@ -1194,8 +1216,11 @@ class LaneMarginingEngine:
     def sweep_lane_pam4(self, lane: int, device_id: str) -> PAM4SweepResult:
         """Execute a PAM4 3-eye sweep (Receivers A/B/C) on one lane.
 
-        Sweeps each of the 3 PAM4 eyes independently using per-receiver
-        margining commands, then aggregates the results.
+        Per PCIe 6.0.1 Section 7.7.8, each receiver must complete an
+        ACCESS_RECEIVER_MARGIN_CONTROL handshake before Step Margin commands.
+        This method probes each receiver with a single report command first;
+        receivers that don't respond are skipped with an empty result rather
+        than wasting minutes on margining timeouts.
         """
         key = f"{device_id}:{lane}"
         start_ms = int(time.monotonic() * 1000)
@@ -1212,14 +1237,31 @@ class LaneMarginingEngine:
                 percent=0.0,
             )
 
-        # Pre-flight: query capabilities once with RECEIVER_A.
-        # Capabilities (num_timing_steps, num_voltage_steps, etc.) are port-level
-        # properties per PCIe 6.0.1 Table 7-52, identical across all receivers.
-        # Some hardware only responds to report commands on RECEIVER_A.
+        # Pre-flight: query full capabilities from RECEIVER_A.
+        # Capabilities are port-level per PCIe 6.0.1 Table 7-52 and apply
+        # to all receivers.  Rx A is always tried first since it's the most
+        # widely supported receiver.
         caps = self.get_capabilities(lane=lane, receiver=MarginingReceiverNumber.RECEIVER_A)
         steps_per_eye = _count_sweep_steps(caps)
 
-        # Reset lane after pre-flight so each eye sweep starts from a clean state
+        # Probe each receiver with a single report command to check if it
+        # responds.  This serves as the spec-required per-receiver handshake
+        # and lets us skip non-responsive receivers immediately.
+        rx_alive: dict[MarginingReceiverNumber, bool] = {}
+        for rx in PAM4_RECEIVERS:
+            if rx == MarginingReceiverNumber.RECEIVER_A:
+                rx_alive[rx] = True  # Already proven by get_capabilities
+            else:
+                alive = self._probe_receiver(lane, rx)
+                rx_alive[rx] = alive
+                if alive:
+                    logger.info("receiver_probe_ok", receiver=int(rx), lane=lane)
+                else:
+                    logger.warning(
+                        "receiver_probe_failed", receiver=int(rx), lane=lane,
+                    )
+
+        # Reset lane after probing so each eye sweep starts clean
         self.reset_lane(lane)
 
         overall_total = steps_per_eye * len(PAM4_RECEIVERS)
@@ -1268,6 +1310,29 @@ class LaneMarginingEngine:
                         percent=(completed_steps / overall_total) * 100,
                     )
 
+                if not rx_alive[rx]:
+                    # Receiver didn't respond to probe — skip with empty result
+                    logger.warning(
+                        "receiver_skipped", receiver=int(rx), lane=lane,
+                        reason="no_handshake_response",
+                    )
+                    eye_results.append(
+                        EyeSweepResult(
+                            lane=lane,
+                            receiver=int(rx),
+                            timing_points=[],
+                            voltage_points=[],
+                            capabilities=_build_caps_response(caps),
+                            eye_width_steps=0,
+                            eye_height_steps=0,
+                            eye_width_ui=0.0,
+                            eye_height_mv=0.0,
+                            sweep_time_ms=0,
+                        )
+                    )
+                    completed_steps += steps_per_eye
+                    continue
+
                 base_steps = completed_steps
 
                 def _progress(
@@ -1290,8 +1355,6 @@ class LaneMarginingEngine:
                         )
 
                 # Reset before each eye to ensure clean state, then sweep.
-                # Use pre-fetched caps (from Rx A) — some hardware only responds
-                # to report commands on RECEIVER_A.
                 self.reset_lane(lane, rx)
                 result = self._execute_single_sweep(lane, rx, _progress, caps=caps)
                 eye_results.append(result)
