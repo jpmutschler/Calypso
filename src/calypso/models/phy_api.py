@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+MarginDirection = Literal["left", "right", "up", "down"]
+SweepStatus = Literal["idle", "running", "complete", "error"]
 
 
 class LaneMarginCapabilitiesResponse(BaseModel):
@@ -22,7 +27,7 @@ class LaneMarginCapabilitiesResponse(BaseModel):
 class MarginPoint(BaseModel):
     """A single margining measurement point."""
 
-    direction: str  # "left", "right", "up", "down"
+    direction: MarginDirection
     step: int
     margin_value: int  # error count (bits [5:0]), 0 = no errors
     status_code: int  # 0=error_exceeded, 1=setup, 2=margining_passed, 3=NAK
@@ -53,7 +58,7 @@ class EyeSweepResult(BaseModel):
 class SweepProgress(BaseModel):
     """Progress tracking for an active sweep."""
 
-    status: str  # "idle", "running", "complete", "error"
+    status: SweepStatus
     lane: int
     current_step: int
     total_steps: int
@@ -78,7 +83,7 @@ class PAM4SweepResult(BaseModel):
 class PAM4SweepProgress(BaseModel):
     """Progress tracking for an active PAM4 3-eye sweep."""
 
-    status: str  # "idle", "running", "complete", "error"
+    status: SweepStatus
     lane: int
     modulation: str = "PAM4"
     current_eye: str  # "upper", "middle", "lower", ""

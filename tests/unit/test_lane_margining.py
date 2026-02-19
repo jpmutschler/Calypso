@@ -11,9 +11,7 @@ from calypso.core.lane_margining import (
     _check_balance,
     _build_caps_response,
     _compute_eye_dimensions,
-    _contiguous_passing_steps,
     _count_sweep_steps,
-    _error_threshold_from_sample_count,
     get_pam4_sweep_progress,
     get_pam4_sweep_result,
     get_sweep_progress,
@@ -201,8 +199,9 @@ class TestCheckBalance:
         # avg = 10, 7.9 is > 20% below avg
         assert _check_balance(10.0, 12.1, 7.9) is False
 
-    def test_all_zeros_balanced(self):
-        assert _check_balance(0.0, 0.0, 0.0) is True
+    def test_all_zeros_not_balanced(self):
+        # All-zero heights = no signal / collapsed eyes, not "balanced"
+        assert _check_balance(0.0, 0.0, 0.0) is False
 
     def test_large_spread_imbalanced(self):
         assert _check_balance(5.0, 10.0, 20.0) is False
@@ -233,84 +232,6 @@ class TestBuildCapsResponse:
         assert resp.num_voltage_steps == 8
         assert resp.ind_up_down_voltage is True
         assert resp.ind_left_right_timing is True
-
-
-# ---------------------------------------------------------------------------
-# _error_threshold_from_sample_count
-# ---------------------------------------------------------------------------
-
-
-class TestErrorThreshold:
-    def test_sample_count_0(self):
-        # 128 * 2^0 = 128 samples, 128 * 0.01 = 1.28 → 1
-        assert _error_threshold_from_sample_count(0) == 1
-
-    def test_sample_count_3(self):
-        # 128 * 2^3 = 1024 samples, 1024 * 0.01 = 10.24 → 10
-        assert _error_threshold_from_sample_count(3) == 10
-
-    def test_sample_count_7(self):
-        # 128 * 2^7 = 16384 samples, 16384 * 0.01 = 163 → capped at 63
-        assert _error_threshold_from_sample_count(7) == 63
-
-    def test_minimum_is_1(self):
-        # Even if math gives 0, threshold should be at least 1
-        assert _error_threshold_from_sample_count(0) >= 1
-
-
-# ---------------------------------------------------------------------------
-# _contiguous_passing_steps
-# ---------------------------------------------------------------------------
-
-
-class TestContiguousPassingSteps:
-    def test_all_pass(self):
-        pts = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=2),
-            _make_point("right", 3, False, margin_value=3),
-        ]
-        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 3
-
-    def test_stops_at_first_failure(self):
-        pts = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=2),
-            _make_point("right", 3, False, margin_value=10),  # exceeds threshold
-            _make_point("right", 4, False, margin_value=1),  # below, but non-contiguous
-        ]
-        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 2
-
-    def test_stops_at_nak(self):
-        pts = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=2, status_code=3),  # NAK
-        ]
-        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 1
-
-    def test_first_step_fails(self):
-        pts = [_make_point("right", 1, False, margin_value=20)]
-        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 0
-
-    def test_empty_list(self):
-        assert _contiguous_passing_steps([], "right", error_threshold=5) == 0
-
-    def test_filters_by_direction(self):
-        pts = [
-            _make_point("right", 1, False, margin_value=1),
-            _make_point("left", 1, False, margin_value=1),
-            _make_point("right", 2, False, margin_value=20),  # fails
-        ]
-        assert _contiguous_passing_steps(pts, "right", error_threshold=5) == 1
-        assert _contiguous_passing_steps(pts, "left", error_threshold=5) == 1
-
-    def test_unsorted_input(self):
-        pts = [
-            _make_point("up", 3, False, margin_value=2),
-            _make_point("up", 1, False, margin_value=1),
-            _make_point("up", 2, False, margin_value=1),
-        ]
-        assert _contiguous_passing_steps(pts, "up", error_threshold=5) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -911,24 +832,24 @@ class TestSweepLanePAM4:
     def test_pam4_balance_flag(self):
         engine = _create_engine()
 
-        # Return different caps per receiver to create different eye heights
-        # by returning different statuses per direction
-        caps = _make_caps(num_timing=1, num_voltage=1)
+        # Use enough steps so step-distance fallback produces non-zero dimensions
+        caps = _make_caps(num_timing=4, num_voltage=4)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(0))
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         engine._probe_receiver = MagicMock(return_value=True)
 
         result = engine.sweep_lane_pam4(lane=0, device_id="pam4_bal")
-        # All eyes should have the same dimensions since same mock status → balanced
+        # All eyes should have the same non-zero dimensions → balanced
+        assert result.upper_eye.eye_height_mv > 0
         assert result.is_balanced is True
 
     def test_pam4_worst_case_aggregation(self):
         engine = _create_engine()
-        caps = _make_caps(num_timing=1, num_voltage=1)
+        caps = _make_caps(num_timing=4, num_voltage=4)
         engine.get_capabilities = MagicMock(return_value=caps)
-        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(20))
+        engine._margin_single_point = MagicMock(side_effect=_margin_point_side_effect(0))
         engine._go_to_normal_and_confirm = MagicMock()
         engine.reset_lane = MagicMock()
         engine._probe_receiver = MagicMock(return_value=True)

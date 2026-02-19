@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
@@ -111,10 +112,13 @@ def get_pam4_sweep_result(device_id: str, lane: int) -> PAM4SweepResult | None:
 
 
 def _check_balance(upper_mv: float, middle_mv: float, lower_mv: float) -> bool:
-    """True if 3 eye heights are within 20% of their average."""
+    """True if 3 eye heights are within 20% of their average.
+
+    Returns False when all heights are zero (no signal / collapsed eyes).
+    """
     avg = (upper_mv + middle_mv + lower_mv) / 3
     if avg == 0:
-        return True
+        return False
     return all(abs(eye - avg) / avg <= 0.2 for eye in (upper_mv, middle_mv, lower_mv))
 
 
@@ -148,77 +152,23 @@ def _count_sweep_steps(caps: LaneMarginCapabilities) -> int:
 # Bailing early saves minutes of wasted time.
 _MAX_CONSECUTIVE_TIMEOUTS = 5
 
-# Target BER for eye boundary determination.
-# Points with BER below this threshold are considered "inside the eye".
-# 1% BER is a practical default — at low sample counts (128 symbols)
-# it translates to just 1 error, while at high sample counts it scales up.
-_EYE_BOUNDARY_BER = 0.01
-
 # Normalized error threshold for the visual eye boundary.
 # Uses the same 0–1 normalization as the heatmap; 0.5 = halfway to max error.
 _EYE_NORM_THRESHOLD = 0.5
 
 
-def _error_threshold_from_sample_count(sample_count: int) -> int:
-    """Derive the error-count threshold from the PCIe sample count capability.
-
-    PCIe 6.0.1 Section 7.7.8: total_samples = 128 * 2^sample_count.
-    Returns the maximum error_count considered "inside the eye" at the
-    target BER (_EYE_BOUNDARY_BER).
-    """
-    total_samples = 128 * (1 << min(sample_count, 20))
-    threshold = int(total_samples * _EYE_BOUNDARY_BER)
-    return max(1, min(63, threshold))  # At least 1, capped at max reportable
-
-
-def _contiguous_passing_steps(
-    points: list[MarginPoint],
-    direction: str,
-    error_threshold: int,
-) -> int:
-    """Find the last contiguous step from center where error <= threshold.
-
-    Walks outward from step 1 in order; stops at the first step that
-    exceeds the threshold or receives a NAK (status_code == 3).
-    Returns the step number of the last passing step, or 0 if step 1 fails.
-    """
-    dir_points = sorted(
-        (p for p in points if p.direction == direction),
-        key=lambda p: p.step,
-    )
-    max_step = 0
-    for p in dir_points:
-        if p.status_code == 3:  # NAK — beyond receiver range
-            break
-        if p.margin_value > error_threshold:
-            break
-        max_step = p.step
-    return max_step
-
-
+@dataclass(frozen=True, slots=True)
 class _EyeDimensions:
     """Per-direction eye margin results."""
 
-    __slots__ = (
-        "width_steps", "height_steps", "width_ui", "height_mv",
-        "right_ui", "left_ui", "up_mv", "down_mv",
-    )
-
-    def __init__(
-        self,
-        width_steps: int, height_steps: int,
-        width_ui: float, height_mv: float,
-        right_ui: float, left_ui: float,
-        up_mv: float, down_mv: float,
-    ) -> None:
-        self.width_steps = width_steps
-        self.height_steps = height_steps
-        self.width_ui = width_ui
-        self.height_mv = height_mv
-        self.right_ui = right_ui
-        self.left_ui = left_ui
-        self.up_mv = up_mv
-        self.down_mv = down_mv
+    width_steps: int
+    height_steps: int
+    width_ui: float
+    height_mv: float
+    right_ui: float
+    left_ui: float
+    up_mv: float
+    down_mv: float
 
 
 def _compute_eye_dimensions(
@@ -375,11 +325,17 @@ class LaneMarginingEngine:
         PlxPort (SDK index) does not always equal the hardware PortNumber,
         so we open each candidate and check get_port_properties().PortNumber.
         This mirrors the pattern used by PortManager.get_all_port_statuses().
+
+        Candidates are filtered by domain and DeviceId to avoid matching
+        ports on a different switch in multi-switch systems.
         """
         from calypso.bindings.constants import PlxApiMode
 
         all_keys = sdk_device.find_devices(api_mode=PlxApiMode(mgmt_key.ApiMode))
         for key in all_keys:
+            # Scope to the same switch — skip devices on different domains or chips
+            if key.domain != mgmt_key.domain or key.DeviceId != mgmt_key.DeviceId:
+                continue
             try:
                 dev = sdk_device.open_device(key)
                 try:

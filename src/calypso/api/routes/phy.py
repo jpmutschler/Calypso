@@ -502,12 +502,19 @@ async def start_margining_sweep(
     body: SweepRequest,
 ) -> dict[str, str]:
     """Start a background lane margining sweep for eye diagram data."""
-    from calypso.core.lane_margining import LaneMarginingEngine, get_sweep_progress
+    from calypso.core.lane_margining import (
+        LaneMarginingEngine,
+        get_pam4_sweep_progress,
+        get_sweep_progress,
+    )
     from calypso.models.phy import MarginingReceiverNumber
 
     progress = get_sweep_progress(device_id, body.lane)
     if progress.status == "running":
         raise HTTPException(status_code=409, detail="Sweep already running on this lane")
+    pam4_progress = get_pam4_sweep_progress(device_id, body.lane)
+    if pam4_progress.status == "running":
+        raise HTTPException(status_code=409, detail="PAM4 sweep already running on this lane")
 
     sw = _get_switch(device_id)
     receiver = MarginingReceiverNumber(body.receiver)
@@ -646,11 +653,18 @@ async def start_pam4_margining_sweep(
     body: PAM4SweepRequest,
 ) -> dict[str, str]:
     """Start a background PAM4 3-eye lane margining sweep (Receivers A/B/C)."""
-    from calypso.core.lane_margining import LaneMarginingEngine, get_pam4_sweep_progress
+    from calypso.core.lane_margining import (
+        LaneMarginingEngine,
+        get_pam4_sweep_progress,
+        get_sweep_progress,
+    )
 
     progress = get_pam4_sweep_progress(device_id, body.lane)
     if progress.status == "running":
         raise HTTPException(status_code=409, detail="PAM4 sweep already running on this lane")
+    nrz_progress = get_sweep_progress(device_id, body.lane)
+    if nrz_progress.status == "running":
+        raise HTTPException(status_code=409, detail="NRZ sweep already running on this lane")
 
     sw = _get_switch(device_id)
 
