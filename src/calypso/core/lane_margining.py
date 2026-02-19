@@ -599,8 +599,24 @@ class LaneMarginingEngine:
         if last_status is not None:
             diag["last_status_type"] = last_status.margin_type.name
             diag["last_status_payload"] = f"0x{last_status.margin_payload:02X}"
-        diag_str = ", ".join(f"{k}={v}" for k, v in diag.items())
 
+        # Detect "receiver never responded" — status register is still at the
+        # initial NO_COMMAND/0x0000 state.  This means the device connected to
+        # this port does not implement Lane Margining at the PHY level.
+        receiver_silent = (
+            last_status is not None
+            and last_status.margin_type == MarginingCmd.NO_COMMAND
+            and last_status.margin_payload == 0
+        )
+        if receiver_silent:
+            raise TimeoutError(
+                "The device connected to this port does not support "
+                "Lane Margining at the Receiver. The switch port's Lane "
+                "Margining capability is present and ready, but the "
+                "downstream device never responded to margining commands."
+            )
+
+        diag_str = ", ".join(f"{k}={v}" for k, v in diag.items())
         raise TimeoutError(
             f"Report command 0x{report_payload:02X} timed out. Diag: {diag_str}"
         )
