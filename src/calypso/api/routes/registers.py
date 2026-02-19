@@ -26,6 +26,7 @@ router = APIRouter(tags=["registers"])
 
 def _get_switch(device_id: str):
     from calypso.api.app import get_device_registry
+
     registry = get_device_registry()
     sw = registry.get(device_id)
     if sw is None:
@@ -98,10 +99,13 @@ async def get_config_space(
         try:
             registers = reader.dump_config_space(offset=offset, count=count)
             caps = reader.walk_capabilities() + reader.walk_extended_capabilities()
+            existing = {r.offset for r in registers}
+            cap_regs = reader.read_capability_registers(caps, existing)
+            all_registers = registers + cap_regs
             pn = port_number if port_number is not None else 0
             return ConfigSpaceDump(
                 port_number=pn,
-                registers=registers,
+                registers=all_registers,
                 capabilities=caps,
             )
         finally:
@@ -110,9 +114,7 @@ async def get_config_space(
     return await asyncio.to_thread(_read)
 
 
-@router.get(
-    "/devices/{device_id}/capabilities", response_model=list[PcieCapabilityInfo]
-)
+@router.get("/devices/{device_id}/capabilities", response_model=list[PcieCapabilityInfo])
 async def get_capabilities(
     device_id: str,
     port_number: int | None = Query(None),
@@ -132,9 +134,7 @@ async def get_capabilities(
 # --- Device control ---
 
 
-@router.get(
-    "/devices/{device_id}/device-control", response_model=DeviceControlStatus
-)
+@router.get("/devices/{device_id}/device-control", response_model=DeviceControlStatus)
 async def get_device_control(
     device_id: str,
     port_number: int | None = Query(None),
@@ -156,9 +156,7 @@ class DeviceControlRequest(BaseModel):
     mrrs: int | None = None
 
 
-@router.post(
-    "/devices/{device_id}/device-control", response_model=DeviceControlStatus
-)
+@router.post("/devices/{device_id}/device-control", response_model=DeviceControlStatus)
 async def set_device_control(
     device_id: str,
     body: DeviceControlRequest,
@@ -308,9 +306,7 @@ async def write_config_register(
     if body.offset < 0 or body.offset > 0xFFF:
         raise HTTPException(status_code=400, detail="Offset must be 0x000-0xFFF")
     if body.offset % 4 != 0:
-        raise HTTPException(
-            status_code=400, detail="Offset must be DWORD-aligned (multiple of 4)"
-        )
+        raise HTTPException(status_code=400, detail="Offset must be DWORD-aligned (multiple of 4)")
     if body.value < 0 or body.value > 0xFFFFFFFF:
         raise HTTPException(status_code=400, detail="Value must be 0x00000000-0xFFFFFFFF")
 

@@ -181,6 +181,45 @@ def _encode_payload(size: int) -> int:
         raise ValueError(f"Invalid payload size {size}, must be one of {_PAYLOAD_SIZES}")
 
 
+_STD_CAP_DWORDS: dict[int, int] = {
+    PCIeCapabilityID.POWER_MANAGEMENT: 2,
+    PCIeCapabilityID.MSI: 6,
+    PCIeCapabilityID.PCIE: 15,
+    PCIeCapabilityID.MSIX: 3,
+    PCIeCapabilityID.VENDOR_SPECIFIC: 4,
+}
+
+_EXT_CAP_DWORDS: dict[int, int] = {
+    ExtCapabilityID.AER: 18,
+    ExtCapabilityID.VC: 16,
+    ExtCapabilityID.SERIAL_NUMBER: 3,
+    ExtCapabilityID.POWER_BUDGETING: 4,
+    ExtCapabilityID.ACS: 2,
+    ExtCapabilityID.ARI: 2,
+    ExtCapabilityID.SR_IOV: 16,
+    ExtCapabilityID.LTR: 2,
+    ExtCapabilityID.SECONDARY_PCIE: 4,
+    ExtCapabilityID.DPC: 6,
+    ExtCapabilityID.L1_PM_SUBSTATES: 4,
+    ExtCapabilityID.PTM: 3,
+    ExtCapabilityID.DATA_LINK_FEATURE: 3,
+    ExtCapabilityID.PHYSICAL_LAYER_16GT: 4,
+    ExtCapabilityID.RECEIVER_LANE_MARGINING: 4,
+    ExtCapabilityID.PHYSICAL_LAYER_32GT: 4,
+    ExtCapabilityID.PHYSICAL_LAYER_64GT: 8,
+    ExtCapabilityID.DVSEC: 4,
+    ExtCapabilityID.VENDOR_SPECIFIC: 4,
+}
+
+_DEFAULT_CAP_DWORDS = 4
+
+
+def _cap_dword_count(cap_id: int, is_extended: bool) -> int:
+    """Return the number of DWORDs to read for a capability type."""
+    table = _EXT_CAP_DWORDS if is_extended else _STD_CAP_DWORDS
+    return table.get(cap_id, _DEFAULT_CAP_DWORDS)
+
+
 class PcieConfigReader:
     """Reads and parses PCIe configuration space registers."""
 
@@ -220,6 +259,43 @@ class PcieConfigReader:
                 logger.warning("config_read_failed", offset=f"0x{reg_offset:X}")
                 registers.append(ConfigRegister(offset=reg_offset, value=0xFFFFFFFF))
         return registers
+
+    def read_capability_registers(
+        self,
+        caps: list[PcieCapabilityInfo],
+        existing_offsets: set[int] | None = None,
+    ) -> list[ConfigRegister]:
+        """Read registers for each discovered capability.
+
+        Reads a spec-appropriate number of DWORDs for each capability,
+        skipping offsets already covered by the main dump.
+
+        Args:
+            caps: List of discovered capabilities.
+            existing_offsets: Set of offsets already read (to avoid duplicates).
+
+        Returns:
+            List of additional ConfigRegister entries.
+        """
+        seen = set(existing_offsets) if existing_offsets else set()
+        extra: list[ConfigRegister] = []
+
+        for cap in caps:
+            is_ext = cap.offset >= 0x100
+            n_dwords = _cap_dword_count(cap.cap_id, is_ext)
+            for i in range(n_dwords):
+                off = cap.offset + (i * 4)
+                if off in seen:
+                    continue
+                seen.add(off)
+                try:
+                    value = self.read_config_register(off)
+                    extra.append(ConfigRegister(offset=off, value=value))
+                except Exception:
+                    logger.warning("cap_register_read_failed", offset=f"0x{off:X}")
+                    extra.append(ConfigRegister(offset=off, value=0xFFFFFFFF))
+
+        return extra
 
     def walk_capabilities(self) -> list[PcieCapabilityInfo]:
         """Walk the PCI capability linked list starting at offset 0x34.

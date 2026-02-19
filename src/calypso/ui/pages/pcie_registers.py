@@ -8,6 +8,7 @@ import json
 from nicegui import ui
 
 from calypso.ui.layout import page_layout
+from calypso.ui.pages._capability_decode import render_capability
 from calypso.ui.pages._register_decode import get_decode_for_offset
 from calypso.ui.theme import COLORS
 
@@ -140,7 +141,7 @@ def _pcie_registers_content(device_id: str) -> None:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/device-control{qs}", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({json.dumps(body)})}})).json()',
+                f"body:JSON.stringify({json.dumps(body)})}})).json()",
                 timeout=10.0,
             )
             device_ctrl.update(resp)
@@ -181,7 +182,7 @@ def _pcie_registers_content(device_id: str) -> None:
             await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/link/target-speed{qs}", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({{speed:{speed}}})}})).json()',
+                f"body:JSON.stringify({{speed:{speed}}})}})).json()",
                 timeout=10.0,
             )
             ui.notify(f"Target speed set to Gen{speed}", type="positive")
@@ -223,7 +224,7 @@ def _pcie_registers_content(device_id: str) -> None:
             resp = await ui.run_javascript(
                 f'return await (await fetch("/api/devices/{device_id}/config-write{qs}", '
                 f'{{method:"POST",headers:{{"Content-Type":"application/json"}},'
-                f'body:JSON.stringify({json.dumps(body)})}})).json()',
+                f"body:JSON.stringify({json.dumps(body)})}})).json()",
                 timeout=10.0,
             )
             if resp.get("detail"):
@@ -251,23 +252,26 @@ def _pcie_registers_content(device_id: str) -> None:
             ui.notify("Invalid value. Use hex (e.g. DEADBEEF).", type="negative")
             return
 
-        with ui.dialog() as dialog, ui.card().style(
-            f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+        with (
+            ui.dialog() as dialog,
+            ui.card().style(
+                f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+            ),
         ):
             ui.label("Confirm Config Write").classes("text-h6").style(
                 f"color: {COLORS.text_primary}"
             )
-            ui.label(
-                f"Write 0x{write_val:08X} to offset 0x{offset_val:03X}?"
-            ).style(f"color: {COLORS.text_secondary}")
+            ui.label(f"Write 0x{write_val:08X} to offset 0x{offset_val:03X}?").style(
+                f"color: {COLORS.text_secondary}"
+            )
             pn = _selected_port()
             if pn is not None:
                 ui.label(f"Target: Port {pn}").style(
                     f"color: {COLORS.text_secondary}; font-size: 13px"
                 )
-            ui.label(
-                "Config writes can affect device behavior!"
-            ).style(f"color: {COLORS.yellow}; font-size: 13px")
+            ui.label("Config writes can affect device behavior!").style(
+                f"color: {COLORS.yellow}; font-size: 13px"
+            )
             with ui.row().classes("gap-4 mt-2"):
                 ui.button("Cancel", on_click=dialog.close).props("flat")
 
@@ -287,27 +291,26 @@ def _pcie_registers_content(device_id: str) -> None:
     """)
 
     # === Port Selector Card ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-4"):
-            ui.label("Target Port").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
-            port_select = (
-                ui.select(options={}, label="Port", on_change=on_port_changed)
-                .classes("w-80")
+            ui.label("Target Port").classes("text-h6").style(f"color: {COLORS.text_primary}")
+            port_select = ui.select(options={}, label="Port", on_change=on_port_changed).classes(
+                "w-80"
             )
             ui.button("Refresh All", on_click=load_all).props("flat color=primary")
 
     # === Config Space Dump Card ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-4 mb-2"):
-            ui.label("Config Space Dump").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
+            ui.label("Config Space Dump").classes("text-h6").style(f"color: {COLORS.text_primary}")
             offset_input = ui.number("Offset", value=0, min=0, step=4).classes("w-24")
             count_input = ui.number("Count", value=64, min=1, max=256).classes("w-24")
             ui.button("Read", on_click=load_config_space).props("flat color=primary")
@@ -325,23 +328,24 @@ def _pcie_registers_content(device_id: str) -> None:
 
                 pcap = _pcie_cap_base()
 
-                with ui.element("div").classes("w-full overflow-x-auto").style(
-                    f"font-family: 'JetBrains Mono', monospace; "
-                    f"font-size: 13px; background: {COLORS.bg_primary}; "
-                    f"padding: 12px; border-radius: 4px; line-height: 1.6"
+                with (
+                    ui.element("div")
+                    .classes("w-full overflow-x-auto")
+                    .style(
+                        f"font-family: 'JetBrains Mono', monospace; "
+                        f"font-size: 13px; background: {COLORS.bg_primary}; "
+                        f"padding: 12px; border-radius: 4px; line-height: 1.6"
+                    )
                 ):
                     for i in range(0, len(regs), 4):
                         row_offset = regs[i]["offset"]
-                        vals = " ".join(
-                            f"{r['value']:08X}" for r in regs[i : i + 4]
-                        )
+                        vals = " ".join(f"{r['value']:08X}" for r in regs[i : i + 4])
 
                         decode = get_decode_for_offset(row_offset, pcap)
                         annotation = ""
                         if decode is not None:
                             annotation = (
-                                f'<span style="color: {COLORS.cyan}"> '
-                                f"; {decode.name}</span>"
+                                f'<span style="color: {COLORS.cyan}"> ; {decode.name}</span>'
                             )
 
                         html = (
@@ -359,12 +363,12 @@ def _pcie_registers_content(device_id: str) -> None:
         refresh_config_dump()
 
     # === Capabilities List Card (Phase 3: clickable + expandable) ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
-        ui.label("Capabilities").classes("text-h6").style(
-            f"color: {COLORS.text_primary}"
-        )
+        ui.label("Capabilities").classes("text-h6").style(f"color: {COLORS.text_primary}")
 
         caps_container = ui.column().classes("w-full")
 
@@ -374,9 +378,7 @@ def _pcie_registers_content(device_id: str) -> None:
             with caps_container:
                 caps = config_data.get("capabilities", [])
                 if not caps:
-                    ui.label("Load config space first.").style(
-                        f"color: {COLORS.text_muted}"
-                    )
+                    ui.label("Load config space first.").style(f"color: {COLORS.text_muted}")
                     return
 
                 regs = config_data.get("registers", [])
@@ -395,13 +397,13 @@ def _pcie_registers_content(device_id: str) -> None:
                     else:
                         header = f"0x{cap_id:02X} - {cap_name} @ 0x{cap_offset:03X}"
 
-                    with ui.expansion(header).classes("w-full").style(
-                        f"color: {COLORS.text_primary}"
+                    with (
+                        ui.expansion(header)
+                        .classes("w-full")
+                        .style(f"color: {COLORS.text_primary}")
                     ):
                         _render_scroll_button(cap_offset)
-                        _render_capability_detail(
-                            cap, reg_map, _pcie_cap_base()
-                        )
+                        _render_capability_detail(cap, reg_map)
 
         def _render_scroll_button(offset: int):
             async def scroll_to():
@@ -418,106 +420,16 @@ def _pcie_registers_content(device_id: str) -> None:
                     timeout=5.0,
                 )
 
-            ui.button(
-                f"Scroll to 0x{offset:03X}", on_click=scroll_to
-            ).props("flat dense color=primary size=sm").classes("mb-2")
+            ui.button(f"Scroll to 0x{offset:03X}", on_click=scroll_to).props(
+                "flat dense color=primary size=sm"
+            ).classes("mb-2")
 
-        def _render_capability_detail(
-            cap: dict, reg_map: dict[int, int], pcie_cap_base: int | None
-        ):
-            cap_id = cap["cap_id"]
-            cap_offset = cap["offset"]
-
-            if cap_id == 0x10 and cap_offset < 0x100:
-                _render_pcie_cap_detail(cap_offset, reg_map)
-            elif cap_id == 0x0001 and cap_offset >= 0x100:
-                _render_aer_inline(cap_offset, reg_map)
-            else:
-                _render_raw_dwords(cap_offset, reg_map)
-
-        def _render_pcie_cap_detail(base: int, reg_map: dict[int, int]):
-            """Decode PCI Express capability fields."""
-            with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
-                dev_cap = reg_map.get(base + 0x04, 0)
-                mps_code = dev_cap & 0x7
-                mps_sizes = [128, 256, 512, 1024, 2048, 4096]
-                mps = mps_sizes[mps_code] if mps_code < len(mps_sizes) else 0
-                _kv("MPS Supported", f"{mps} bytes")
-                _kv("FLR Capable", "Yes" if dev_cap & (1 << 28) else "No")
-                _kv("Ext Tag", "Yes" if dev_cap & (1 << 5) else "No")
-
-                link_cap = reg_map.get(base + 0x0C, 0)
-                max_speed = link_cap & 0xF
-                max_width = (link_cap >> 4) & 0x3F
-                port_num = (link_cap >> 24) & 0xFF
-                speed_names = {1: "Gen1", 2: "Gen2", 3: "Gen3", 4: "Gen4", 5: "Gen5", 6: "Gen6"}
-                _kv("Max Speed", speed_names.get(max_speed, f"?({max_speed})"))
-                _kv("Max Width", f"x{max_width}")
-                _kv("Port Number", str(port_num))
-
-                link_ctl_sts = reg_map.get(base + 0x10, 0)
-                status_word = (link_ctl_sts >> 16) & 0xFFFF
-                cur_speed = status_word & 0xF
-                cur_width = (status_word >> 4) & 0x3F
-                dll_active = bool(status_word & (1 << 13))
-                _kv("Current Speed", speed_names.get(cur_speed, f"?({cur_speed})"))
-                _kv("Current Width", f"x{cur_width}")
-                _kv("DLL Active", "Yes" if dll_active else "No")
-
-        def _render_aer_inline(base: int, reg_map: dict[int, int]):
-            """Render AER uncorrectable/correctable flags inline."""
-            uncorr = reg_map.get(base + 0x04, 0)
-            corr = reg_map.get(base + 0x10, 0)
-
-            with ui.row().classes("w-full gap-4"):
-                with ui.column().classes("flex-1"):
-                    ui.label(f"Uncorrectable (0x{uncorr:08X})").style(
-                        f"color: {COLORS.text_primary}; font-size: 13px"
-                    )
-                    uncorr_fields = [
-                        (4, "Data Link Protocol"),
-                        (5, "Surprise Down"),
-                        (12, "Poisoned TLP"),
-                        (13, "Flow Control Protocol"),
-                        (14, "Completion Timeout"),
-                        (15, "Completer Abort"),
-                        (16, "Unexpected Completion"),
-                        (17, "Receiver Overflow"),
-                        (18, "Malformed TLP"),
-                        (19, "ECRC Error"),
-                        (20, "Unsupported Request"),
-                        (21, "ACS Violation"),
-                    ]
-                    for bit, name in uncorr_fields:
-                        active = bool(uncorr & (1 << bit))
-                        color = COLORS.red if active else COLORS.text_muted
-                        prefix = "!!" if active else "  "
-                        ui.label(f"{prefix} {name}").style(
-                            f"color: {color}; font-family: monospace; font-size: 12px"
-                        )
-
-                with ui.column().classes("flex-1"):
-                    ui.label(f"Correctable (0x{corr:08X})").style(
-                        f"color: {COLORS.text_primary}; font-size: 13px"
-                    )
-                    corr_fields = [
-                        (0, "Receiver Error"),
-                        (6, "Bad TLP"),
-                        (7, "Bad DLLP"),
-                        (8, "Replay Num Rollover"),
-                        (12, "Replay Timer Timeout"),
-                        (13, "Advisory Non-Fatal"),
-                    ]
-                    for bit, name in corr_fields:
-                        active = bool(corr & (1 << bit))
-                        color = COLORS.yellow if active else COLORS.text_muted
-                        prefix = "!!" if active else "  "
-                        ui.label(f"{prefix} {name}").style(
-                            f"color: {color}; font-family: monospace; font-size: 12px"
-                        )
+        def _render_capability_detail(cap: dict, reg_map: dict[int, int]):
+            if not render_capability(cap, reg_map):
+                _render_raw_dwords(cap["offset"], reg_map)
 
         def _render_raw_dwords(base: int, reg_map: dict[int, int]):
-            """Show first 4 raw DWORDs for unrecognized capabilities."""
+            """Show raw DWORDs for capabilities without a specific decoder."""
             with ui.element("pre").style(
                 f"color: {COLORS.text_primary}; font-family: 'JetBrains Mono', monospace; "
                 f"font-size: 13px"
@@ -529,31 +441,23 @@ def _pcie_registers_content(device_id: str) -> None:
                     lines.append(f"0x{off:03X}: {val:08X}")
                 ui.html("<br>".join(lines))
 
-        def _kv(label: str, value: str):
-            ui.label(label).style(f"color: {COLORS.text_secondary}; font-size: 13px")
-            ui.label(value).style(f"color: {COLORS.text_primary}; font-size: 13px")
-
         refresh_caps_list()
 
     # === Device Control Card ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-4 mb-2"):
-            ui.label("Device Control").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
-            ui.button("Refresh", on_click=load_device_control).props(
-                "flat color=primary"
-            )
+            ui.label("Device Control").classes("text-h6").style(f"color: {COLORS.text_primary}")
+            ui.button("Refresh", on_click=load_device_control).props("flat color=primary")
 
         with ui.row().classes("items-end gap-4 mb-2"):
             payload_opts = ["128", "256", "512", "1024", "2048", "4096"]
             mps_select = ui.select(payload_opts, label="MPS (bytes)").classes("w-32")
             mrrs_select = ui.select(payload_opts, label="MRRS (bytes)").classes("w-32")
-            ui.button("Apply", on_click=apply_device_control).props(
-                "flat color=warning"
-            )
+            ui.button("Apply", on_click=apply_device_control).props("flat color=warning")
 
         dev_ctrl_container = ui.column().classes("w-full")
 
@@ -562,9 +466,7 @@ def _pcie_registers_content(device_id: str) -> None:
             dev_ctrl_container.clear()
             with dev_ctrl_container:
                 if not device_ctrl:
-                    ui.label("Select a port to load.").style(
-                        f"color: {COLORS.text_muted}"
-                    )
+                    ui.label("Select a port to load.").style(f"color: {COLORS.text_muted}")
                     return
                 with ui.grid(columns=2).classes("gap-2"):
                     for key, val in device_ctrl.items():
@@ -576,23 +478,19 @@ def _pcie_registers_content(device_id: str) -> None:
         refresh_device_ctrl()
 
     # === Link Status Card ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-4 mb-2"):
-            ui.label("Link Status").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
+            ui.label("Link Status").classes("text-h6").style(f"color: {COLORS.text_primary}")
             ui.button("Refresh", on_click=load_link).props("flat color=primary")
 
         with ui.row().classes("items-end gap-4 mb-2"):
             speed_opts = {str(i): f"Gen{i}" for i in range(1, 7)}
-            speed_select = ui.select(
-                speed_opts, label="Target Speed", value="4"
-            ).classes("w-32")
-            ui.button("Set Speed", on_click=set_target_speed).props(
-                "flat color=warning"
-            )
+            speed_select = ui.select(speed_opts, label="Target Speed", value="4").classes("w-32")
+            ui.button("Set Speed", on_click=set_target_speed).props("flat color=warning")
             ui.button("Retrain", on_click=retrain).props("flat color=negative")
 
         link_container = ui.column().classes("w-full")
@@ -604,9 +502,7 @@ def _pcie_registers_content(device_id: str) -> None:
                 caps = link_info.get("capabilities", {})
                 status = link_info.get("status", {})
                 if not caps and not status:
-                    ui.label("Select a port to load.").style(
-                        f"color: {COLORS.text_muted}"
-                    )
+                    ui.label("Select a port to load.").style(f"color: {COLORS.text_muted}")
                     return
                 with ui.grid(columns=2).classes("gap-2"):
                     if status:
@@ -624,9 +520,7 @@ def _pcie_registers_content(device_id: str) -> None:
                             val = status.get(key, "")
                             if key == "current_width":
                                 val = f"x{val}"
-                            ui.label(str(val)).style(
-                                f"color: {COLORS.text_primary}"
-                            )
+                            ui.label(str(val)).style(f"color: {COLORS.text_primary}")
                     if caps:
                         ui.separator().classes("col-span-2")
                         for key in [
@@ -635,30 +529,26 @@ def _pcie_registers_content(device_id: str) -> None:
                             "aspm_support",
                             "port_number",
                         ]:
-                            ui.label(
-                                f"Max {key.replace('_', ' ').title()}"
-                            ).style(f"color: {COLORS.text_secondary}")
+                            ui.label(f"Max {key.replace('_', ' ').title()}").style(
+                                f"color: {COLORS.text_secondary}"
+                            )
                             val = caps.get(key, "")
                             if key == "max_link_width":
                                 val = f"x{val}"
-                            ui.label(str(val)).style(
-                                f"color: {COLORS.text_primary}"
-                            )
+                            ui.label(str(val)).style(f"color: {COLORS.text_primary}")
 
         refresh_link()
 
     # === AER Status Card ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-4 mb-2"):
-            ui.label("AER Status").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
+            ui.label("AER Status").classes("text-h6").style(f"color: {COLORS.text_primary}")
             ui.button("Refresh", on_click=load_aer).props("flat color=primary")
-            ui.button("Clear Errors", on_click=clear_aer).props(
-                "flat color=negative"
-            )
+            ui.button("Clear Errors", on_click=clear_aer).props("flat color=negative")
 
         aer_container = ui.column().classes("w-full")
 
@@ -668,15 +558,11 @@ def _pcie_registers_content(device_id: str) -> None:
             with aer_container:
                 status = aer_data.get("status")
                 if status is None:
-                    ui.label("Select a port to load.").style(
-                        f"color: {COLORS.text_muted}"
-                    )
+                    ui.label("Select a port to load.").style(f"color: {COLORS.text_muted}")
                     return
 
                 if not status:
-                    ui.label("AER capability not present.").style(
-                        f"color: {COLORS.text_muted}"
-                    )
+                    ui.label("AER capability not present.").style(f"color: {COLORS.text_muted}")
                     return
 
                 ui.label(
@@ -707,12 +593,8 @@ def _pcie_registers_content(device_id: str) -> None:
                         ]:
                             val = uncorr.get(field, False)
                             color = COLORS.red if val else COLORS.text_muted
-                            ui.label(
-                                f"{'!!' if val else '  '} "
-                                f"{field.replace('_', ' ')}"
-                            ).style(
-                                f"color: {color}; font-family: monospace; "
-                                f"font-size: 13px"
+                            ui.label(f"{'!!' if val else '  '} {field.replace('_', ' ')}").style(
+                                f"color: {color}; font-family: monospace; font-size: 13px"
                             )
 
                     with ui.column().classes("flex-1"):
@@ -731,46 +613,32 @@ def _pcie_registers_content(device_id: str) -> None:
                         ]:
                             val = corr.get(field, False)
                             color = COLORS.yellow if val else COLORS.text_muted
-                            ui.label(
-                                f"{'!!' if val else '  '} "
-                                f"{field.replace('_', ' ')}"
-                            ).style(
-                                f"color: {color}; font-family: monospace; "
-                                f"font-size: 13px"
+                            ui.label(f"{'!!' if val else '  '} {field.replace('_', ' ')}").style(
+                                f"color: {color}; font-family: monospace; font-size: 13px"
                             )
 
                 header_log = status.get("header_log", [])
                 if header_log:
-                    ui.label(
-                        "Header Log: "
-                        + " ".join(f"0x{h:08X}" for h in header_log)
-                    ).style(
-                        f"color: {COLORS.text_secondary}; font-family: monospace; "
-                        f"font-size: 13px"
+                    ui.label("Header Log: " + " ".join(f"0x{h:08X}" for h in header_log)).style(
+                        f"color: {COLORS.text_secondary}; font-family: monospace; font-size: 13px"
                     )
 
         refresh_aer()
 
     # === Register Write Card (Phase 4) ===
-    with ui.card().classes("w-full p-4").style(
-        f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}"
+    with (
+        ui.card()
+        .classes("w-full p-4")
+        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
         with ui.row().classes("items-center gap-2 mb-2"):
-            ui.label("Register Write").classes("text-h6").style(
-                f"color: {COLORS.text_primary}"
-            )
+            ui.label("Register Write").classes("text-h6").style(f"color: {COLORS.text_primary}")
             ui.icon("warning").style(f"color: {COLORS.yellow}")
 
         with ui.row().classes("items-end gap-4"):
-            write_offset_input = ui.input(
-                "Offset (hex)", value="00"
-            ).classes("w-32")
-            write_value_input = ui.input(
-                "Value (hex)", value="00000000"
-            ).classes("w-40")
-            ui.button("Write", on_click=write_with_confirm).props(
-                "flat color=warning"
-            )
+            write_offset_input = ui.input("Offset (hex)", value="00").classes("w-32")
+            write_value_input = ui.input("Value (hex)", value="00000000").classes("w-40")
+            ui.button("Write", on_click=write_with_confirm).props("flat color=warning")
 
     # === Auto-load on page mount ===
     ui.timer(0.1, load_ports, once=True)
