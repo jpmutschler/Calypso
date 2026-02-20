@@ -36,6 +36,9 @@ class LtssmTopState(IntEnum):
     LOOPBACK = 5
     HOT_RESET = 6
     DISABLED = 7
+    L0S = 8
+    L1 = 9
+    L2 = 0xA
 
 
 # ---------------------------------------------------------------------------
@@ -68,61 +71,154 @@ LTSSM_STATE_CATEGORY: dict[str, int] = {
     "Loopback": LtssmTopState.LOOPBACK,
     "Hot Reset": LtssmTopState.HOT_RESET,
     "Disabled": LtssmTopState.DISABLED,
+    "L0s": LtssmTopState.L0S,
+    "L1": LtssmTopState.L1,
+    "L2": LtssmTopState.L2,
 }
 
 
 # ---------------------------------------------------------------------------
-# PCIe 6.0.1 Sub-state names per top-level state
+# Atlas3 LTSSM sub-state names per top-level state
 #
-# Sub-state byte values follow the PCIe spec presentation order (Section
-# 4.2.6).  An empty string means the sub-state index IS the top-state name
-# itself (e.g. top=3 sub=0 → "L0").  States with no defined sub-states
-# (Hot Reset, Disabled) use an empty dict — sub=0 renders the top name,
-# anything else falls back to hex.
+# Derived from the Atlas3 trigger-state table which uses the same 12-bit
+# LTSSM encoding as the Recovery Diagnostic register readback.  Sub-state
+# byte values are sparse (not sequential).  Unknown sub-states fall back
+# to hex display.
 # ---------------------------------------------------------------------------
 
 _LTSSM_SUB_STATES: dict[int, dict[int, str]] = {
     LtssmTopState.DETECT: {
-        0: "Detect.Quiet",
-        1: "Detect.Active",
+        0x00: "Detect.Quiet",
+        0x01: "Detect.Active",
+        0x02: "Detect.Rate",
+        0x03: "Detect.Wait12ms",
+        0x04: "Detect.P1Req",
+        0x05: "Detect.Done",
+        0x06: "Detect.P0Req",
+        0x07: "Detect.RateOk",
+        0x09: "Detect.SpcOp",
+        0x0A: "Detect.WaitP1",
+        0x0B: "Detect.WaitRate",
     },
     LtssmTopState.POLLING: {
-        0: "Polling.Active",
-        1: "Polling.Configuration",
-        2: "Polling.Compliance",
+        0x00: "Polling.Idle",
+        0x01: "Polling.P0Req",
+        0x03: "Polling.Active",
+        0x06: "Polling.Done",
+        0x07: "Polling.Config",
+        0x0A: "Polling.TxEIOS",
+        0x0B: "Polling.Compliance",
+        0x0E: "Polling.EIdle",
+        0x0F: "Polling.Speed",
     },
     LtssmTopState.CONFIGURATION: {
-        0: "Config.Linkwidth.Start",
-        1: "Config.Linkwidth.Accept",
-        2: "Config.Lanenum.Wait",
-        3: "Config.Lanenum.Accept",
-        4: "Config.Complete",
-        5: "Config.Idle",
+        0x00: "Config.Idle",
+        0x01: "Config.LwStart.DN",
+        0x02: "Config.LnWait.DN",
+        0x03: "Config.LwAccept.DN",
+        0x04: "Config.TxIdle",
+        0x06: "Config.LnAccept.DN",
+        0x07: "Config.Complete.DN",
+        0x08: "Config.LnWait.UP",
+        0x0C: "Config.LnAccept.UP",
+        0x0E: "Config.Done",
+        0x0F: "Config.TxCtlSkip",
+        0x10: "Config.LwStart.UP",
+        0x11: "Config.XlinkArbWon",
+        0x12: "Config.Complete",
+        0x14: "Config.TxSDSM",
+        0x18: "Config.LwAccept.UP",
+        0x1C: "Config.Complete.UP",
     },
     LtssmTopState.L0: {
-        0: "L0",
-        1: "L0s.Entry",
-        2: "L0s.Idle",
-        3: "L0s.FTS",
-        4: "L1.Entry",
-        5: "L1.Idle",
-        6: "L2.Idle",
-        7: "L2.TransmitWake",
+        0x00: "L0.Idle",
+        0x01: "L0",
+        0x02: "L0.L0s",
+        0x03: "L0.TxEIOS",
+        0x04: "L0.LinkDown",
+        0x05: "L0.LDWait",
+        0x07: "L0.L1",
+        0x09: "L0.Recovery",
+        0x0B: "L0.L2",
+        0x0D: "L0.ActRec",
     },
     LtssmTopState.RECOVERY: {
-        0: "Recovery.RcvrLock",
-        1: "Recovery.Speed",
-        2: "Recovery.RcvrCfg",
-        3: "Recovery.Idle",
-        4: "Recovery.Equalization",
+        0x00: "Recovery.Idle",
+        0x01: "Recovery.RcvrLock",
+        0x02: "Recovery.TxEIOS",
+        0x03: "Recovery.RcvrCfg",
+        0x05: "Recovery.EqPh1.DN",
+        0x07: "Recovery.Speed",
+        0x08: "Recovery.TxEIEOS",
+        0x09: "Recovery.Reset",
+        0x0A: "Recovery.Disable",
+        0x0B: "Recovery.TxIdle",
+        0x0C: "Recovery.ErrCfg",
+        0x0D: "Recovery.TxSDSM",
+        0x0E: "Recovery.ErrDet",
+        0x0F: "Recovery.Loopback",
+        0x10: "Recovery.EqPh3.UP",
+        0x11: "Recovery.EqPh0.UP",
+        0x15: "Recovery.EqPh2.DN",
+        0x17: "Recovery.EqPh3.DN",
+        0x18: "Recovery.EqPh2.UP",
+        0x19: "Recovery.EqPh1.UP",
+        0x1E: "Recovery.TxCtlSkp",
+        0x1F: "Recovery.MyEqPhase",
     },
     LtssmTopState.LOOPBACK: {
-        0: "Loopback.Entry",
-        1: "Loopback.Active",
-        2: "Loopback.Exit",
+        0x00: "Loopback.Idle",
+        0x01: "Loopback.Entry",
+        0x04: "Loopback.SlvEntry",
+        0x06: "Loopback.TxEIOS",
+        0x09: "Loopback.ActMst",
+        0x0A: "Loopback.ActSlv",
+        0x0B: "Loopback.Exit",
+        0x0C: "Loopback.Speed",
+        0x0F: "Loopback.EIdle",
     },
-    LtssmTopState.HOT_RESET: {},
-    LtssmTopState.DISABLED: {},
+    LtssmTopState.HOT_RESET: {
+        0x00: "HotReset.Idle",
+        0x01: "HotReset.Dir",
+        0x02: "HotReset.Rcv",
+        0x03: "HotReset.Tx",
+        0x04: "HotReset.TxEIOS.1",
+        0x05: "HotReset.TxEIEOS",
+        0x06: "HotReset.RcvWait",
+        0x07: "HotReset.TxEIOS",
+    },
+    LtssmTopState.DISABLED: {
+        0x00: "Disabled.Idle",
+        0x01: "Disabled.TxTS1",
+        0x03: "Disabled.TxEIOS",
+        0x04: "Disabled.Done",
+        0x06: "Disabled.P1Req",
+        0x07: "Disabled.WaitEIOS",
+        0x09: "Disabled.TxEIEOS",
+        0x0E: "Disabled.RateOk",
+        0x0F: "Disabled.Rate",
+    },
+    LtssmTopState.L0S: {
+        0x00: "L0s.Idle",
+        0x01: "L0s.Entry",
+        0x02: "L0s.Active",
+        0x03: "L0s.TxFTS",
+        0x04: "L0s.TxSkp",
+        0x0A: "L0s.TxEIE",
+        0x0C: "L0s.TxSDSM",
+    },
+    LtssmTopState.L1: {
+        0x00: "L1.Idle",
+        0x05: "L1.RxEIOS",
+        0x06: "L1.Active",
+    },
+    LtssmTopState.L2: {
+        0x00: "L2.Idle",
+        0x08: "L2.RxEIOS",
+        0x09: "L2.Rate",
+        0x0D: "L2.RateOk",
+        0x0F: "L2.Active",
+    },
 }
 
 

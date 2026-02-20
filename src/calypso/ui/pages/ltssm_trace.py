@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from calypso.models.ltssm import LtssmTopState, ltssm_state_name, ltssm_sub_state, ltssm_top_state
+from calypso.models.ltssm import LtssmTopState, ltssm_state_name, ltssm_top_state
 from calypso.ui.layout import page_layout
 from calypso.ui.theme import COLORS
 
@@ -27,21 +27,15 @@ _TOP_STATE_COLORS: dict[int, str] = {
     LtssmTopState.LOOPBACK: COLORS.orange,
     LtssmTopState.HOT_RESET: COLORS.red,
     LtssmTopState.DISABLED: COLORS.red,
+    LtssmTopState.L0S: COLORS.cyan,
+    LtssmTopState.L1: COLORS.purple,
+    LtssmTopState.L2: COLORS.text_muted,
 }
 
 
 def _state_color(state_code: int) -> str:
     """Return a display color for a 12-bit LTSSM state code."""
     top = ltssm_top_state(state_code)
-    if top == LtssmTopState.L0:
-        sub = ltssm_sub_state(state_code)
-        if sub == 0:
-            return COLORS.green  # L0
-        if sub <= 3:
-            return COLORS.cyan  # L0s
-        if sub <= 5:
-            return COLORS.purple  # L1
-        return COLORS.text_muted  # L2
     return _TOP_STATE_COLORS.get(top, COLORS.text_secondary)
 
 

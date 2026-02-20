@@ -165,7 +165,7 @@ class PtraceConfigRequest(BaseModel):
     trace_point: int = Field(0, ge=0, le=15)
     lane_select: int = Field(0, ge=0, le=15)
     trigger_on_ltssm: bool = False
-    ltssm_trigger_state: int | None = Field(None, ge=0, le=7)
+    ltssm_trigger_state: int | None = Field(None, ge=0, le=0xA)
 
 
 @router.post("/devices/{device_id}/ltssm/ptrace/configure")
