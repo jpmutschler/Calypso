@@ -21,6 +21,7 @@ venv/
 vendor/plxsdk/PlxApi/Release/
 
 temp/
+ptrace_validation/
 nul
 
 .env
