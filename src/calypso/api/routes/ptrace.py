@@ -11,10 +11,13 @@ from pydantic import BaseModel, Field
 from calypso.exceptions import CalypsoError
 from calypso.models.ptrace import (
     PTraceBufferResult,
+    PTraceConditionAttrCfg,
+    PTraceConditionDataCfg,
     PTraceDirection,
     PTraceErrorTriggerCfg,
     PTraceEventCounterCfg,
     PTraceFilterCfg,
+    PTraceFilterControlCfg,
     PTraceFullConfigureRequest,
     PTraceStatus,
 )
@@ -60,6 +63,8 @@ async def configure_ptrace(
             body.capture,
             body.trigger,
             body.post_trigger,
+            body.filter_control,
+            body.condition_attrs or None,
         )
     except CalypsoError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -93,6 +98,105 @@ async def configure_ptrace_filter(
     except CalypsoError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Filter Control (A0 only)
+# ---------------------------------------------------------------------------
+
+
+class PTraceFilterControlRequest(BaseModel):
+    port_number: int = Field(0, ge=0, le=143)
+    direction: PTraceDirection = PTraceDirection.INGRESS
+    config: PTraceFilterControlCfg = Field(default_factory=PTraceFilterControlCfg)
+
+
+@router.post("/devices/{device_id}/ptrace/filter-control")
+async def configure_filter_control(
+    device_id: str,
+    body: PTraceFilterControlRequest,
+) -> dict[str, str]:
+    """Write FilterControl and InvertFilterControl registers (A0 only).
+
+    Returns 501 on B0 silicon where this register is not available.
+    """
+    engine = _get_engine(device_id, body.port_number)
+    if not engine._layout.has_filter_control:
+        raise HTTPException(
+            status_code=501,
+            detail="Filter Control not available on this silicon variant",
+        )
+    try:
+        await asyncio.to_thread(
+            engine.configure_filter_control, body.direction, body.config
+        )
+    except CalypsoError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "configured"}
+
+
+# ---------------------------------------------------------------------------
+# Condition Attributes
+# ---------------------------------------------------------------------------
+
+
+class PTraceConditionAttrRequest(BaseModel):
+    port_number: int = Field(0, ge=0, le=143)
+    direction: PTraceDirection = PTraceDirection.INGRESS
+    config: PTraceConditionAttrCfg = Field(default_factory=PTraceConditionAttrCfg)
+
+
+@router.post("/devices/{device_id}/ptrace/condition-attributes")
+async def configure_condition_attributes(
+    device_id: str,
+    body: PTraceConditionAttrRequest,
+) -> dict[str, str]:
+    """Write condition attribute registers (Attr2-Attr6)."""
+    engine = _get_engine(device_id, body.port_number)
+    if not engine._layout.has_condition_data:
+        raise HTTPException(
+            status_code=501,
+            detail="Condition attributes not available on this silicon variant",
+        )
+    try:
+        await asyncio.to_thread(
+            engine.configure_condition_attributes, body.direction, body.config
+        )
+    except CalypsoError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "configured"}
+
+
+# ---------------------------------------------------------------------------
+# Condition Data (512-bit match/mask)
+# ---------------------------------------------------------------------------
+
+
+class PTraceConditionDataRequest(BaseModel):
+    port_number: int = Field(0, ge=0, le=143)
+    direction: PTraceDirection = PTraceDirection.INGRESS
+    config: PTraceConditionDataCfg = Field(default_factory=PTraceConditionDataCfg)
+
+
+@router.post("/devices/{device_id}/ptrace/condition-data")
+async def configure_condition_data(
+    device_id: str,
+    body: PTraceConditionDataRequest,
+) -> dict[str, str]:
+    """Write 512-bit condition data blocks (interleaved match/mask)."""
+    engine = _get_engine(device_id, body.port_number)
+    if not engine._layout.has_condition_data:
+        raise HTTPException(
+            status_code=501,
+            detail="Condition data not available on this silicon variant",
+        )
+    try:
+        await asyncio.to_thread(
+            engine.write_condition_data, body.direction, body.config
+        )
+    except CalypsoError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "configured"}
 
 
 # ---------------------------------------------------------------------------

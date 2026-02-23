@@ -10,6 +10,10 @@ Register offsets are relative to a *direction base* within the station:
     egress_base  = station_register_base(port) + 0x5000
 
 Reference: RD101 / RM102 Atlas3 PTrace register specification.
+
+Note: Register offsets are now in ``ptrace_layout.py`` as variant-aware
+``PTraceRegLayout`` instances. This file retains direction constants,
+address helpers, bitfield dataclasses, and enums.
 """
 
 from __future__ import annotations
@@ -31,101 +35,13 @@ class PTraceDir(IntEnum):
 
 
 # ---------------------------------------------------------------------------
-# Register offsets (relative to direction base)
+# Constants
 # ---------------------------------------------------------------------------
 
-
-class PTraceReg(IntEnum):
-    """PTrace register offsets within a direction block."""
-
-    # Control / status
-    CAPTURE_CONTROL = 0x000
-    CAPTURE_STATUS = 0x004
-    CAPTURE_CONFIG = 0x008
-    POST_TRIGGER_CFG = 0x00C
-
-    # Trigger source / condition
-    TRIGGER_SRC_SEL = 0x020
-    MANUAL_TRIGGER = 0x024
-    TRIG_COND0_ENABLE = 0x028
-    TRIG_COND0_INVERT = 0x02C
-    TRIG_COND1_ENABLE = 0x030
-    TRIG_COND1_INVERT = 0x034
-
-    # Trigger condition match values
-    TRIG_LINK_SPEED = 0x038
-    TRIG_DLLP_TYPE = 0x03C
-    TRIG_OS_TYPE = 0x040
-    TRIG_SYMBOL0 = 0x044
-    TRIG_SYMBOL1 = 0x048
-    TRIG_SYMBOL2 = 0x04C
-    TRIG_SYMBOL3 = 0x050
-    TRIG_SYMBOL4 = 0x054
-    TRIG_SYMBOL5 = 0x058
-    TRIG_SYMBOL6 = 0x05C
-    TRIG_SYMBOL7 = 0x060
-    TRIG_SYMBOL8 = 0x064
-    TRIG_SYMBOL9 = 0x068
-    TRIG_LTSSM_STATE = 0x06C
-    TRIG_LINK_WIDTH = 0x070
-
-    # Timestamps (64-bit, low/high pairs)
-    FIRST_CAPTURE_TS_LOW = 0x080
-    FIRST_CAPTURE_TS_HIGH = 0x084
-    LAST_CAPTURE_TS_LOW = 0x088
-    LAST_CAPTURE_TS_HIGH = 0x08C
-    TRIGGER_TS_LOW = 0x090
-    TRIGGER_TS_HIGH = 0x094
-    LAST_TS_LOW = 0x098
-    LAST_TS_HIGH = 0x09C
-
-    # Trigger row address
-    TRIGGER_ROW_ADDR = 0x0A0
-
-    # Error status / trigger
-    PORT_ERR_STATUS = 0x100
-    PORT_ERR_TRIG_EN = 0x140
-
-    # Event counters
-    EVT_CTR0_CFG = 0x160
-    EVT_CTR0_VALUE = 0x164
-    EVT_CTR1_CFG = 0x168
-    EVT_CTR1_VALUE = 0x16C
-
-    # Trace buffer access
-    TBUF_ACCESS_CTL = 0x180
-    TBUF_ADDRESS = 0x184
-    TBUF_DATA_0 = 0x188
-    TBUF_DATA_1 = 0x18C
-    TBUF_DATA_2 = 0x190
-    TBUF_DATA_3 = 0x194
-    TBUF_DATA_4 = 0x198
-    TBUF_DATA_5 = 0x19C
-    TBUF_DATA_6 = 0x1A0
-    TBUF_DATA_7 = 0x1A4
-    TBUF_DATA_8 = 0x1A8
-    TBUF_DATA_9 = 0x1AC
-    TBUF_DATA_10 = 0x1B0
-    TBUF_DATA_11 = 0x1B4
-    TBUF_DATA_12 = 0x1B8
-    TBUF_DATA_13 = 0x1BC
-    TBUF_DATA_14 = 0x1C0
-    TBUF_DATA_15 = 0x1C4
-    TBUF_DATA_16 = 0x1C8
-    TBUF_DATA_17 = 0x1CC
-    TBUF_DATA_18 = 0x1D0
-
-    # Filter blocks (512 bits each: 16 DWORDs match + 16 DWORDs mask)
-    FILTER0_MATCH_BASE = 0x200
-    FILTER0_MASK_BASE = 0x240
-    FILTER1_MATCH_BASE = 0x280
-    FILTER1_MASK_BASE = 0x2C0
-
-
-# Constants
 TBUF_ROW_DWORDS = 19  # 19 x 32 = 608 bits (600 data + 8 reserved)
 TBUF_MAX_ROWS = 4096
 FILTER_DWORDS = 16  # 512 bits = 16 DWORDs per filter half
+DATA_BLOCK_DWORDS = 16  # 512 bits = 16 DWORDs per condition data block
 
 
 # ---------------------------------------------------------------------------
@@ -133,24 +49,25 @@ FILTER_DWORDS = 16  # 512 bits = 16 DWORDs per filter half
 # ---------------------------------------------------------------------------
 
 
-def ptrace_reg_abs(station_base: int, direction: PTraceDir, reg: PTraceReg) -> int:
+def ptrace_addr(station_base: int, direction: PTraceDir, offset: int) -> int:
     """Compute absolute BAR 0 offset for a PTrace register.
 
     Args:
         station_base: Station register base (from ``station_register_base()``).
         direction: Ingress or egress direction base.
-        reg: Register offset within the direction block.
+        offset: Register offset within the direction block (from layout).
 
     Returns:
         Absolute 32-bit BAR 0 offset.
     """
-    return station_base + int(direction) + int(reg)
+    return station_base + int(direction) + offset
 
 
-def tbuf_data_offset(dword_index: int) -> int:
+def tbuf_data_offset(tbuf_data_base: int, dword_index: int) -> int:
     """Return the register offset for trace buffer data DWORD *dword_index*.
 
     Args:
+        tbuf_data_base: Base offset of TBUF_DATA from layout (typically 0x188).
         dword_index: 0..18 (19 DWORDs per row).
 
     Returns:
@@ -158,7 +75,52 @@ def tbuf_data_offset(dword_index: int) -> int:
     """
     if not 0 <= dword_index < TBUF_ROW_DWORDS:
         raise ValueError(f"dword_index must be 0..{TBUF_ROW_DWORDS - 1}, got {dword_index}")
-    return PTraceReg.TBUF_DATA_0 + (dword_index * 4)
+    return tbuf_data_base + (dword_index * 4)
+
+
+# ---------------------------------------------------------------------------
+# Enums — Trigger Source IDs (RD101 p261)
+# ---------------------------------------------------------------------------
+
+
+class TriggerSrcId(IntEnum):
+    """Trigger source identifiers (TriggerSrcSel field, 6-bit)."""
+
+    MANUAL = 0x00
+    COND0 = 0x01
+    COND1 = 0x02
+    COND0_AND_COND1 = 0x03
+    COND0_OR_COND1 = 0x04
+    COND0_XOR_COND1 = 0x05
+    COND0_THEN_COND1 = 0x06
+    EVENT_COUNTER_THRESHOLD = 0x07
+    TRIGGERIN_OR = 0x08
+    COND0_THEN_DELAY = 0x09
+    PORT_ERROR = 0x3D
+
+
+class FlitMatchSel(IntEnum):
+    """Flit mode match selection (3-bit field in TriggerConfig/FilterControl)."""
+
+    MATCH_ALL = 0
+    MATCH_DW1 = 1
+    MATCH_DW1_4 = 2
+    MATCH_DW1_8 = 3
+    MATCH_DW1_12 = 4
+    MATCH_DW1_16 = 5
+    MATCH_H_SLOT = 6
+    MATCH_H_OR_G = 7
+
+
+class FilterSrcSel(IntEnum):
+    """Filter source selection (3-bit field in FilterControl)."""
+
+    FILTER0_ONLY = 0
+    FILTER1_ONLY = 1
+    FILTER0_OR_1 = 2
+    NOT_FILTER0 = 4
+    NOT_FILTER1 = 5
+    NOT_FILTER0_OR_1 = 6
 
 
 # ---------------------------------------------------------------------------
@@ -171,10 +133,10 @@ class CaptureControlReg:
     """PTrace Capture Control Register (+0x000).
 
     Bitfields:
-        [0]   PTraceEnable — master enable for the analyzer
-        [8]   CaptureStart — start capture (self-clearing)
-        [9]   ManCaptureStop — stop capture
-        [16]  ClearTriggered — W1C, must keep PTraceEnable=1
+        [0]   PTraceEnable -- master enable for the analyzer
+        [8]   CaptureStart -- start capture (self-clearing)
+        [9]   ManCaptureStop -- stop capture
+        [16]  ClearTriggered -- W1C, must keep PTraceEnable=1
     """
 
     ptrace_enable: bool = False
@@ -216,9 +178,9 @@ class CaptureStatusReg:
     Bitfields:
         [0]      CaptureInProgress
         [8]      Triggered
-        [9]      TBufWrapped — trace buffer has wrapped
-        [27:16]  CompressCnt — number of compressed entries
-        [31]     RAMInitDone — trace buffer RAM initialization complete
+        [9]      TBufWrapped -- trace buffer has wrapped
+        [27:16]  CompressCnt -- number of compressed entries
+        [31]     RAMInitDone -- trace buffer RAM initialization complete
     """
 
     capture_in_progress: bool = False
@@ -248,17 +210,17 @@ class CaptureConfigReg:
     """PTrace Capture Config Register (+0x008).
 
     Bitfields:
-        [0]     TrigOutMask — mask external trigger output
-        [1]     FilterEn — enable capture filtering
-        [2]     CompressEn — enable compression
-        [3]     NopFilt — filter NOP ordered sets
-        [4]     IdleFilt — filter IDLE DLLPs
-        [5]     DataCap — capture data payloads (vs headers only)
-        [6]     RawFilt — raw symbol filter
-        [11:8]  CapPortSel — port select within station (0-15)
-        [13:12] TracePointSel — 0=Accum/Distrib, 1=Unscram/OSGen,
+        [0]     TrigOutMask -- mask external trigger output
+        [1]     FilterEn -- enable capture filtering
+        [2]     CompressEn -- enable compression
+        [3]     NopFilt -- filter NOP ordered sets
+        [4]     IdleFilt -- filter IDLE DLLPs
+        [5]     DataCap -- capture data payloads (vs headers only)
+        [6]     RawFilt -- raw symbol filter
+        [11:8]  CapPortSel -- port select within station (0-15)
+        [13:12] TracePointSel -- 0=Accum/Distrib, 1=Unscram/OSGen,
                                  2=Deskew/Scram, 3=Scrambled
-        [19:16] LaneSel — lane select (0-15)
+        [19:16] LaneSel -- lane select (0-15)
     """
 
     trig_out_mask: bool = False
@@ -319,10 +281,10 @@ class PostTriggerCfgReg:
     """PTrace Post-Trigger Config Register (+0x00C).
 
     Bitfields:
-        [15:0]   ClockCount — post-trigger clock count
-        [26:16]  CapCount — post-trigger capture count
-        [29:27]  ClockCntMult — clock count multiplier (power of 2)
-        [31:30]  CountType — 0=disabled, 1=clock, 2=capture, 3=both
+        [15:0]   ClockCount -- post-trigger clock count
+        [26:16]  CapCount -- post-trigger capture count
+        [29:27]  ClockCntMult -- clock count multiplier (power of 2)
+        [31:30]  CountType -- 0=disabled, 1=clock, 2=capture, 3=both
     """
 
     clock_count: int = 0
@@ -348,18 +310,62 @@ class PostTriggerCfgReg:
 
 
 # ---------------------------------------------------------------------------
-# Trigger Source Select Register (+0x020)
+# Trigger Config Register — A0 (+0x020)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TriggerConfigReg:
+    """PTrace Trigger Config Register -- A0 layout (+0x020).
+
+    Bitfields:
+        [5:0]   TriggerSrcSel -- trigger source ID
+        [6]     Cond0Inv -- invert condition 0 result
+        [7]     Cond1Inv -- invert condition 1 result
+        [26:24] TriggerMatchSel0 -- Flit match mode for condition 0 (3-bit)
+        [30:28] TriggerMatchSel1 -- Flit match mode for condition 1 (3-bit)
+    """
+
+    trigger_src: int = 0
+    cond0_inv: bool = False
+    cond1_inv: bool = False
+    trigger_match_sel0: int = 0
+    trigger_match_sel1: int = 0
+
+    def to_register(self) -> int:
+        value = self.trigger_src & 0x3F
+        if self.cond0_inv:
+            value |= 1 << 6
+        if self.cond1_inv:
+            value |= 1 << 7
+        value |= (self.trigger_match_sel0 & 0x7) << 24
+        value |= (self.trigger_match_sel1 & 0x7) << 28
+        return value
+
+    @classmethod
+    def from_register(cls, value: int) -> TriggerConfigReg:
+        return cls(
+            trigger_src=value & 0x3F,
+            cond0_inv=bool(value & (1 << 6)),
+            cond1_inv=bool(value & (1 << 7)),
+            trigger_match_sel0=(value >> 24) & 0x7,
+            trigger_match_sel1=(value >> 28) & 0x7,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Trigger Source Select Register — B0 (+0x020)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class TriggerSrcSelReg:
-    """PTrace Trigger Source Select Register (+0x020).
+    """PTrace Trigger Source Select Register -- B0 layout (+0x020).
 
     Bitfields:
-        [5:0]   TriggerSrc — trigger source ID (0-63)
-        [6]     ReArmEnable — enable automatic re-arm after trigger
-        [31:7]  ReArmTime — re-arm delay (raw clock ticks)
+        [5:0]   TriggerSrc -- trigger source ID (0-63)
+        [6]     ReArmEnable -- enable automatic re-arm after trigger
+        [31:7]  ReArmTime -- re-arm delay (raw clock ticks)
     """
 
     trigger_src: int = 0
@@ -383,7 +389,30 @@ class TriggerSrcSelReg:
 
 
 # ---------------------------------------------------------------------------
-# Trigger Condition Enable Register (+0x028/0x02C/0x030/0x034)
+# ReArm Time Register — A0 only (+0x024)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RearmTimeReg:
+    """PTrace ReArm Time Register -- A0 only (+0x024).
+
+    Bitfields:
+        [23:0]  ReArmTime -- re-arm delay in clock ticks
+    """
+
+    rearm_time: int = 0
+
+    def to_register(self) -> int:
+        return self.rearm_time & 0xFFFFFF
+
+    @classmethod
+    def from_register(cls, value: int) -> RearmTimeReg:
+        return cls(rearm_time=value & 0xFFFFFF)
+
+
+# ---------------------------------------------------------------------------
+# Trigger Condition Enable Register
 # ---------------------------------------------------------------------------
 
 
@@ -391,8 +420,7 @@ class TriggerSrcSelReg:
 class TrigCondEnableReg:
     """PTrace Trigger Condition Enable / Invert Register.
 
-    Used for offsets +0x028 (Cond0 Enable), +0x02C (Cond0 Invert),
-    +0x030 (Cond1 Enable), +0x034 (Cond1 Invert).
+    Used for Cond0 Enable/Invert and Cond1 Enable/Invert registers.
 
     Bitfields:
         [8]      LinkSpeedEnb
@@ -406,7 +434,7 @@ class TrigCondEnableReg:
         [16]     Symbol5Enb
         [17]     Symbol6Enb
         [18]     Symbol7Enb
-        [19]     Symbol8Enb — (also Symbol8Enb in some docs)
+        [19]     Symbol8Enb
         [20]     Symbol9Enb
         [21]     LtssmEnb
         [22]     LinkWidthEnb
@@ -443,6 +471,104 @@ class TrigCondEnableReg:
 
 
 # ---------------------------------------------------------------------------
+# Filter Control Register — A0 only (+0x030)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FilterControlReg:
+    """PTrace Filter Control Register -- A0 only (+0x030).
+
+    Bitfields:
+        [9]     DLLPTypeEnb
+        [10]    OsTypeEnb
+        [11]    CxlIoFilterEnb
+        [12]    CxlCacheFilterEnb
+        [13]    CxlMemFilterEnb
+        [14]    Filter256BEnb
+        [22:20] FilterSrcSel (3-bit)
+        [26:24] FilterMatchSel0 (3-bit, Flit match mode)
+        [30:28] FilterMatchSel1 (3-bit, Flit match mode)
+    """
+
+    dllp_type_enb: bool = False
+    os_type_enb: bool = False
+    cxl_io_filter_enb: bool = False
+    cxl_cache_filter_enb: bool = False
+    cxl_mem_filter_enb: bool = False
+    filter_256b_enb: bool = False
+    filter_src_sel: int = 0
+    filter_match_sel0: int = 0
+    filter_match_sel1: int = 0
+
+    def to_register(self) -> int:
+        value = 0
+        if self.dllp_type_enb:
+            value |= 1 << 9
+        if self.os_type_enb:
+            value |= 1 << 10
+        if self.cxl_io_filter_enb:
+            value |= 1 << 11
+        if self.cxl_cache_filter_enb:
+            value |= 1 << 12
+        if self.cxl_mem_filter_enb:
+            value |= 1 << 13
+        if self.filter_256b_enb:
+            value |= 1 << 14
+        value |= (self.filter_src_sel & 0x7) << 20
+        value |= (self.filter_match_sel0 & 0x7) << 24
+        value |= (self.filter_match_sel1 & 0x7) << 28
+        return value
+
+    @classmethod
+    def from_register(cls, value: int) -> FilterControlReg:
+        return cls(
+            dllp_type_enb=bool(value & (1 << 9)),
+            os_type_enb=bool(value & (1 << 10)),
+            cxl_io_filter_enb=bool(value & (1 << 11)),
+            cxl_cache_filter_enb=bool(value & (1 << 12)),
+            cxl_mem_filter_enb=bool(value & (1 << 13)),
+            filter_256b_enb=bool(value & (1 << 14)),
+            filter_src_sel=(value >> 20) & 0x7,
+            filter_match_sel0=(value >> 24) & 0x7,
+            filter_match_sel1=(value >> 28) & 0x7,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Invert Filter Control Register — A0 only (+0x034)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class InvertFilterControlReg:
+    """PTrace Invert Filter Control Register -- A0 only (+0x034).
+
+    Bitfields:
+        [9]  DLLPTypeInv
+        [10] OsTypeInv
+    """
+
+    dllp_type_inv: bool = False
+    os_type_inv: bool = False
+
+    def to_register(self) -> int:
+        value = 0
+        if self.dllp_type_inv:
+            value |= 1 << 9
+        if self.os_type_inv:
+            value |= 1 << 10
+        return value
+
+    @classmethod
+    def from_register(cls, value: int) -> InvertFilterControlReg:
+        return cls(
+            dllp_type_inv=bool(value & (1 << 9)),
+            os_type_inv=bool(value & (1 << 10)),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Trace Buffer Access Control Register (+0x180)
 # ---------------------------------------------------------------------------
 
@@ -452,8 +578,8 @@ class TBufAccessCtlReg:
     """PTrace Trace Buffer Access Control Register (+0x180).
 
     Bitfields:
-        [0]  TBufReadEnb — enable software read of trace buffer
-        [1]  TBufAddrSelfIncEnb — auto-increment row after full read
+        [0]  TBufReadEnb -- enable software read of trace buffer
+        [1]  TBufAddrSelfIncEnb -- auto-increment row after full read
     """
 
     tbuf_read_enb: bool = False
@@ -476,14 +602,15 @@ class TBufAccessCtlReg:
 
 
 # ---------------------------------------------------------------------------
-# Port Error Type (for error trigger enable register +0x140)
+# Port Error Type (for error trigger enable register)
+# Updated to match RD101 page 270 for A0 silicon
 # ---------------------------------------------------------------------------
 
 
 class PortErrType(IntFlag):
-    """Port error bit definitions for PORT_ERR_TRIG_EN (+0x140).
+    """Port error bit definitions for PORT_ERR_TRIG_EN.
 
-    28 named error bits matching RD101 spec.
+    28 named error bits matching RD101 spec (A0 silicon).
     """
 
     RCVR_ERR = 1 << 0
@@ -507,13 +634,13 @@ class PortErrType(IntFlag):
     UNSUPPORTED_REQUEST = 1 << 18
     ACS_VIOLATION = 1 << 19
     UNCORRECTABLE_INTERNAL = 1 << 20
-    MC_BLOCKED_TLP = 1 << 21
-    ATOMIC_OP_EGRESS_BLOCKED = 1 << 22
-    TLP_PREFIX_BLOCKED = 1 << 23
-    POISONED_TLP_EGRESS_BLOCKED = 1 << 24
-    DMWR_REQUEST_EGRESS_BLOCKED = 1 << 25
-    IDE_CHECK_FAILED = 1 << 26
-    MISROUTED_IDE_TLP = 1 << 27
+    POISONED_TLP_EGRESS_BLOCKED = 1 << 21
+    DPC_TRIGGERED = 1 << 22
+    SURPRISE_DOWN_ERR = 1 << 23
+    TRANSLATION_EGRESS_BLOCK = 1 << 24
+    FRAMING_ERROR = 1 << 25
+    FEC_CORRECTABLE = 1 << 26
+    FEC_UNCORRECTABLE = 1 << 27
 
 
 # Friendly names for each error bit (for UI display)
@@ -539,28 +666,28 @@ PORT_ERR_NAMES: dict[int, str] = {
     18: "Unsupported Request",
     19: "ACS Violation",
     20: "Uncorrectable Internal",
-    21: "MC Blocked TLP",
-    22: "AtomicOp Egress Blocked",
-    23: "TLP Prefix Blocked",
-    24: "Poisoned TLP Egress Blocked",
-    25: "DMWr Request Egress Blocked",
-    26: "IDE Check Failed",
-    27: "Misrouted IDE TLP",
+    21: "Poisoned TLP Egress Blocked",
+    22: "DPC Triggered",
+    23: "Surprise Down Error",
+    24: "Translation Egress Block",
+    25: "Framing Error",
+    26: "FEC Correctable",
+    27: "FEC Uncorrectable",
 }
 
 
 # ---------------------------------------------------------------------------
-# Event Counter Config Register (+0x160 / +0x168)
+# Event Counter Config Register
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class EventCounterCfgReg:
-    """PTrace Event Counter Config Register (+0x160 or +0x168).
+    """PTrace Event Counter Config Register.
 
     Bitfields:
-        [5:0]   EventSource — counter event source ID
-        [31:16] Threshold — counter threshold value
+        [5:0]   EventSource -- counter event source ID
+        [31:16] Threshold -- counter threshold value
     """
 
     event_source: int = 0

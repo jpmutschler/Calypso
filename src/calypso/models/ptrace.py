@@ -33,6 +33,19 @@ class TracePointSel(IntEnum):
     SCRAMBLED = 3  # Scrambled data
 
 
+class FlitMatchMode(IntEnum):
+    """Flit mode match selection for trigger/filter conditions."""
+
+    MATCH_ALL = 0
+    MATCH_DW1 = 1
+    MATCH_DW1_4 = 2
+    MATCH_DW1_8 = 3
+    MATCH_DW1_12 = 4
+    MATCH_DW1_16 = 5
+    MATCH_H_SLOT = 6
+    MATCH_H_OR_G = 7
+
+
 # ---------------------------------------------------------------------------
 # Configuration models
 # ---------------------------------------------------------------------------
@@ -64,6 +77,11 @@ class PTraceTriggerCfg(BaseModel):
     cond0_invert: int = Field(0, ge=0, le=0xFFFFFFFF)
     cond1_enable: int = Field(0, ge=0, le=0xFFFFFFFF)
     cond1_invert: int = Field(0, ge=0, le=0xFFFFFFFF)
+    # A0 Flit-mode fields (optional, ignored on B0)
+    cond0_inv: bool = False
+    cond1_inv: bool = False
+    trigger_match_sel0: int = Field(0, ge=0, le=7)
+    trigger_match_sel1: int = Field(0, ge=0, le=7)
 
 
 class PTracePostTriggerCfg(BaseModel):
@@ -104,6 +122,64 @@ class PTraceFilterCfg(BaseModel):
         return v
 
 
+class PTraceFilterControlCfg(BaseModel):
+    """Filter Control configuration (A0 only)."""
+
+    dllp_type_enb: bool = False
+    os_type_enb: bool = False
+    cxl_io_filter_enb: bool = False
+    cxl_cache_filter_enb: bool = False
+    cxl_mem_filter_enb: bool = False
+    filter_256b_enb: bool = False
+    filter_src_sel: int = Field(0, ge=0, le=7)
+    filter_match_sel0: int = Field(0, ge=0, le=7)
+    filter_match_sel1: int = Field(0, ge=0, le=7)
+    # Invert controls
+    dllp_type_inv: bool = False
+    os_type_inv: bool = False
+
+
+class PTraceConditionAttrCfg(BaseModel):
+    """Condition attribute register configuration."""
+
+    condition_id: int = Field(0, ge=0, le=1)
+    link_speed: int = Field(0, ge=0, le=15)
+    link_speed_mask: int = Field(0, ge=0, le=15)
+    link_width: int = Field(0, ge=0, le=7)
+    link_width_mask: int = Field(0, ge=0, le=7)
+    dllp_type: int = Field(0, ge=0, le=255)
+    dllp_type_mask: int = Field(0, ge=0, le=255)
+    os_type: int = Field(0, ge=0, le=255)
+    os_type_mask: int = Field(0, ge=0, le=255)
+    symbols: list[int] = Field(default_factory=lambda: [0] * 10)
+    symbols_mask: list[int] = Field(default_factory=lambda: [0] * 10)
+    dlp0: int = Field(0, ge=0, le=255)
+    dlp0_mask: int = Field(0, ge=0, le=255)
+    dlp1: int = Field(0, ge=0, le=255)
+    dlp1_mask: int = Field(0, ge=0, le=255)
+    ltssm_state: int = Field(0, ge=0, le=511)
+    ltssm_state_mask: int = Field(0, ge=0, le=511)
+    flit_mode: bool = False
+    flit_mode_mask: bool = False
+    cxl_mode: bool = False
+    cxl_mode_mask: bool = False
+
+
+class PTraceConditionDataCfg(BaseModel):
+    """512-bit condition match/mask data configuration."""
+
+    condition_id: int = Field(0, ge=0, le=1)
+    match_hex: str = Field("0" * 128, min_length=128, max_length=128)
+    mask_hex: str = Field("0" * 128, min_length=128, max_length=128)
+
+    @field_validator("match_hex", "mask_hex")
+    @classmethod
+    def _validate_hex(cls, v: str) -> str:
+        if not re.fullmatch(r"[0-9a-fA-F]+", v):
+            raise ValueError("Must contain only hex characters (0-9, a-f, A-F)")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Full configure request (combines capture + trigger + post-trigger)
 # ---------------------------------------------------------------------------
@@ -117,6 +193,8 @@ class PTraceFullConfigureRequest(BaseModel):
     capture: PTraceCaptureCfg = Field(default_factory=PTraceCaptureCfg)
     trigger: PTraceTriggerCfg = Field(default_factory=PTraceTriggerCfg)
     post_trigger: PTracePostTriggerCfg = Field(default_factory=PTracePostTriggerCfg)
+    filter_control: PTraceFilterControlCfg | None = None
+    condition_attrs: list[PTraceConditionAttrCfg] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -132,10 +210,10 @@ class PTraceStatus(BaseModel):
     tbuf_wrapped: bool = False
     compress_cnt: int = 0
     ram_init_done: bool = False
-    first_capture_ts: int = 0
-    last_capture_ts: int = 0
+    start_ts: int = 0
     trigger_ts: int = 0
     last_ts: int = 0
+    global_timer: int = 0
     trigger_row_addr: int = 0
     port_err_status: int = 0
 

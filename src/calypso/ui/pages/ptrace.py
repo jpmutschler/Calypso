@@ -1,4 +1,4 @@
-"""PTrace (Protocol Trace) page — dedicated embedded protocol analyser UI.
+"""PTrace (Protocol Trace) page -- dedicated embedded protocol analyser UI.
 
 Provides full control over the Atlas3 PTrace hardware: capture config,
 trigger/filter settings, error triggers, event counters, status readback,
@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import re
 
 from nicegui import ui
 
 from calypso.hardware.ptrace_regs import PORT_ERR_NAMES
 from calypso.ui.layout import page_layout
+from calypso.ui.pages._ptrace_flit_tab import build_flit_tab, get_trigger_src_options
 from calypso.ui.theme import COLORS
 
 
@@ -28,6 +31,12 @@ def ptrace_page(device_id: str) -> None:
 
 def _ptrace_content(device_id: str) -> None:
     """Build the PTrace page content."""
+
+    # Sanitize device_id — it is interpolated into JavaScript strings for
+    # fetch() calls, so reject anything that could break out of the URL.
+    if not re.match(r"^[a-zA-Z0-9_-]+$", device_id):
+        ui.label("Invalid device ID").style(f"color: {COLORS.red};")
+        return
 
     state: dict = {
         "port_number": 0,
@@ -156,17 +165,17 @@ def _ptrace_content(device_id: str) -> None:
             f"Compressed: {compress}"
         )
 
-        # Timestamps
-        ts_first = data.get("first_capture_ts", 0)
-        ts_last_cap = data.get("last_capture_ts", 0)
+        # Timestamps (updated field names)
+        ts_start = data.get("start_ts", 0)
         ts_trig = data.get("trigger_ts", 0)
         ts_last = data.get("last_ts", 0)
+        ts_global = data.get("global_timer", 0)
         trig_row = data.get("trigger_row_addr", 0)
         err_status = data.get("port_err_status", 0)
 
         status_ts_label.set_text(
-            f"First: {ts_first}  |  Last Cap: {ts_last_cap}  |  "
-            f"Trigger: {ts_trig}  |  Last: {ts_last}"
+            f"Start: {ts_start}  |  Trigger: {ts_trig}  |  "
+            f"Last: {ts_last}  |  Global: {ts_global}"
         )
         status_trigrow_label.set_text(
             f"Trigger Row: {trig_row}  |  Port Err Status: 0x{err_status:08X}"
@@ -183,7 +192,6 @@ def _ptrace_content(device_id: str) -> None:
     # --- Capture Config tab ---
 
     async def apply_full_config():
-        import json
 
         port = state["port_number"]
         direction = state["direction"]
@@ -207,7 +215,7 @@ def _ptrace_content(device_id: str) -> None:
                 "trig_out_mask": cfg_trig_out_mask.value,
             },
             "trigger": {
-                "trigger_src": int(trig_src.value or 0),
+                "trigger_src": int(trig_src.value if trig_src.value is not None else 0),
                 "rearm_enable": trig_rearm.value,
                 "rearm_time": int(trig_rearm_time.value or 0),
                 "cond0_enable": int(trig_cond0_en.value or "0", 16),
@@ -243,7 +251,6 @@ def _ptrace_content(device_id: str) -> None:
     # --- Filter tab ---
 
     async def apply_filter(idx: int):
-        import json
 
         port = state["port_number"]
         direction = state["direction"]
@@ -275,7 +282,6 @@ def _ptrace_content(device_id: str) -> None:
     # --- Error Triggers tab ---
 
     async def apply_error_triggers():
-        import json
 
         port = state["port_number"]
         direction = state["direction"]
@@ -309,7 +315,6 @@ def _ptrace_content(device_id: str) -> None:
     # --- Event Counters tab ---
 
     async def apply_event_counter(ctr_id: int):
-        import json
 
         port = state["port_number"]
         direction = state["direction"]
@@ -497,14 +502,22 @@ def _ptrace_content(device_id: str) -> None:
             status_trig_label = ui.label("Triggered: --").style(
                 f"color: {COLORS.text_secondary}; font-size: 13px;"
             )
-        status_wrap_label = ui.label("Wrapped: --  |  RAM Init: --  |  Compressed: --").style(
+        status_wrap_label = ui.label(
+            "Wrapped: --  |  RAM Init: --  |  Compressed: --"
+        ).style(
             f"color: {COLORS.text_secondary}; font-size: 13px; margin-top: 4px;"
         )
-        status_ts_label = ui.label("First: --  |  Last Cap: --  |  Trigger: --  |  Last: --").style(
-            f"color: {COLORS.text_muted}; font-size: 12px; font-family: monospace; margin-top: 4px;"
+        status_ts_label = ui.label(
+            "Start: --  |  Trigger: --  |  Last: --  |  Global: --"
+        ).style(
+            f"color: {COLORS.text_muted}; font-size: 12px; "
+            "font-family: monospace; margin-top: 4px;"
         )
-        status_trigrow_label = ui.label("Trigger Row: --  |  Port Err Status: --").style(
-            f"color: {COLORS.text_muted}; font-size: 12px; font-family: monospace; margin-top: 2px;"
+        status_trigrow_label = ui.label(
+            "Trigger Row: --  |  Port Err Status: --"
+        ).style(
+            f"color: {COLORS.text_muted}; font-size: 12px; "
+            "font-family: monospace; margin-top: 2px;"
         )
 
     # --- Tabbed configuration ---
@@ -520,6 +533,7 @@ def _ptrace_content(device_id: str) -> None:
             tab_errors = ui.tab("Error Triggers")
             tab_counters = ui.tab("Event Counters")
             tab_buffer = ui.tab("Buffer")
+            tab_flit = ui.tab("Flit / Condition")
 
         with ui.tab_panels(tabs, value=tab_capture).classes("w-full"):
             # --- Capture Config tab ---
@@ -579,7 +593,9 @@ def _ptrace_content(device_id: str) -> None:
                         .classes("w-32")
                     )
 
-                ui.separator().style(f"background-color: {COLORS.border};").classes("my-2")
+                ui.separator().style(
+                    f"background-color: {COLORS.border};"
+                ).classes("my-2")
 
                 with ui.row().classes("mt-1"):
                     ui.label("Trigger:").style(
@@ -587,9 +603,13 @@ def _ptrace_content(device_id: str) -> None:
                     )
                 with ui.row().classes("items-end gap-4 flex-wrap"):
                     trig_src = (
-                        ui.number("Trigger Source (0-63)", value=0, min=0, max=63)
+                        ui.select(
+                            get_trigger_src_options(),
+                            label="Trigger Source",
+                            value=0,
+                        )
                         .props("dense outlined")
-                        .classes("w-40")
+                        .classes("w-52")
                     )
                     trig_rearm = ui.switch("Re-Arm").props("dense")
                     trig_rearm_time = (
@@ -623,7 +643,7 @@ def _ptrace_content(device_id: str) -> None:
                     "flat color=primary"
                 ).classes("mt-3")
 
-            # --- Trigger tab (alias view, same data shown differently) ---
+            # --- Trigger tab (reference info) ---
             with ui.tab_panel(tab_trigger):
                 ui.label(
                     "Trigger settings are integrated into the Capture Config tab's "
@@ -636,6 +656,12 @@ def _ptrace_content(device_id: str) -> None:
                 ).style(
                     f"color: {COLORS.text_muted}; font-size: 12px; "
                     "font-family: monospace; margin-top: 8px;"
+                )
+                ui.label(
+                    "For Flit mode trigger/condition settings, use the "
+                    "'Flit / Condition' tab."
+                ).style(
+                    f"color: {COLORS.text_muted}; font-size: 12px; margin-top: 4px;"
                 )
 
             # --- Filters tab ---
@@ -685,9 +711,9 @@ def _ptrace_content(device_id: str) -> None:
                         cb = ui.checkbox(name).props("dense").style("font-size: 12px;")
                         err_checkboxes[bit] = cb
 
-                ui.button("Apply Error Triggers", on_click=apply_error_triggers).props(
-                    "flat color=primary"
-                ).classes("mt-3")
+                ui.button(
+                    "Apply Error Triggers", on_click=apply_error_triggers
+                ).props("flat color=primary").classes("mt-3")
 
             # --- Event Counters tab ---
             with ui.tab_panel(tab_counters):
@@ -739,7 +765,13 @@ def _ptrace_content(device_id: str) -> None:
                     ui.button("Export CSV", on_click=export_csv).props("flat dense")
                     ui.button("Export Hex", on_click=export_hex).props("flat dense")
 
-                buf_summary = ui.label("Rows: -- | Trigger Row: -- | Triggered: --").style(
+                buf_summary = ui.label(
+                    "Rows: -- | Trigger Row: -- | Triggered: --"
+                ).style(
                     f"color: {COLORS.text_secondary}; font-size: 13px; margin-top: 8px;"
                 )
                 buf_table_container = ui.column().classes("w-full mt-2")
+
+            # --- Flit / Condition tab ---
+            with ui.tab_panel(tab_flit):
+                build_flit_tab(device_id, state, _api_url)
