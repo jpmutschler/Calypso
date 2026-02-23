@@ -77,6 +77,11 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.ltssm_trace import ltssm_trace_page
         ltssm_trace_page(device_id)
 
+    @ui.page("/switch/{device_id}/ptrace")
+    def ptrace(device_id: str):
+        from calypso.ui.pages.ptrace import ptrace_page
+        ptrace_page(device_id)
+
     @ui.page("/switch/{device_id}/errors")
     def errors(device_id: str):
         from calypso.ui.pages.error_overview import error_overview_page

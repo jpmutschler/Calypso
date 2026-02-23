@@ -1,10 +1,11 @@
-"""LTSSM state polling, retrain observation, and Ptrace capture.
+"""LTSSM state polling and retrain observation.
 
 Provides domain-level access to:
 - Live LTSSM state readback via Recovery Diagnostic register (0x3BC4)
 - Recovery count and link-down diagnostics
 - Retrain-and-watch: forces link retrain and records state transitions
-- Ptrace ingress capture with configurable LTSSM triggers
+
+PTrace (Protocol Trace) capture has been moved to ``calypso.core.ptrace``.
 """
 
 from __future__ import annotations
@@ -17,20 +18,12 @@ from calypso.hardware.atlas3 import station_register_base
 from calypso.hardware.atlas3_phy import (
     PhyAdditionalStatusRegister,
     PortControlRegister,
-    PtraceCaptureConfigRegister,
-    PtraceCaptureControlRegister,
-    PtraceCaptureStatusRegister,
-    PtraceTriggerCondRegister,
     RecoveryDiagnosticRegister,
     VendorPhyRegs,
 )
 from calypso.models.ltssm import (
     LtssmTopState,
     LtssmTransition,
-    PtraceCaptureEntry,
-    PtraceCaptureResult,
-    PtraceConfig,
-    PtraceStatusResponse,
     PortLtssmSnapshot,
     RetrainWatchProgress,
     RetrainWatchResult,
@@ -387,84 +380,3 @@ class LtssmTracer:
                 )
             raise
 
-    # -----------------------------------------------------------------
-    # Phase 2: Ptrace Capture
-    # -----------------------------------------------------------------
-
-    def configure_ptrace(self, config: PtraceConfig) -> None:
-        """Configure Ptrace capture parameters.
-
-        Args:
-            config: Ptrace configuration with trace point, lane, and trigger settings.
-                    port_select is auto-computed from the port number passed to __init__.
-        """
-        # Write capture config (use auto-computed port_select)
-        cap_cfg = PtraceCaptureConfigRegister(
-            cap_port_select=self._port_select,
-            trace_point_select=config.trace_point,
-            lane_select=config.lane_select,
-        )
-        self._write_vendor_reg(VendorPhyRegs.PTRACE_CAPTURE_CONFIG, cap_cfg.to_register())
-
-        # Write trigger condition
-        trigger = PtraceTriggerCondRegister(
-            ltssm_enable=config.trigger_on_ltssm,
-            ltssm_state_match=config.ltssm_trigger_state or 0,
-        )
-        self._write_vendor_reg(VendorPhyRegs.PTRACE_TRIGGER_COND_0, trigger.to_register())
-
-    def start_ptrace(self) -> None:
-        """Start Ptrace capture."""
-        ctrl = PtraceCaptureControlRegister(start_capture=True)
-        self._write_vendor_reg(VendorPhyRegs.PTRACE_CAPTURE_CONTROL, ctrl.to_register())
-
-    def stop_ptrace(self) -> None:
-        """Stop Ptrace capture."""
-        ctrl = PtraceCaptureControlRegister(stop_capture=True)
-        self._write_vendor_reg(VendorPhyRegs.PTRACE_CAPTURE_CONTROL, ctrl.to_register())
-
-    def clear_ptrace(self) -> None:
-        """Clear the Ptrace capture buffer."""
-        ctrl = PtraceCaptureControlRegister(clear_buffer=True)
-        self._write_vendor_reg(VendorPhyRegs.PTRACE_CAPTURE_CONTROL, ctrl.to_register())
-
-    def read_ptrace_status(self) -> PtraceStatusResponse:
-        """Read current Ptrace capture status."""
-        raw = self._read_vendor_reg(VendorPhyRegs.PTRACE_CAPTURE_STATUS)
-        status = PtraceCaptureStatusRegister.from_register(raw)
-        return PtraceStatusResponse(
-            capture_active=status.capture_active,
-            trigger_hit=status.trigger_hit,
-            entries_captured=status.entries_captured,
-        )
-
-    def read_ptrace_buffer(self, max_entries: int = 256) -> PtraceCaptureResult:
-        """Read captured data from the Ptrace buffer.
-
-        Args:
-            max_entries: Maximum number of entries to read.
-
-        Returns:
-            PtraceCaptureResult with captured entries.
-        """
-        status = self.read_ptrace_status()
-        count = min(status.entries_captured, max_entries)
-
-        entries: list[PtraceCaptureEntry] = []
-        for i in range(count):
-            # Write RAM address to select entry, then read data register
-            self._write_vendor_reg(VendorPhyRegs.PTRACE_RAM_ADDRESS, i)
-            raw = self._read_vendor_reg(VendorPhyRegs.PTRACE_RAM_DATA)
-            entries.append(
-                PtraceCaptureEntry(
-                    index=i,
-                    raw_data=f"0x{raw:08X}",
-                )
-            )
-
-        return PtraceCaptureResult(
-            port_number=self._port_number,
-            entries=entries,
-            trigger_hit=status.trigger_hit,
-            total_captured=status.entries_captured,
-        )

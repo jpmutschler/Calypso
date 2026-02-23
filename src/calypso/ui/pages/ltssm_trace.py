@@ -362,142 +362,6 @@ def _ltssm_trace_content(device_id: str) -> None:
                 row_key="timestamp_ms",
             ).props("dense flat dark").classes("w-full")
 
-    # --- Ptrace actions ---
-
-    async def configure_ptrace():
-        port = state["port_number"]
-        tp = int(ptrace_trace_point.value or 0)
-        lane = int(ptrace_lane.value or 0)
-        trigger_ltssm = ptrace_trigger_toggle.value
-        trigger_state = int(ptrace_trigger_state.value) if trigger_ltssm else None
-        try:
-            body = {
-                "port_number": port,
-                "trace_point": tp,
-                "lane_select": lane,
-                "trigger_on_ltssm": trigger_ltssm,
-            }
-            if trigger_state is not None:
-                body["ltssm_trigger_state"] = trigger_state
-            import json
-
-            body_json = json.dumps(body)
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/configure", {{'
-                f'method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"body: '{body_json}'"
-                f"}})).json()",
-                timeout=10.0,
-            )
-            if resp.get("detail"):
-                ui.notify(f"Error: {resp['detail']}", type="negative")
-                return
-            ui.notify("Ptrace configured", type="positive")
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    async def start_ptrace_capture():
-        port = state["port_number"]
-        try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/start", {{'
-                f'method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"body: JSON.stringify({{port_number: {port}}})"
-                f"}})).json()",
-                timeout=10.0,
-            )
-            if resp.get("detail"):
-                ui.notify(f"Error: {resp['detail']}", type="negative")
-                return
-            ui.notify("Ptrace capture started", type="positive")
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    async def stop_ptrace_capture():
-        port = state["port_number"]
-        try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/stop", {{'
-                f'method: "POST", headers: {{"Content-Type": "application/json"}},'
-                f"body: JSON.stringify({{port_number: {port}}})"
-                f"}})).json()",
-                timeout=10.0,
-            )
-            if resp.get("detail"):
-                ui.notify(f"Error: {resp['detail']}", type="negative")
-                return
-            ui.notify("Ptrace capture stopped", type="positive")
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    async def read_ptrace_status():
-        port = state["port_number"]
-        try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/status?port_number={port}")).json()',
-                timeout=10.0,
-            )
-            if resp.get("detail"):
-                ui.notify(f"Error: {resp['detail']}", type="negative")
-                return
-            active = resp.get("capture_active", False)
-            triggered = resp.get("trigger_hit", False)
-            entries = resp.get("entries_captured", 0)
-            ptrace_status_label.set_text(
-                f"Active: {'Yes' if active else 'No'} | "
-                f"Trigger Hit: {'Yes' if triggered else 'No'} | "
-                f"Entries: {entries}"
-            )
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    async def read_ptrace_buffer():
-        port = state["port_number"]
-        try:
-            resp = await ui.run_javascript(
-                f'return await (await fetch("/api/devices/{device_id}'
-                f'/ltssm/ptrace/buffer?port_number={port}&max_entries=256")).json()',
-                timeout=10.0,
-            )
-            if resp.get("detail"):
-                ui.notify(f"Error: {resp['detail']}", type="negative")
-                return
-            _render_ptrace_data(resp)
-        except Exception as e:
-            ui.notify(f"Error: {e}", type="negative")
-
-    def _render_ptrace_data(data: dict):
-        entries = data.get("entries", [])
-        ptrace_data_card.set_visibility(True)
-        ptrace_data_container.clear()
-        with ptrace_data_container:
-            if not entries:
-                ui.label("No captured data").style(f"color: {COLORS.text_muted};")
-                return
-            rows = [{"index": str(e["index"]), "raw_data": e["raw_data"]} for e in entries]
-            columns = [
-                {"name": "index", "label": "Index", "field": "index", "align": "left"},
-                {
-                    "name": "raw_data",
-                    "label": "Raw Data (hex)",
-                    "field": "raw_data",
-                    "align": "left",
-                },
-            ]
-            with ui.row().classes("w-full items-center gap-4 mb-2"):
-                ui.label(
-                    f"Total captured: {data.get('total_captured', 0)} | "
-                    f"Trigger hit: {'Yes' if data.get('trigger_hit') else 'No'}"
-                ).style(f"color: {COLORS.text_secondary}; font-size: 13px;")
-            ui.table(
-                columns=columns,
-                rows=rows,
-                row_key="index",
-            ).props("dense flat dark").classes("w-full")
 
     # =====================================================================
     # Page Layout
@@ -612,73 +476,19 @@ def _ltssm_trace_content(device_id: str) -> None:
         ui.label("Transition Log").classes("text-h6").style(f"color: {COLORS.text_primary};")
         transition_table_container = ui.column().classes("w-full mt-2")
 
-    # --- Ptrace Configuration card ---
+    # --- Protocol Trace link card ---
     with (
         ui.card()
         .classes("w-full p-4")
         .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
     ):
-        ui.label("Ptrace Capture").classes("text-h6").style(f"color: {COLORS.text_primary};")
-        with ui.row().classes("items-end gap-4 mt-2"):
-            ptrace_trace_point = (
-                ui.number(
-                    "Trace Point",
-                    value=0,
-                    min=0,
-                    max=15,
-                    step=1,
-                )
-                .props("dense outlined")
-                .classes("w-28")
-            )
-
-            ptrace_lane = (
-                ui.number(
-                    "Lane Select",
-                    value=0,
-                    min=0,
-                    max=15,
-                    step=1,
-                )
-                .props("dense outlined")
-                .classes("w-28")
-            )
-
-            ptrace_trigger_toggle = ui.switch("LTSSM Trigger").props("dense")
-
-            # Build LTSSM top-state options for dropdown
-            ltssm_options = {s.value: s.name for s in LtssmTopState}
-            ptrace_trigger_state = (
-                ui.select(
-                    ltssm_options,
-                    label="Trigger State",
-                    value=LtssmTopState.L0,
-                )
-                .props("dense outlined")
-                .classes("w-48")
-            )
-
-        with ui.row().classes("items-center gap-4 mt-2"):
-            ui.button("Configure", on_click=configure_ptrace).props("flat color=primary")
-            ui.button("Start", on_click=start_ptrace_capture).props("flat color=positive")
-            ui.button("Stop", on_click=stop_ptrace_capture).props("flat color=warning")
-            ui.button("Read Status", on_click=read_ptrace_status).props("flat")
-            ui.button("Read Buffer", on_click=read_ptrace_buffer).props("flat color=info")
-
-        ptrace_status_label = ui.label("Status: --").style(
-            f"color: {COLORS.text_secondary}; font-size: 13px; margin-top: 8px;"
-        )
-
-    # --- Ptrace data card ---
-    ptrace_data_card = (
-        ui.card()
-        .classes("w-full p-4")
-        .style(f"background: {COLORS.bg_secondary}; border: 1px solid {COLORS.border}")
-    )
-    ptrace_data_card.set_visibility(False)
-    with ptrace_data_card:
-        ui.label("Ptrace Captured Data").classes("text-h6").style(f"color: {COLORS.text_primary};")
-        ptrace_data_container = ui.column().classes("w-full mt-2")
+        ui.label("Protocol Trace").classes("text-h6").style(f"color: {COLORS.text_primary};")
+        ui.label(
+            "PTrace has been moved to its own dedicated page with full "
+            "trigger, filter, and 600-bit buffer support."
+        ).style(f"color: {COLORS.text_secondary}; font-size: 13px; margin-top: 4px;")
+        with ui.link(target=f"/switch/{device_id}/ptrace").classes("no-decoration"):
+            ui.button("Open Protocol Trace").props("flat color=primary").classes("mt-2")
 
 
 def _snapshot_stat(label: str, value: str, subtitle: str, color: str) -> None:

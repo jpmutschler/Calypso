@@ -1,4 +1,8 @@
-"""LTSSM trace and Ptrace capture API endpoints."""
+"""LTSSM trace API endpoints (state polling, retrain-and-watch).
+
+PTrace (Protocol Trace) capture endpoints have been moved to
+``calypso.api.routes.ptrace``.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +15,6 @@ from pydantic import BaseModel, Field
 from calypso.exceptions import CalypsoError
 from calypso.models.ltssm import (
     PortLtssmSnapshot,
-    PtraceConfig,
-    PtraceCaptureResult,
-    PtraceStatusResponse,
     RetrainWatchProgress,
     RetrainWatchResult,
 )
@@ -155,117 +156,3 @@ async def get_retrain_watch_result(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Phase 2: Ptrace Capture
-# ---------------------------------------------------------------------------
-
-
-class PtraceConfigRequest(BaseModel):
-    port_number: int = Field(0, ge=0, le=143)
-    trace_point: int = Field(0, ge=0, le=15)
-    lane_select: int = Field(0, ge=0, le=15)
-    trigger_on_ltssm: bool = False
-    ltssm_trigger_state: int | None = Field(None, ge=0, le=0xA)
-
-
-@router.post("/devices/{device_id}/ltssm/ptrace/configure")
-async def configure_ptrace(
-    device_id: str,
-    body: PtraceConfigRequest,
-) -> dict[str, str]:
-    """Configure Ptrace capture parameters."""
-    tracer = _get_tracer(device_id, body.port_number)
-    config = PtraceConfig(
-        trace_point=body.trace_point,
-        lane_select=body.lane_select,
-        trigger_on_ltssm=body.trigger_on_ltssm,
-        ltssm_trigger_state=body.ltssm_trigger_state,
-    )
-    try:
-        await asyncio.to_thread(tracer.configure_ptrace, config)
-    except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to configure Ptrace for port {body.port_number}: {exc}",
-        ) from exc
-    return {"status": "configured"}
-
-
-class PtracePortRequest(BaseModel):
-    port_number: int = Field(0, ge=0, le=143)
-
-
-@router.post("/devices/{device_id}/ltssm/ptrace/start")
-async def start_ptrace(
-    device_id: str,
-    body: PtracePortRequest,
-) -> dict[str, str]:
-    """Start Ptrace capture."""
-    tracer = _get_tracer(device_id, body.port_number)
-    try:
-        await asyncio.to_thread(tracer.start_ptrace)
-    except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to start Ptrace for port {body.port_number}: {exc}",
-        ) from exc
-    return {"status": "started"}
-
-
-@router.post("/devices/{device_id}/ltssm/ptrace/stop")
-async def stop_ptrace(
-    device_id: str,
-    body: PtracePortRequest,
-) -> dict[str, str]:
-    """Stop Ptrace capture."""
-    tracer = _get_tracer(device_id, body.port_number)
-    try:
-        await asyncio.to_thread(tracer.stop_ptrace)
-    except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to stop Ptrace for port {body.port_number}: {exc}",
-        ) from exc
-    return {"status": "stopped"}
-
-
-@router.get(
-    "/devices/{device_id}/ltssm/ptrace/status",
-    response_model=PtraceStatusResponse,
-)
-async def get_ptrace_status(
-    device_id: str,
-    port_number: int = Query(0, ge=0, le=143),
-) -> PtraceStatusResponse:
-    """Read current Ptrace capture status."""
-    tracer = _get_tracer(device_id, port_number)
-    try:
-        return await asyncio.to_thread(tracer.read_ptrace_status)
-    except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to read Ptrace status for port {port_number}: {exc}",
-        ) from exc
-
-
-@router.get(
-    "/devices/{device_id}/ltssm/ptrace/buffer",
-    response_model=PtraceCaptureResult,
-)
-async def get_ptrace_buffer(
-    device_id: str,
-    port_number: int = Query(0, ge=0, le=143),
-    max_entries: int = Query(256, ge=1, le=4096),
-) -> PtraceCaptureResult:
-    """Read captured data from the Ptrace buffer.
-
-    Runs in executor to avoid blocking the event loop on large reads.
-    """
-    tracer = _get_tracer(device_id, port_number)
-    try:
-        return await asyncio.to_thread(tracer.read_ptrace_buffer, max_entries)
-    except CalypsoError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to read Ptrace buffer for port {port_number}: {exc}",
-        ) from exc
