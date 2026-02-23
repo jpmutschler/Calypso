@@ -288,11 +288,12 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
 | Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
 | Compliance | `POST /{id}/compliance/start`, `GET /{id}/compliance/progress`, `GET /{id}/compliance/result`, `POST /{id}/compliance/cancel`, `GET /{id}/compliance/report` | PCIe compliance testing + HTML reports |
-| Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear` | PCIe config space |
+| Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear`, `POST /{id}/config-write` | PCIe config space (port-targeted) |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
-| PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `GET /{id}/phy/lane-margining`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer |
+| PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer (port-aware) |
 | Margining | `GET /{id}/phy/margining/capabilities`, `POST /{id}/phy/margining/sweep`, `GET /{id}/phy/margining/progress`, `GET /{id}/phy/margining/result`, `POST /{id}/phy/margining/reset`, `POST /{id}/phy/margining/sweep-pam4`, `GET /{id}/phy/margining/progress-pam4`, `GET /{id}/phy/margining/result-pam4` | Lane margining (NRZ + PAM4 3-eye) |
 | LTSSM | `GET /{id}/ltssm/snapshot`, `POST /{id}/ltssm/retrain`, `GET /{id}/ltssm/retrain/progress`, `GET /{id}/ltssm/retrain/result`, `POST /{id}/ltssm/clear-counters`, `POST /{id}/ltssm/ptrace/configure`, `POST /{id}/ltssm/ptrace/start`, `POST /{id}/ltssm/ptrace/stop`, `GET /{id}/ltssm/ptrace/status`, `GET /{id}/ltssm/ptrace/buffer` | LTSSM state trace + Ptrace capture |
+| PTrace | `POST /{id}/ptrace/configure`, `POST /{id}/ptrace/start`, `POST /{id}/ptrace/stop`, `POST /{id}/ptrace/clear`, `POST /{id}/ptrace/manual-trigger`, `GET /{id}/ptrace/status`, `GET /{id}/ptrace/buffer`, `POST /{id}/ptrace/filter`, `POST /{id}/ptrace/filter-control`, `POST /{id}/ptrace/condition-attributes`, `POST /{id}/ptrace/condition-data`, `POST /{id}/ptrace/error-trigger`, `POST /{id}/ptrace/event-counter` | Protocol trace capture + Flit mode (A0) |
 | MCU | `GET /mcu/discover`, `POST /mcu/connect`, `GET /mcu/health`, `GET /mcu/ports`, `GET /mcu/errors`, `GET /mcu/config/*`, `POST /mcu/bist` | MCU serial |
 | NVMe-MI | `GET /mcu/nvme/discover`, `GET /mcu/nvme/health`, `GET /mcu/nvme/drive` | NVMe-MI over MCTP drive discovery and health |
 | Workloads | `GET /workloads/backends`, `POST /workloads/start`, `POST /workloads/{id}/stop`, `GET /workloads/{id}`, `GET /workloads`, `GET /workloads/{id}/combined/{device_id}`, `WS /workloads/{id}/stream` | NVMe workload generation + live progress |
@@ -316,11 +317,12 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Configuration | `/switch/{id}/config` | Virtual switch and multi-host config |
 | Topology | `/switch/{id}/topology` | Fabric topology with connector health, hardware reference, downstream device identification |
 | Error Overview | `/switch/{id}/errors` | Combined AER, MCU, and LTSSM error view with per-port breakdown |
-| Registers | `/switch/{id}/registers` | Config space browser, capabilities, AER, link control, device control |
+| Registers | `/switch/{id}/registers` | Port-targeted config space browser with annotated hex dump, clickable expandable capabilities, register decode, config write with confirmation, AER, link control, device control |
 | EEPROM | `/switch/{id}/eeprom` | Hex viewer, write with confirmation, CRC management |
-| PHY Monitor | `/switch/{id}/phy` | Equalization, SerDes, UTP testing, lane margining |
+| PHY Monitor | `/switch/{id}/phy` | Port-aware link & EQ (16/32/64 GT/s), UTP testing with auto-poll SerDes, PHY register browser |
 | Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |
 | LTSSM Trace | `/switch/{id}/ltssm` | LTSSM state polling, retrain-and-watch with state transition chart, Ptrace capture |
+| Protocol Trace | `/switch/{id}/ptrace` | Embedded protocol analyzer with capture config, hardware trigger/filter, Flit mode condition matching, 28-bit error triggers, event counters, 600-bit trace buffer with CSV/hex export, auto-poll status |
 | Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 

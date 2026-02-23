@@ -30,6 +30,7 @@ Version 0.1.0
    - 5.15 [MCU Pages](#515-mcu-pages)
    - 5.16 [I2C/I3C Bus Explorer](#516-i2ci3c-bus-explorer)
    - 5.17 [NVMe Drives](#517-nvme-drives)
+   - 5.18 [Protocol Trace](#518-protocol-trace)
 6. [Hardware Reference](#6-hardware-reference)
 7. [Appendix A: REST API Reference](#appendix-a-rest-api-reference)
 8. [Appendix B: CLI Reference](#appendix-b-cli-reference)
@@ -419,29 +420,52 @@ Unrecognized class/subclass combinations display as `Class 0xNN:NN`.
 
 **Route:** `/switch/{device_id}/registers`
 
-A comprehensive PCIe configuration space browser with specialized views for capabilities, device control, link status, and AER.
+A comprehensive PCIe configuration space browser with port targeting, annotated hex dump, expandable capabilities with register decode, config space write support, and specialized views for device control, link status, and AER.
+
+#### Port Selector
+
+All register operations target a specific switch port. The port dropdown at the top lists all ports (both UP and DOWN) with link state. Selecting a port automatically reloads all sections. Each API call opens a per-port device handle, so reads and writes reflect the selected downstream port's config space -- not just the management port.
 
 #### Config Space Dump
 
 Read raw configuration space registers:
 
-1. Set **Offset** (DWORD-aligned hex) and **Count** (number of DWORDs)
-2. Click **Read**
-3. View formatted hex dump (4 DWORDs per row with offset column)
+1. Select a **Target Port** from the dropdown
+2. Set **Offset** (DWORD-aligned hex) and **Count** (number of DWORDs, max 256)
+3. Click **Read**
+4. View annotated hex dump (4 DWORDs per row with offset column)
+
+The hex dump annotates each row with human-readable register names when recognized. Standard PCI header registers (0x00-0x3C) and PCI Express capability registers are decoded with field names displayed in cyan alongside the raw hex values. For example, offset 0x00 shows "Vendor/Device ID", offset 0x0C shows "Link Capabilities", etc.
 
 #### Capabilities
 
-After reading config space, the discovered PCI and PCIe Extended capabilities appear in a table:
+After reading config space, the discovered PCI and PCIe Extended capabilities appear as expandable sections:
 
-| Column | Description |
-|--------|-------------|
-| ID | Capability ID (hex) |
-| Name | Human-readable capability name |
-| Offset | Config space offset (hex) |
-| Version | Capability version (extended caps only) |
+Each capability header shows:
+- Capability ID (hex), human-readable name, and config space offset
+- Version number (for extended capabilities)
+
+Clicking a capability expands it to show:
+- **"Scroll to" button** -- scrolls the hex dump to the capability's offset and highlights it with a brief cyan flash animation
+- **Decoded fields** for recognized capabilities:
+  - **PCI Express**: Max Payload Supported, FLR Capable, Ext Tag, Max Speed, Max Width, Port Number, Current Speed/Width, DLL Active
+  - **AER**: Uncorrectable and correctable error flags with per-bit status indicators
+- **Raw DWORDs** for unrecognized capabilities (first 4 DWORDs)
 
 Standard capabilities: Power Management, MSI, MSI-X, PCI Express, etc.
 Extended capabilities: AER, SR-IOV, ACS, LTR, L1 PM, Lane Margining, Physical Layer 16/32/64 GT/s, etc.
+
+#### Config Space Write
+
+> **Warning:** Config space writes are powerful and can affect device behavior. Use with caution.
+
+1. Enter **Offset** (hex, DWORD-aligned) and **Value** (hex, 32-bit)
+2. Click **Write**
+3. A confirmation dialog shows the offset, value, and target port number
+4. Click **Write** to confirm or **Cancel** to abort
+5. On success, the hex dump auto-refreshes to show the new value
+
+All writes are audit-logged on the server with device ID, port, offset, old value, and new value.
 
 #### Device Control
 
@@ -489,7 +513,7 @@ The **Header Log** (4 DWORDs) is displayed for diagnostic analysis of the first 
 
 Click **Clear Errors** to write-1-to-clear both status registers.
 
-<!-- Screenshot: Registers page showing AER status with active errors highlighted -->
+<!-- Screenshot: Registers page showing annotated hex dump with clickable capabilities and port selector -->
 
 ---
 
@@ -534,21 +558,31 @@ Click **Probe** to read EEPROM presence and validity:
 
 **Route:** `/switch/{device_id}/phy`
 
-Comprehensive PHY-layer monitoring and diagnostics.
+Comprehensive PHY-layer monitoring and diagnostics with port-aware reads and a tabbed interface.
 
-#### Global Controls
+#### Port Selector
 
-- **Port Number** -- target physical port (range depends on chip variant, e.g., 0-143 for PEX90144)
-- **Num Lanes** (1-16) -- number of lanes to query
-- **Refresh All** -- reload all sections
+The port selector dropdown at the top lists all ports with active links (showing role, width, and speed). Selecting a port reloads the Link & EQ tab data and updates the link summary badges below the selector.
 
-#### Supported Link Speeds
+**Link Summary** badges show the selected port's:
+- Link status (UP/DOWN)
+- Negotiated speed (e.g., Gen4 16.0 GT/s)
+- Port role (USP/DSP)
+- Link width (e.g., x16)
 
-Displays Gen1 through Gen6 support with checkmark (green) or cancel (gray) icons per generation.
+**Num Lanes** (1-16) -- number of lanes to query for lane-level operations.
 
-#### Equalization Status
+The page is organized into three tabs: **Link & EQ**, **UTP Testing**, and **Registers**.
 
-Two-column display for 16 GT/s and 32 GT/s equalization:
+#### Tab 1: Link & EQ
+
+##### Supported Link Speeds
+
+Displays Gen1 through Gen6 support with checkmark (green) or cancel (gray) icons per generation. Reads the Link Capabilities 2 register from the selected port (not just the management port).
+
+##### Equalization Status
+
+Three-column display for **16 GT/s**, **32 GT/s**, and **64 GT/s** equalization:
 
 | Field | Description |
 |-------|-------------|
@@ -557,46 +591,59 @@ Two-column display for 16 GT/s and 32 GT/s equalization:
 | Link EQ Request | EQ re-requested |
 | Modified TS Received | (32 GT/s only) Modified training sequences |
 | RX Lane Margin Capable | (32 GT/s only) Lane margining support |
-| No EQ Needed | (32 GT/s only) EQ bypass available |
+| No EQ Needed | (32/64 GT/s) EQ bypass available |
+| FLIT Mode | (64 GT/s only) FLIT mode support detected |
 
-#### Lane Equalization Settings (16 GT/s)
+The 64 GT/s column reads from the Physical Layer 64 GT/s Extended Capability (cap ID 0x0031), which is only present on Gen6-capable ports. Each column shows raw register values for debug reference.
+
+EQ data is read from the selected downstream port's config space by opening a per-port device handle, so equalization status reflects the actual link partner negotiation on that port.
+
+##### Lane Equalization Settings (16 GT/s)
 
 Per-lane table showing downstream and upstream TX preset and RX hint values.
 
-#### SerDes Diagnostics
+#### Tab 2: UTP Testing
 
-Per-lane diagnostic status:
+Run PRBS and fixed-pattern tests across lanes with automatic SerDes monitoring.
+
+##### Configure
+
+1. Select **Pattern**: PRBS-7, PRBS-15, PRBS-31, Alternating, Walking Ones, All Zeros, All Ones
+2. Select **Rate**: Gen1 (2.5 GT/s) through Gen6 (64 GT/s)
+3. Set **Port Select** (0-15)
+4. Click **Prepare Test** to load the pattern into the PHY
+
+##### SerDes Results
+
+After preparing a test, the SerDes results section provides:
+
+- **Start Monitoring** -- begins automatic polling (1-second interval) of UTP results, continuously updating the results table
+- **Stop** -- stops automatic polling
+- **Refresh** -- single manual read of results
+- **Clear All Errors** -- resets error counters on all lanes simultaneously
+
+The results table shows per-lane data:
 
 | Column | Description |
 |--------|-------------|
 | Lane | Lane index |
-| Status | SYNC, NO SYNC, PASS, or FAIL |
-| Error Count | Accumulated bit errors |
-| Expected | Expected pattern (hex) |
-| Actual | Received pattern (hex) |
+| Status | SYNC/NO SYNC with PASS/FAIL verdict |
+| Error Count | Accumulated bit errors (red highlight when > 0) |
+| Expected | Expected pattern on error (hex) |
+| Actual | Received pattern on error (hex) |
 
-**Clear Errors** button resets counters for a selected lane.
+A summary row shows total passed/failed lanes. The monitoring workflow makes it easy to load a pattern, start watching for errors, and observe live error accumulation.
 
-#### Port Control and PHY Cmd/Status
+#### Tab 3: Registers
 
-Raw register views for vendor-specific port control (0x3208) and PHY command/status (0x321C) registers.
+Raw register views for vendor-specific PHY registers:
 
-#### User Test Pattern (UTP)
+- **Port Control** (register 0x3208) -- port-level control settings
+- **PHY Cmd/Status** (register 0x321C) -- PHY command and status interface
 
-Run PRBS and fixed-pattern tests across lanes:
+Both are collapsed by default and load lazily when expanded.
 
-1. Select **Pattern**: PRBS-7, PRBS-15, PRBS-31, Alternating, Walking Ones, All Zeros, All Ones
-2. Select **Rate**: Gen1 (2.5 GT/s) through Gen6 (64 GT/s)
-3. Set **Port Select**
-4. Click **Prepare Test**, then **Read Results**
-
-Results table shows per-lane sync status, error count, and pass/fail. Summary shows total passed/failed lanes.
-
-#### Lane Margining
-
-Check for Lane Margining at Receiver extended capability. If present, displays the capability offset. Navigate to the [Eye Diagram](#510-eye-diagram) page for full sweep visualization.
-
-<!-- Screenshot: PHY Monitor showing equalization status and SerDes diagnostics -->
+<!-- Screenshot: PHY Monitor showing 3-column EQ status with 64 GT/s and UTP monitoring -->
 
 ---
 
@@ -733,6 +780,8 @@ Hardware-level protocol trace capture using the Atlas3 Ptrace engine:
 4. Click **Stop**, then **Read Buffer** to retrieve captured data
 
 Ptrace entries are displayed in a table with index and raw data (hex).
+
+> For full PTrace control including advanced triggering, Flit mode conditions, and filter configuration, use the dedicated **Protocol Trace** page (`/switch/{id}/ptrace`). See [Section 5.18](#518-protocol-trace).
 
 <!-- Screenshot: LTSSM Trace showing retrain state transition chart -->
 
@@ -1098,6 +1147,103 @@ Expandable section per drive showing per-controller breakdown with temperature, 
 
 ---
 
+### 5.18 Protocol Trace
+
+**Route:** `/switch/{device_id}/ptrace`
+
+The Protocol Trace page provides full control over the Atlas3 embedded protocol analyzer (PTrace). PTrace captures TLP headers/payloads, DLLPs, and ordered sets at ingress and egress points within each station, with hardware triggering, filtering, and a 600-bit-wide trace buffer (up to 4096 rows per direction). Supports A0 silicon with Gen6 Flit mode condition matching.
+
+#### Control Bar
+
+- **Port Number** (0-143) and **Direction** (Ingress/Egress) selectors
+- **Start/Stop** capture, **Clear** triggered flag, **Manual Trigger**, **Read Status** buttons
+- **Auto-poll status** (1-second interval toggle)
+
+#### Status Display
+
+Shows: Capture state (ACTIVE/IDLE), Triggered flag, Buffer Wrapped, RAM Init Done, Compress Count, Start/Trigger/Last/Global timestamps, Trigger Row Address, Port Error Status
+
+#### Tab 1: Capture Config
+
+Full capture and trigger configuration in one place:
+
+- **Trace Point**: Accum/Distrib, Unscram/OSGen, Deskew/Scram, Scrambled
+- **Lane**: 0-15
+- **Filter toggles**: Filter Enable, Compress, NOP Filter, IDLE Filter, Data Capture, Raw Filter, Trig Out Mask
+- **Post-Trigger**: Clock Count (0-65535), Cap Count (0-2047), Clock Multiplier (0-7), Count Type (Disabled/Clock/Capture/Both)
+- **Trigger Source**: Labeled dropdown with all trigger sources (Manual, Cond0, Cond1, Cond0 AND/OR/XOR/THEN Cond1, Event Counter Threshold, TriggerIn OR, Cond0 Then Delay, Port Error)
+- **Re-Arm**: Enable toggle and time value
+- **Condition Enable/Invert**: 32-bit hex values for Cond0 and Cond1 enable and invert masks
+- **Apply Full Config** button writes all settings in one atomic operation (disable, clear, configure, re-enable)
+
+#### Tab 2: Trigger (Reference)
+
+Documents condition bit positions (LinkSpeed, DLLPType, OSType, Symbol0-9, LTSSM, LinkWidth) and directs users to the Flit/Condition tab for advanced settings.
+
+#### Tab 3: Filters
+
+Two 512-bit hardware filters (Filter 0 and Filter 1):
+
+- **Match** and **Mask** inputs (128 hex characters each = 512 bits)
+- Data is written using interleaved match/mask DWORD pairs
+- Per-filter **Apply** button
+
+#### Tab 4: Error Triggers
+
+28 checkboxes for PCIe error conditions that can trigger capture:
+
+**Correctable:**
+- Receiver Error, Bad TLP, Bad DLLP, Replay Num Rollover, Replay Timer Timeout, Advisory Non-Fatal, Corrected Internal, Header Log Overflow
+
+**Uncorrectable:**
+- Data Link Protocol, Surprise Down, Poisoned TLP, Flow Control Protocol, Completion Timeout, Completer Abort, Unexpected Completion, Receiver Overflow, Malformed TLP, ECRC Error, Unsupported Request, ACS Violation, Uncorrectable Internal
+
+**Gen6-specific:**
+- Poisoned TLP Egress Blocked, DPC Triggered, Surprise Down Error, Translation Egress Block, Framing Error, FEC Correctable, FEC Uncorrectable
+
+#### Tab 5: Event Counters
+
+Two hardware event counters (Counter 0 and Counter 1):
+
+- **Event Source** (0-63) and **Threshold** (0-65535)
+- Used with "Event Counter Threshold" trigger source
+
+#### Tab 6: Buffer
+
+- **Max Rows** (1-4096, default 256)
+- **Read Buffer** retrieves trace data and displays in a paginated table (Row index, Data hex)
+- Summary: row count, trigger row, triggered flag, wrapped flag
+- **Export CSV**: downloads buffer as CSV with row_index and 19 DWORD columns
+- **Export Hex**: downloads buffer as text with one hex string per row
+
+#### Tab 7: Flit / Condition (A0 Only)
+
+Advanced Gen6 Flit mode configuration for A0 silicon. Sections are conditionally active based on hardware variant.
+
+##### Filter Control
+
+- Filter Source Selection dropdown (Filter0 Only, Filter1 Only, Filter0 OR 1, NOT Filter0, NOT Filter1, NOT Filter0 OR 1)
+- Filter Match Sel 0/1 dropdowns (Match All, Match DW1, Match DW1-4, DW1-8, DW1-12, DW1-16, H Slot, H or G)
+- DLLP Type Enable/Invert, OS Type Enable/Invert toggles
+- CXL IO Filter, CXL Cache Filter, CXL Mem Filter, Filter 256B toggles
+
+##### Condition Attributes (Cond0 and Cond1)
+
+- Link Speed (0-15) with mask, Link Width (0-7) with mask
+- DLLP Type (0-255) with mask, OS Type (0-255) with mask
+- LTSSM State (0-511) with mask
+- Flit Mode and CXL Mode toggles with masks
+- Per-condition **Apply** button
+
+##### Condition Data (Cond0 and Cond1)
+
+- 128-char hex Match and Mask inputs (512-bit condition data blocks)
+- Per-condition **Apply** button
+
+<!-- Screenshot: Protocol Trace page showing capture config, status display, and buffer tab -->
+
+---
+
 ## 6. Hardware Reference
 
 ### Supported Chip Variants
@@ -1285,15 +1431,16 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/devices/{id}/config-space` | Read config space. Params: `offset`, `count` |
-| `GET` | `/api/devices/{id}/capabilities` | List PCI/PCIe capabilities |
-| `GET` | `/api/devices/{id}/device-control` | Read device control (MPS/MRRS) |
-| `POST` | `/api/devices/{id}/device-control` | Write device control. Body: `{mps, mrrs}` |
-| `GET` | `/api/devices/{id}/link` | Read link capabilities and status |
-| `POST` | `/api/devices/{id}/link/retrain` | Initiate link retrain |
-| `POST` | `/api/devices/{id}/link/target-speed` | Set target speed. Body: `{speed: 1-6}` |
-| `GET` | `/api/devices/{id}/aer` | Read AER status |
-| `POST` | `/api/devices/{id}/aer/clear` | Clear AER error registers |
+| `GET` | `/api/devices/{id}/config-space` | Read config space. Params: `offset`, `count`, `port_number` |
+| `GET` | `/api/devices/{id}/capabilities` | List PCI/PCIe capabilities. Params: `port_number` |
+| `GET` | `/api/devices/{id}/device-control` | Read device control (MPS/MRRS). Params: `port_number` |
+| `POST` | `/api/devices/{id}/device-control` | Write device control. Body: `{mps, mrrs}`. Params: `port_number` |
+| `GET` | `/api/devices/{id}/link` | Read link capabilities and status. Params: `port_number` |
+| `POST` | `/api/devices/{id}/link/retrain` | Initiate link retrain. Params: `port_number` |
+| `POST` | `/api/devices/{id}/link/target-speed` | Set target speed. Body: `{speed: 1-6}`. Params: `port_number` |
+| `GET` | `/api/devices/{id}/aer` | Read AER status. Params: `port_number` |
+| `POST` | `/api/devices/{id}/aer/clear` | Clear AER error registers. Params: `port_number` |
+| `POST` | `/api/devices/{id}/config-write` | Write config DWORD. Body: `{offset, value}`. Params: `port_number` |
 
 ### EEPROM
 
@@ -1309,14 +1456,13 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/devices/{id}/phy/speeds` | Supported link speed vector |
-| `GET` | `/api/devices/{id}/phy/eq-status` | Equalization status (16/32 GT/s) |
+| `GET` | `/api/devices/{id}/phy/speeds` | Supported link speed vector. Params: `port_number` |
+| `GET` | `/api/devices/{id}/phy/eq-status` | Equalization status (16/32/64 GT/s). Params: `port_number` |
 | `GET` | `/api/devices/{id}/phy/lane-eq` | Lane EQ settings. Params: `port_number`, `num_lanes` |
 | `GET` | `/api/devices/{id}/phy/serdes-diag` | SerDes diagnostics. Params: `port_number`, `num_lanes` |
 | `POST` | `/api/devices/{id}/phy/serdes-diag/clear` | Clear SerDes errors. Params: `port_number`. Body: `{lane}` |
 | `GET` | `/api/devices/{id}/phy/port-control` | Port control register. Params: `port_number` |
 | `GET` | `/api/devices/{id}/phy/cmd-status` | PHY cmd/status register. Params: `port_number` |
-| `GET` | `/api/devices/{id}/phy/lane-margining` | Check lane margining capability |
 | `POST` | `/api/devices/{id}/phy/utp/prepare` | Prepare UTP test. Params: `port_number`. Body: `{preset, rate, port_select}` |
 | `GET` | `/api/devices/{id}/phy/utp/results` | Read UTP results. Params: `port_number`, `num_lanes` |
 | `POST` | `/api/devices/{id}/phy/utp/load` | Load UTP pattern. Params: `port_number`. Body: `{preset, pattern_hex}` |
@@ -1343,6 +1489,24 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `POST` | `/api/devices/{id}/ltssm/ptrace/stop` | Stop Ptrace. Body: `{port_number}` |
 | `GET` | `/api/devices/{id}/ltssm/ptrace/status` | Ptrace status. Params: `port_number` |
 | `GET` | `/api/devices/{id}/ltssm/ptrace/buffer` | Read Ptrace buffer. Params: `port_number`, `max_entries` |
+
+### PTrace
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/devices/{id}/ptrace/configure` | Full configure (capture, trigger, post-trigger, filters, conditions). Body: `PTraceFullConfigureRequest` |
+| `POST` | `/api/devices/{id}/ptrace/start` | Start capture. Body: `{port_number, direction}` |
+| `POST` | `/api/devices/{id}/ptrace/stop` | Stop capture. Body: `{port_number, direction}` |
+| `POST` | `/api/devices/{id}/ptrace/clear` | Clear triggered flag. Body: `{port_number, direction}` |
+| `POST` | `/api/devices/{id}/ptrace/manual-trigger` | Issue manual trigger. Body: `{port_number, direction}` |
+| `GET` | `/api/devices/{id}/ptrace/status` | Read capture status and timestamps. Params: `port_number`, `direction` |
+| `GET` | `/api/devices/{id}/ptrace/buffer` | Read trace buffer. Params: `port_number`, `direction`, `max_rows` |
+| `POST` | `/api/devices/{id}/ptrace/filter` | Write 512-bit filter. Body: `PTraceFilterCfg`. Params: `port_number`, `direction` |
+| `POST` | `/api/devices/{id}/ptrace/filter-control` | Write filter control (A0 only, 501 on B0). Body: `{port_number, direction, config}` |
+| `POST` | `/api/devices/{id}/ptrace/condition-attributes` | Write condition attributes (A0 only, 501 on B0). Body: `{port_number, direction, config}` |
+| `POST` | `/api/devices/{id}/ptrace/condition-data` | Write 512-bit condition data (A0 only, 501 on B0). Body: `{port_number, direction, config}` |
+| `POST` | `/api/devices/{id}/ptrace/error-trigger` | Configure error trigger mask. Body: `{port_number, direction, error_mask}` |
+| `POST` | `/api/devices/{id}/ptrace/event-counter` | Configure event counter. Body: `{port_number, direction, counter_id, event_source, threshold}` |
 
 ### Errors
 
