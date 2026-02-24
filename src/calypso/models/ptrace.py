@@ -157,8 +157,8 @@ class PTraceConditionAttrCfg(BaseModel):
     dlp0_mask: int = Field(0, ge=0, le=255)
     dlp1: int = Field(0, ge=0, le=255)
     dlp1_mask: int = Field(0, ge=0, le=255)
-    ltssm_state: int = Field(0, ge=0, le=511)
-    ltssm_state_mask: int = Field(0, ge=0, le=511)
+    ltssm_state: int = Field(0, ge=0, le=4095)
+    ltssm_state_mask: int = Field(0, ge=0, le=4095)
     flit_mode: bool = False
     flit_mode_mask: bool = False
     cxl_mode: bool = False

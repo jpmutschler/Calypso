@@ -150,9 +150,15 @@ class CondAttr6Reg:
     """Condition Attribute 6 Register (LtssmState, FlitMode, CxlMode).
 
     Bitfields:
-        [8:0]  LtssmState (9-bit)
+        [8:0]  LtssmState (9-bit, hardware-truncated)
         [16]   FlitMode
         [17]   CxlMode
+
+    Note: The LTSSM snapshot API returns a 12-bit encoding (top 4 bits = major
+    state, lower 8 bits = sub-state, e.g. 0x301 = L0 sub=1). This register
+    only stores 9 bits, so ``to_register()`` masks with ``& 0x1FF``. The
+    relationship between the 12-bit snapshot encoding and the 9-bit condition
+    matching encoding needs further hardware validation.
     """
 
     ltssm_state: int = 0

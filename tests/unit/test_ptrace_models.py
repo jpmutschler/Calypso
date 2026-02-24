@@ -309,12 +309,17 @@ class TestPTraceConditionAttrCfg:
             PTraceConditionAttrCfg(link_speed=16)
 
     def test_ltssm_state_range(self):
-        cfg = PTraceConditionAttrCfg(ltssm_state=511)
-        assert cfg.ltssm_state == 511
+        cfg = PTraceConditionAttrCfg(ltssm_state=4095)
+        assert cfg.ltssm_state == 4095
+
+    def test_ltssm_state_12bit(self):
+        """LTSSM snapshot returns 12-bit values like 0x301 (L0, sub=1)."""
+        cfg = PTraceConditionAttrCfg(ltssm_state=0x301)
+        assert cfg.ltssm_state == 769
 
     def test_ltssm_state_too_high(self):
         with pytest.raises(ValidationError):
-            PTraceConditionAttrCfg(ltssm_state=512)
+            PTraceConditionAttrCfg(ltssm_state=4096)
 
 
 class TestPTraceConditionDataCfg:
