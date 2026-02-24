@@ -82,6 +82,11 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.ptrace import ptrace_page
         ptrace_page(device_id)
 
+    @ui.page("/switch/{device_id}/pktexer")
+    def pktexer(device_id: str):
+        from calypso.ui.pages.packet_exerciser import packet_exerciser_page
+        packet_exerciser_page(device_id)
+
     @ui.page("/switch/{device_id}/errors")
     def errors(device_id: str):
         from calypso.ui.pages.error_overview import error_overview_page

@@ -56,6 +56,8 @@ def sidebar_nav(
                        active=(current_path == f"{base}/ltssm"), indent=True)
             _nav_item("Protocol Trace", "analytics", f"{base}/ptrace",
                        active=(current_path == f"{base}/ptrace"), indent=True)
+            _nav_item("Packet Exerciser", "send", f"{base}/pktexer",
+                       active=(current_path == f"{base}/pktexer"), indent=True)
             _nav_item("Error Overview", "error_outline", f"{base}/errors",
                        active=(current_path == f"{base}/errors"), indent=True)
             _nav_item("Compliance", "verified", f"{base}/compliance",

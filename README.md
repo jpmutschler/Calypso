@@ -294,6 +294,7 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Margining | `GET /{id}/phy/margining/capabilities`, `POST /{id}/phy/margining/sweep`, `GET /{id}/phy/margining/progress`, `GET /{id}/phy/margining/result`, `POST /{id}/phy/margining/reset`, `POST /{id}/phy/margining/sweep-pam4`, `GET /{id}/phy/margining/progress-pam4`, `GET /{id}/phy/margining/result-pam4` | Lane margining (NRZ + PAM4 3-eye) |
 | LTSSM | `GET /{id}/ltssm/snapshot`, `POST /{id}/ltssm/retrain`, `GET /{id}/ltssm/retrain/progress`, `GET /{id}/ltssm/retrain/result`, `POST /{id}/ltssm/clear-counters`, `POST /{id}/ltssm/ptrace/configure`, `POST /{id}/ltssm/ptrace/start`, `POST /{id}/ltssm/ptrace/stop`, `GET /{id}/ltssm/ptrace/status`, `GET /{id}/ltssm/ptrace/buffer` | LTSSM state trace + Ptrace capture |
 | PTrace | `POST /{id}/ptrace/configure`, `POST /{id}/ptrace/start`, `POST /{id}/ptrace/stop`, `POST /{id}/ptrace/clear`, `POST /{id}/ptrace/manual-trigger`, `GET /{id}/ptrace/status`, `GET /{id}/ptrace/buffer`, `POST /{id}/ptrace/filter`, `POST /{id}/ptrace/filter-control`, `POST /{id}/ptrace/condition-attributes`, `POST /{id}/ptrace/condition-data`, `POST /{id}/ptrace/error-trigger`, `POST /{id}/ptrace/event-counter` | Protocol trace capture + Flit mode (A0) |
+| Packet Exerciser | `POST /{id}/exerciser/send`, `POST /{id}/exerciser/stop`, `GET /{id}/exerciser/status`, `POST /{id}/exerciser/capture-and-send`, `POST /{id}/exerciser/dp-bist/start`, `POST /{id}/exerciser/dp-bist/stop`, `GET /{id}/exerciser/dp-bist/status` | PCIe TLP generation + DP BIST |
 | MCU | `GET /mcu/discover`, `POST /mcu/connect`, `GET /mcu/health`, `GET /mcu/ports`, `GET /mcu/errors`, `GET /mcu/config/*`, `POST /mcu/bist` | MCU serial |
 | NVMe-MI | `GET /mcu/nvme/discover`, `GET /mcu/nvme/health`, `GET /mcu/nvme/drive` | NVMe-MI over MCTP drive discovery and health |
 | Workloads | `GET /workloads/backends`, `POST /workloads/start`, `POST /workloads/{id}/stop`, `GET /workloads/{id}`, `GET /workloads`, `GET /workloads/{id}/combined/{device_id}`, `WS /workloads/{id}/stream` | NVMe workload generation + live progress |
@@ -323,6 +324,7 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |
 | LTSSM Trace | `/switch/{id}/ltssm` | LTSSM state polling, retrain-and-watch with state transition chart, Ptrace capture |
 | Protocol Trace | `/switch/{id}/ptrace` | Embedded protocol analyzer with capture config, hardware trigger/filter, Flit mode condition matching, 28-bit error triggers, event counters, 600-bit trace buffer with CSV/hex export, auto-poll status |
+| Packet Exerciser | `/switch/{id}/pktexer` | PCIe TLP generation (15 types), 4 hardware threads, DW FIFO + RAM loading, PTrace+Exerciser composite capture, Datapath BIST |
 | Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 

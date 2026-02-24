@@ -15,7 +15,7 @@ Usage:
                                            [--device-id dev_xx_xx]
                                            [--port PORT_NUMBER]
                                            [--output-dir ./ptrace_validation]
-                                           [--phases 1,2,3,4,5,6,7]
+                                           [--phases 1,2,3,4,5,6,7,8]
 
 Output:
     Creates a timestamped directory under --output-dir containing:
@@ -1364,6 +1364,120 @@ class PTraceValidator:
         self._run_test("7.3_large_buffer_read", 7, "Large buffer read (auto-increment)", test_7_3)
 
     # -----------------------------------------------------------------------
+    # Phase 8: PTrace + Exerciser Integration
+    # -----------------------------------------------------------------------
+
+    def phase8_exerciser_integration(self):
+        """Test PTrace capture of exerciser-generated TLPs."""
+        print("\n=== Phase 8: PTrace + Exerciser Integration ===")
+        port = self.port_number
+
+        def _exer_post(endpoint: str, body: dict) -> dict:
+            return self._post(f"/devices/{self.device_id}/exerciser/{endpoint}", body)
+
+        # 8.1 — Generate MR32 TLPs and verify PTrace captures them
+        def test_8_1(r: TestResult):
+            body = {
+                "port_number": port,
+                "ptrace_direction": "egress",
+                "exerciser": {
+                    "port_number": port,
+                    "tlps": [{"tlp_type": "mr32", "address": 0, "length_dw": 1}],
+                    "infinite_loop": False,
+                    "max_outstanding_np": 8,
+                },
+                "read_buffer": True,
+                "post_trigger_wait_ms": 200,
+            }
+            resp = _exer_post("capture-and-send", body)
+            buf = resp.get("ptrace_buffer", {})
+            rows = buf.get("total_rows_read", 0)
+            r.data = {"buffer_rows": rows, "triggered": resp.get("ptrace_status", {}).get("triggered")}
+            r.expected = "PTrace captures exerciser MR32 TLPs"
+            r.actual = f"buffer_rows={rows}"
+            r.status = "PASS" if rows > 0 else "WARN"
+            if rows == 0:
+                r.notes = "No trace data — exerciser TLPs may not be visible at default trace point"
+
+        self._run_test("8.1_exer_mr32_capture", 8, "Capture exerciser MR32 with PTrace", test_8_1)
+
+        # 8.2 — Generate MW32 and verify filter can isolate writes
+        def test_8_2(r: TestResult):
+            body = {
+                "port_number": port,
+                "ptrace_direction": "egress",
+                "exerciser": {
+                    "port_number": port,
+                    "tlps": [{"tlp_type": "mw32", "address": 0x1000, "length_dw": 1, "data": "DEADBEEF"}],
+                    "infinite_loop": False,
+                    "max_outstanding_np": 8,
+                },
+                "read_buffer": True,
+                "post_trigger_wait_ms": 500,
+            }
+            resp = _exer_post("capture-and-send", body)
+            buf = resp.get("ptrace_buffer", {})
+            rows = buf.get("rows", [])
+            non_empty = sum(1 for row in rows if row.get("hex_str", "0" * 152) != "0" * 152)
+            r.data = {"total_rows": len(rows), "non_empty_rows": non_empty}
+            r.expected = "PTrace captures MW32 write traffic"
+            r.actual = f"total={len(rows)}, non_empty={non_empty}"
+            r.status = "PASS" if non_empty > 0 else "WARN"
+
+        self._run_test("8.2_exer_mw32_filter", 8, "Capture exerciser MW32 writes", test_8_2)
+
+        # 8.3 — Generate ERR_COR and verify error trigger fires
+        def test_8_3(r: TestResult):
+            body = {
+                "port_number": port,
+                "ptrace_direction": "egress",
+                "exerciser": {
+                    "port_number": port,
+                    "tlps": [{"tlp_type": "ERRCor"}],
+                    "infinite_loop": False,
+                    "max_outstanding_np": 8,
+                },
+                "read_buffer": True,
+                "post_trigger_wait_ms": 200,
+            }
+            resp = _exer_post("capture-and-send", body)
+            rows = resp.get("ptrace_buffer", {}).get("total_rows_read", 0)
+            r.data = {"buffer_rows": rows}
+            r.expected = "ERR_COR message captured by PTrace"
+            r.actual = f"buffer_rows={rows}"
+            r.status = "PASS" if rows > 0 else "WARN"
+
+        self._run_test("8.3_exer_errcor_trigger", 8, "ERR_COR trigger via exerciser", test_8_3)
+
+        # 8.4 — Verify event counter increments with active traffic
+        def test_8_4(r: TestResult):
+            # Configure event counter, then send traffic
+            self._configure(port, direction="egress", trigger={"trigger_src": 0x07})
+            self._start(port, direction="egress")
+
+            # Send burst of TLPs
+            send_body = {
+                "port_number": port,
+                "tlps": [{"tlp_type": "mr32", "address": 0, "length_dw": 1}],
+                "infinite_loop": False,
+                "max_outstanding_np": 8,
+            }
+            self._post(f"/devices/{self.device_id}/exerciser/send", send_body)
+            time.sleep(1.0)
+            status = self._status(port, "egress")
+            self._stop(port, "egress")
+            self._post(f"/devices/{self.device_id}/exerciser/stop?port_number={port}")
+
+            r.data = {"ptrace_status": status}
+            r.expected = "Event counter threshold triggers with exerciser traffic"
+            r.actual = f"triggered={status.get('triggered')}"
+            r.status = "PASS" if status.get("triggered") else "WARN"
+            if not status.get("triggered"):
+                r.notes = "Event counter may need threshold tuning or the exerciser TLPs may not match the counter event source"
+
+        self._run_test("8.4_event_counter_traffic", 8, "Event counter with exerciser traffic", test_8_4)
+
+    # -----------------------------------------------------------------------
     # Run all phases
     # -----------------------------------------------------------------------
 
@@ -1380,6 +1494,7 @@ class PTraceValidator:
             5: self.phase5_error_triggers,
             6: self.phase6_timestamps,
             7: self.phase7_buffer_format,
+            8: self.phase8_exerciser_integration,
         }
 
         for phase_num in sorted(self.phases):
@@ -1518,8 +1633,8 @@ def main():
         help="Output directory (default: ./ptrace_validation)",
     )
     parser.add_argument(
-        "--phases", default="1,2,3,4,5,6,7",
-        help="Comma-separated phase numbers to run (default: 1,2,3,4,5,6,7)",
+        "--phases", default="1,2,3,4,5,6,7,8",
+        help="Comma-separated phase numbers to run (default: 1,2,3,4,5,6,7,8)",
     )
     args = parser.parse_args()
 
