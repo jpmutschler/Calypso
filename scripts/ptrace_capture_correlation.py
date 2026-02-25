@@ -867,6 +867,37 @@ class CaptureCorrelator:
             })
         return samples
 
+    def _compute_dw_occupancy(
+        self, rows: list[tuple[int, list[int]]]
+    ) -> tuple[dict[str, int], list[dict]]:
+        """Compute per-DW non-zero counts and find anomalous rows.
+
+        Anomalous = any DW in range [0, 10] is non-zero (potential TLP data,
+        not the idle Flit pattern which sits at DW11-DW15).
+
+        Returns (dw_occupancy_dict, anomalous_rows_list).
+        """
+        dw_counts = [0] * TBUF_ROW_DWORDS
+        anomalous: list[dict] = []
+        max_anomalous = 20
+
+        for row_idx, dwords in rows:
+            for i, dw in enumerate(dwords):
+                if dw != 0:
+                    dw_counts[i] += 1
+            # Check DW0-DW10 for non-zero (anomalous = potential TLP data)
+            if any(dwords[i] != 0 for i in range(min(11, len(dwords)))):
+                if len(anomalous) < max_anomalous:
+                    anomalous.append({
+                        "row_index": row_idx,
+                        "dwords_hex": [f"0x{dw:08X}" for dw in dwords],
+                    })
+
+        dw_occupancy = {
+            f"DW{i}": count for i, count in enumerate(dw_counts) if count > 0
+        }
+        return dw_occupancy, anomalous
+
     def _correlate_test(
         self,
         test_id: str,
@@ -943,12 +974,17 @@ class CaptureCorrelator:
         # --- Raw buffer sample ---
         sample_rows = self._dump_sample_rows(rows, max_rows=10)
 
+        # --- Full DW occupancy + anomalous row detection ---
+        dw_occupancy, anomalous_rows = self._compute_dw_occupancy(rows)
+
         correlation = {
             "test_id": test_id,
             "tlp_type": tlp_type_str,
             "expected_header_dws": [f"0x{dw:08X}" for dw in expected_header],
             "num_expected_dws": len(expected_header),
             "total_non_empty_rows": len(rows),
+            "dw_occupancy": dw_occupancy,
+            "anomalous_rows": anomalous_rows,
             "best_match": {
                 "row_index": best_row_idx,
                 "score": best_score,
@@ -1946,11 +1982,7 @@ class CaptureCorrelator:
                     rows = self._extract_rows(resp)
                     samples = self._dump_sample_rows(rows, max_rows=10)
 
-                    dw_occupancy = [0] * TBUF_ROW_DWORDS
-                    for _, dwords in rows:
-                        for i, dw in enumerate(dwords):
-                            if dw != 0:
-                                dw_occupancy[i] += 1
+                    dw_occupancy, anomalous_rows = self._compute_dw_occupancy(rows)
 
                     idle_sig = getattr(self, "_phase7_idle_sig", "")
                     idle_count = getattr(self, "_phase7_idle_count", 0)
@@ -1960,22 +1992,19 @@ class CaptureCorrelator:
                     r.data["idle_baseline_rows"] = idle_count
                     r.data["content_differs_from_idle"] = differs
                     r.data["sample_rows"] = samples
-                    r.data["dw_occupancy"] = {
-                        f"DW{i}": count
-                        for i, count in enumerate(dw_occupancy)
-                        if count > 0
-                    }
+                    r.data["dw_occupancy"] = dw_occupancy
+                    r.data["anomalous_rows"] = anomalous_rows
 
                     r.expected = (
                         f"Filter byte 0x{ft_spec['match_byte']:02X} "
                         f"at DW{ft_spec['dw_position']} — "
                         f"buffer differs from idle"
                     )
+                    active_dws = list(dw_occupancy.keys())
                     r.actual = (
                         f"rows={len(rows)} (baseline={idle_count}), "
                         f"differs={differs}, "
-                        f"active_dws="
-                        f"{[f'DW{i}' for i, c in enumerate(dw_occupancy) if c > 0]}"
+                        f"active_dws={active_dws}"
                     )
 
                     # PASS if content differs from constant idle pattern
@@ -2001,6 +2030,7 @@ class CaptureCorrelator:
                         "rows": len(rows),
                         "differs_from_idle": differs,
                         "status": r.status,
+                        "anomalous_rows": anomalous_rows,
                     })
 
                 return test_fn
@@ -2103,13 +2133,41 @@ class CaptureCorrelator:
             best = corr["best_match"]
             buf_start = best["buffer_start_pos"]
             buf_str = f"DW{buf_start:<2d}" if buf_start >= 0 else "N/A  "
+            occ_keys = list(corr.get("dw_occupancy", {}).keys())
+            occ_str = f"  occupancy=[{','.join(occ_keys)}]" if occ_keys else ""
+            anom_count = len(corr.get("anomalous_rows", []))
+            anom_str = f"  *** {anom_count} anomalous row{'s' if anom_count != 1 else ''} ***" if anom_count else ""
             lines.append(
                 f"  {corr['test_id']:5s} {corr['tlp_type']:10s}: "
                 f"score={best['score']}/{corr['num_expected_dws']}  "
                 f"buf_start={buf_str}  "
                 f"type={best['match_type'] or 'none':<12s}  "
                 f"rows={corr['total_non_empty_rows']}"
+                f"{occ_str}{anom_str}"
             )
+
+        # --- Anomalous Rows (DW0-DW10 non-zero) ---
+        tests_with_anomalous = [
+            c for c in self.correlations if c.get("anomalous_rows")
+        ]
+        if tests_with_anomalous:
+            lines.append("")
+            lines.append("--- Anomalous Rows (DW0-DW10 non-zero) ---")
+            for corr in tests_with_anomalous:
+                anom = corr["anomalous_rows"]
+                lines.append(
+                    f"  {corr['test_id']:5s} {corr['tlp_type']}: "
+                    f"{len(anom)} anomalous row{'s' if len(anom) != 1 else ''}"
+                )
+                for ar in anom[:10]:
+                    dws = ar["dwords_hex"]
+                    # Show DW0-DW5 inline for quick inspection
+                    dw_preview = " ".join(
+                        f"DW{i}={dws[i]}" for i in range(min(6, len(dws)))
+                    )
+                    lines.append(f"    row {ar['row_index']:3d}: {dw_preview}")
+                if len(anom) > 10:
+                    lines.append(f"    ... and {len(anom) - 10} more (see results.json)")
 
         lines.append("")
         lines.append("--- Consensus Buffer Layout ---")
@@ -2190,12 +2248,25 @@ class CaptureCorrelator:
                 status_char = {"PASS": "+", "FAIL": "!", "WARN": "~", "ERROR": "X"}.get(
                     pr["status"], "?"
                 )
+                p7_anom = pr.get("anomalous_rows", [])
+                anom_tag = f"  *** {len(p7_anom)} anomalous ***" if p7_anom else ""
                 lines.append(
                     f"  [{status_char}] {pr['test_id']:20s}: "
                     f"filter={pr['match_byte']} @ DW{pr['dw_position']:<2d}  "
                     f"rows={pr['rows']:3d}  "
-                    f"differs={pr['differs_from_idle']}"
+                    f"differs={pr['differs_from_idle']}{anom_tag}"
                 )
+                # Show anomalous row DW0-DW3 inline
+                for ar in p7_anom[:5]:
+                    dws = ar["dwords_hex"]
+                    dw_preview = " ".join(
+                        f"DW{i}={dws[i]}" for i in range(min(4, len(dws)))
+                    )
+                    lines.append(f"         row {ar['row_index']:3d}: {dw_preview}")
+                if len(p7_anom) > 5:
+                    lines.append(
+                        f"         ... and {len(p7_anom) - 5} more (see results.json)"
+                    )
             lines.append("")
 
         lines.append("--- DW17/DW18 Analysis ---")
