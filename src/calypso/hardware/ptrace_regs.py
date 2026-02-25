@@ -415,6 +415,26 @@ class RearmTimeReg:
 # Trigger Condition Enable Register
 # ---------------------------------------------------------------------------
 
+# Condition enable bit constants — use these instead of raw 0xFFFFFFFF to avoid
+# setting undocumented bits that may enable unwanted 512-bit data block comparison.
+COND_ENB_LINK_SPEED: int = 1 << 8
+COND_ENB_DLLP_TYPE: int = 1 << 9
+COND_ENB_OS_TYPE: int = 1 << 10
+COND_ENB_SYMBOL0: int = 1 << 11
+COND_ENB_SYMBOL1: int = 1 << 12
+COND_ENB_SYMBOL2: int = 1 << 13
+COND_ENB_SYMBOL3: int = 1 << 14
+COND_ENB_SYMBOL4: int = 1 << 15
+COND_ENB_SYMBOL5: int = 1 << 16
+COND_ENB_SYMBOL6: int = 1 << 17
+COND_ENB_SYMBOL7: int = 1 << 18
+COND_ENB_SYMBOL8: int = 1 << 19
+COND_ENB_SYMBOL9: int = 1 << 20
+COND_ENB_LTSSM: int = 1 << 21
+COND_ENB_LINK_WIDTH: int = 1 << 22
+COND_ENB_ALL_SYMBOLS: int = sum(1 << i for i in range(11, 21))
+COND_ENB_ALL_ATTRS: int = sum(1 << i for i in range(8, 23))
+
 
 @dataclass
 class TrigCondEnableReg:
@@ -443,11 +463,11 @@ class TrigCondEnableReg:
     raw: int = 0
 
     def to_register(self) -> int:
-        return self.raw & 0xFFFFFFFF
+        return self.raw & COND_ENB_ALL_ATTRS
 
     @classmethod
     def from_register(cls, value: int) -> TrigCondEnableReg:
-        return cls(raw=value & 0xFFFFFFFF)
+        return cls(raw=value & COND_ENB_ALL_ATTRS)
 
     @property
     def link_speed_enb(self) -> bool:

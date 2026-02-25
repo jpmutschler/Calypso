@@ -43,6 +43,25 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# Condition enable bit constants — imported from ptrace_regs when available.
+# Only set documented attribute bits — setting undocumented lower bits (0-7)
+# may enable 512-bit condition data block comparison against uninitialized data.
+# ---------------------------------------------------------------------------
+
+try:
+    from calypso.hardware.ptrace_regs import (
+        COND_ENB_LTSSM,
+        COND_ENB_LINK_SPEED,
+        COND_ENB_LINK_WIDTH,
+    )
+except ImportError:
+    # Fallback for environments without calypso installed.
+    # These MUST match ptrace_regs.py — update both if the spec changes.
+    COND_ENB_LTSSM = 1 << 21
+    COND_ENB_LINK_SPEED = 1 << 8
+    COND_ENB_LINK_WIDTH = 1 << 22
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -474,7 +493,7 @@ class PTraceValidator:
             # Trigger on COND0 (source=1)
             self._configure(
                 port,
-                trigger={"trigger_src": 1, "cond0_enable": 0xFFFFFFFF},
+                trigger={"trigger_src": 1, "cond0_enable": COND_ENB_LTSSM},
             )
             self._start(port)
             time.sleep(2.0)
@@ -514,7 +533,7 @@ class PTraceValidator:
 
             self._configure(
                 port,
-                trigger={"trigger_src": 1, "cond0_enable": 0xFFFFFFFF},
+                trigger={"trigger_src": 1, "cond0_enable": COND_ENB_LTSSM},
             )
             self._start(port)
             time.sleep(3.0)
@@ -561,7 +580,7 @@ class PTraceValidator:
             # Trigger on COND1 (source=2)
             self._configure(
                 port,
-                trigger={"trigger_src": 2, "cond1_enable": 0xFFFFFFFF},
+                trigger={"trigger_src": 2, "cond1_enable": COND_ENB_LTSSM},
             )
             self._start(port)
             time.sleep(2.0)
@@ -572,7 +591,10 @@ class PTraceValidator:
             r.actual = f"triggered={triggered}"
             r.status = "PASS" if triggered else "FAIL"
             if not triggered:
-                r.notes = "Cond1 did not trigger on current LTSSM state"
+                r.notes = (
+                    f"Cond1 did not trigger with full 12-bit LTSSM 0x{ltssm:03X}. "
+                    "Check that the port LTSSM state is stable during the test."
+                )
             self._stop(port)
 
         self._run_test("2.3_cond1_trigger", 2, "Cond1 trigger test", test_2_3)
@@ -603,8 +625,8 @@ class PTraceValidator:
                 port,
                 trigger={
                     "trigger_src": 4,  # COND0 OR COND1
-                    "cond0_enable": 0xFFFFFFFF,
-                    "cond1_enable": 0xFFFFFFFF,
+                    "cond0_enable": COND_ENB_LTSSM,
+                    "cond1_enable": COND_ENB_LTSSM,
                 },
             )
             self._start(port)
@@ -645,8 +667,8 @@ class PTraceValidator:
                 port,
                 trigger={
                     "trigger_src": 3,  # COND0 AND COND1
-                    "cond0_enable": 0xFFFFFFFF,
-                    "cond1_enable": 0xFFFFFFFF,
+                    "cond0_enable": COND_ENB_LTSSM,
+                    "cond1_enable": COND_ENB_LTSSM,
                 },
             )
             self._start(port)

@@ -12,7 +12,6 @@ import pytest
 from calypso.hardware.ptrace_layout import (
     LAYOUT_A0,
     LAYOUT_B0,
-    PTraceRegLayout,
     get_ptrace_layout,
 )
 from calypso.hardware.ptrace_cond_regs import (
@@ -23,6 +22,15 @@ from calypso.hardware.ptrace_cond_regs import (
     CondAttr6Reg,
 )
 from calypso.hardware.ptrace_regs import (
+    COND_ENB_ALL_ATTRS,
+    COND_ENB_ALL_SYMBOLS,
+    COND_ENB_DLLP_TYPE,
+    COND_ENB_LINK_SPEED,
+    COND_ENB_LINK_WIDTH,
+    COND_ENB_LTSSM,
+    COND_ENB_OS_TYPE,
+    COND_ENB_SYMBOL0,
+    COND_ENB_SYMBOL9,
     DATA_BLOCK_DWORDS,
     FILTER_DWORDS,
     TBUF_MAX_ROWS,
@@ -393,6 +401,59 @@ class TestTrigCondEnableReg:
     def test_link_width_bit(self):
         reg = TrigCondEnableReg(raw=(1 << 22))
         assert reg.link_width_enb
+
+    def test_to_register_masks_undocumented_bits(self):
+        reg = TrigCondEnableReg(raw=0xFFFFFFFF)
+        assert reg.to_register() == COND_ENB_ALL_ATTRS
+        assert reg.to_register() & 0xFF == 0  # bits [0:7] stripped
+        assert reg.to_register() & 0xFF800000 == 0  # bits [23:31] stripped
+
+
+class TestCondEnableConstants:
+    """Verify COND_ENB_* module constants match documented bit positions."""
+
+    def test_link_speed_is_bit8(self):
+        assert COND_ENB_LINK_SPEED == 1 << 8
+
+    def test_dllp_type_is_bit9(self):
+        assert COND_ENB_DLLP_TYPE == 1 << 9
+
+    def test_os_type_is_bit10(self):
+        assert COND_ENB_OS_TYPE == 1 << 10
+
+    def test_symbol0_is_bit11(self):
+        assert COND_ENB_SYMBOL0 == 1 << 11
+
+    def test_symbol9_is_bit20(self):
+        assert COND_ENB_SYMBOL9 == 1 << 20
+
+    def test_ltssm_is_bit21(self):
+        assert COND_ENB_LTSSM == 1 << 21
+
+    def test_link_width_is_bit22(self):
+        assert COND_ENB_LINK_WIDTH == 1 << 22
+
+    def test_all_symbols_covers_bits_11_to_20(self):
+        expected = sum(1 << i for i in range(11, 21))
+        assert COND_ENB_ALL_SYMBOLS == expected
+
+    def test_all_attrs_covers_bits_8_to_22(self):
+        expected = sum(1 << i for i in range(8, 23))
+        assert COND_ENB_ALL_ATTRS == expected
+
+    def test_no_undocumented_bits_in_all_attrs(self):
+        """ALL_ATTRS must not touch bits [0:7] or [23:31]."""
+        documented_mask = sum(1 << i for i in range(8, 23))
+        assert COND_ENB_ALL_ATTRS & ~documented_mask == 0
+
+    def test_constants_consistent_with_register_properties(self):
+        reg = TrigCondEnableReg(raw=COND_ENB_LTSSM)
+        assert reg.ltssm_enb is True
+        assert reg.link_speed_enb is False
+
+        reg = TrigCondEnableReg(raw=COND_ENB_LINK_SPEED)
+        assert reg.link_speed_enb is True
+        assert reg.ltssm_enb is False
 
 
 class TestFilterControlReg:
