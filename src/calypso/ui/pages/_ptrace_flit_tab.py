@@ -180,12 +180,12 @@ def build_flit_tab(
 
         with ui.row().classes("items-end gap-3 flex-wrap mt-1"):
             inputs["ltssm_state"] = (
-                ui.number("LTSSM State", value=0, min=0, max=511)
+                ui.number("LTSSM State", value=0, min=0, max=4095)
                 .props("dense outlined")
                 .classes("w-32")
             )
             inputs["ltssm_state_mask"] = (
-                ui.number("LTSSM Mask", value=0, min=0, max=511)
+                ui.number("LTSSM Mask", value=0, min=0, max=4095)
                 .props("dense outlined")
                 .classes("w-32")
             )
