@@ -16,7 +16,9 @@ Usage:
                                                  [--port PORT_NUMBER]
                                                  [--output-dir ./ptrace_correlation]
                                                  [--wait-ms 500]
-                                                 [--phases 1,2,3,4,5]
+                                                 [--phases 1,2,3,4,5,6]
+                                                 [--trace-point 0]
+                                                 [--data-cap]
 
 Output:
     Creates a timestamped directory under --output-dir containing:
@@ -177,7 +179,123 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 TBUF_ROW_DWORDS = 19
+TBUF_PAYLOAD_DWORDS = 16  # DW0-DW15 = 512-bit payload; DW16-DW18 = metadata
 DW0_FMT_TYPE_LEN_MASK = 0xFF0003FF  # Fmt[31:29] | Type[28:24] | Length[9:0]
+
+
+# ---------------------------------------------------------------------------
+# Flit-mode helpers (from UG104 PEA documentation)
+# ---------------------------------------------------------------------------
+
+def _flit_type_byte(tlp_type) -> int:
+    """Compute the Flit-mode type byte: {Fmt[7:5], Type[4:0]}.
+
+    In Gen6 Flit mode, the TLP type is encoded as a single byte
+    with Fmt in bits [7:5] and Type in bits [4:0].  Per UG104,
+    this byte appears at byte offset 0 (lowest byte) of the first
+    DWORD in the Flit buffer.
+    """
+    fmt, type_code = _TLP_FMT_TYPE[tlp_type]
+    return ((fmt & 0x7) << 5) | (type_code & 0x1F)
+
+
+def _build_flit_search_terms(expected_header: list[int], tlp_type) -> dict:
+    """Build Flit-mode search terms from a standard PCIe TLP header.
+
+    Returns a dict with:
+      - "flit_type_byte": the combined Fmt+Type byte for Flit mode
+      - "distinctive_bytes": set of non-trivial bytes from the header
+      - "distinctive_words": list of (word_value, field_name) tuples
+    """
+    flit_byte = _flit_type_byte(tlp_type)
+
+    # Collect distinctive (non-zero, non-0xFF) bytes from all header DWORDs
+    distinctive_bytes = set()
+    for dw in expected_header:
+        for shift in (0, 8, 16, 24):
+            byte_val = (dw >> shift) & 0xFF
+            if byte_val not in (0x00, 0xFF):
+                distinctive_bytes.add(byte_val)
+
+    # Collect distinctive 16-bit words (e.g., requester IDs, addresses)
+    distinctive_words = []
+    for i, dw in enumerate(expected_header):
+        hi_word = (dw >> 16) & 0xFFFF
+        lo_word = dw & 0xFFFF
+        if hi_word not in (0x0000, 0xFFFF):
+            distinctive_words.append((hi_word, f"DW{i}[31:16]"))
+        if lo_word not in (0x0000, 0xFFFF):
+            distinctive_words.append((lo_word, f"DW{i}[15:0]"))
+
+    return {
+        "flit_type_byte": flit_byte,
+        "distinctive_bytes": sorted(distinctive_bytes),
+        "distinctive_words": distinctive_words,
+    }
+
+
+def _scan_row_flit_mode(
+    row_dwords: list[int],
+    flit_search: dict,
+    row_index: int = 0,
+) -> dict:
+    """Scan a buffer row for Flit-mode encoded TLP fields.
+
+    Searches the payload area (DW0-DW15) for:
+    1. Flit type byte at any byte position within each DWORD
+    2. Distinctive 16-bit words from the expected TLP header
+    3. Distinctive bytes from the expected TLP header
+
+    Returns a dict with match details for diagnostics.
+    """
+    flit_byte = flit_search["flit_type_byte"]
+    distinctive_words = flit_search["distinctive_words"]
+
+    # Only search payload area (DW0-DW15)
+    payload = row_dwords[:TBUF_PAYLOAD_DWORDS]
+
+    # 1. Search for flit type byte in each payload DWORD
+    flit_byte_hits = []
+    for dw_pos, dw_val in enumerate(payload):
+        for byte_pos in range(4):
+            actual_byte = (dw_val >> (byte_pos * 8)) & 0xFF
+            if actual_byte == flit_byte and flit_byte != 0:
+                flit_byte_hits.append({
+                    "dw_pos": dw_pos,
+                    "byte_pos": byte_pos,
+                    "dw_value": f"0x{dw_val:08X}",
+                })
+
+    # 2. Search for distinctive 16-bit words
+    word_hits = []
+    for dw_pos, dw_val in enumerate(payload):
+        hi_word = (dw_val >> 16) & 0xFFFF
+        lo_word = dw_val & 0xFFFF
+        for word_val, field_name in distinctive_words:
+            if hi_word == word_val:
+                word_hits.append({
+                    "dw_pos": dw_pos,
+                    "half": "hi",
+                    "value": f"0x{word_val:04X}",
+                    "field": field_name,
+                    "dw_value": f"0x{dw_val:08X}",
+                })
+            if lo_word == word_val:
+                word_hits.append({
+                    "dw_pos": dw_pos,
+                    "half": "lo",
+                    "value": f"0x{word_val:04X}",
+                    "field": field_name,
+                    "dw_value": f"0x{dw_val:08X}",
+                })
+
+    return {
+        "row_index": row_index,
+        "flit_type_byte": f"0x{flit_byte:02X}",
+        "flit_byte_hits": flit_byte_hits,
+        "word_hits": word_hits,
+        "total_hits": len(flit_byte_hits) + len(word_hits),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +470,8 @@ class CaptureCorrelator:
         output_dir: Path,
         phases: set[int],
         wait_ms: int,
+        trace_point: int = 0,
+        data_cap: bool = False,
     ):
         self.base_url = base_url.rstrip("/")
         self.api = f"{self.base_url}/api"
@@ -360,6 +480,8 @@ class CaptureCorrelator:
         self.output_dir = output_dir
         self.phases = phases
         self.wait_ms = wait_ms
+        self.trace_point = trace_point
+        self.data_cap = data_cap
         self.results: list[TestResult] = []
         self.raw_dir = output_dir / "raw"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +493,7 @@ class CaptureCorrelator:
         self.per_capture_dw17: list[list[int]] = []
         self.per_capture_dw18: list[list[int]] = []
         self.session = requests.Session()
+        self._cached_consensus: dict = {}
 
     # -- HTTP helpers --
 
@@ -417,8 +540,27 @@ class CaptureCorrelator:
 
     # -- Capture helpers --
 
-    def _capture_and_send(self, tlp_configs: list[dict]) -> dict:
-        """Send TLPs via capture-and-send endpoint, return full response."""
+    def _capture_and_send(
+        self,
+        tlp_configs: list[dict],
+        trace_point: int | None = None,
+        data_cap: bool | None = None,
+    ) -> dict:
+        """Send TLPs via capture-and-send endpoint, return full response.
+
+        The capture-and-send endpoint uses server-side PTrace defaults (idle/nop
+        filtering, manual trigger, trace_point=0).  To override capture settings,
+        we first call the full-configure API then fall through to the composite
+        endpoint which will re-configure — so instead we configure + start + send
+        + trigger + read manually when custom settings are needed.
+        """
+        tp = trace_point if trace_point is not None else self.trace_point
+        dc = data_cap if data_cap is not None else self.data_cap
+
+        # If non-default capture settings requested, do manual orchestration
+        if tp != 0 or dc:
+            return self._capture_and_send_custom(tlp_configs, tp, dc)
+
         body = {
             "port_number": self.port_number,
             "ptrace_direction": "egress",
@@ -434,6 +576,92 @@ class CaptureCorrelator:
         return self._post(
             f"/devices/{self.device_id}/exerciser/capture-and-send", body
         )
+
+    def _capture_and_send_custom(
+        self,
+        tlp_configs: list[dict],
+        trace_point: int,
+        data_cap: bool,
+    ) -> dict:
+        """Manual orchestration: configure PTrace with custom settings, then
+        start capture, send TLPs, trigger, and read buffer.
+        """
+        dev = self.device_id
+        port = self.port_number
+
+        # 1. Configure PTrace with custom capture settings
+        cfg_body = {
+            "port_number": port,
+            "direction": "egress",
+            "capture": {
+                "direction": "egress",
+                "port_number": port,
+                "trace_point": trace_point,
+                "idle_filt": True,
+                "nop_filt": True,
+                "data_cap": data_cap,
+            },
+            "trigger": {"trigger_src": 0},  # manual trigger
+            "post_trigger": {},
+        }
+        self._post(f"/devices/{dev}/ptrace/configure", cfg_body)
+
+        try:
+            # 2. Start capture
+            self._post(
+                f"/devices/{dev}/ptrace/start",
+                {"port_number": port, "direction": "egress"},
+            )
+
+            # 3. Send TLPs
+            send_body = {
+                "port_number": port,
+                "tlps": tlp_configs,
+                "infinite_loop": False,
+                "max_outstanding_np": 8,
+            }
+            self._post(f"/devices/{dev}/exerciser/send", send_body)
+
+            # 4. Wait then manual trigger and stop
+            time.sleep(self.wait_ms / 1000.0)
+            self._post(
+                f"/devices/{dev}/ptrace/manual-trigger",
+                {"port_number": port, "direction": "egress"},
+            )
+            # Brief settle time after trigger before reading buffer
+            time.sleep(0.01)
+            self._post(
+                f"/devices/{dev}/ptrace/stop",
+                {"port_number": port, "direction": "egress"},
+            )
+
+            # 5. Read results
+            exer_status = self._get(
+                f"/devices/{dev}/exerciser/status",
+                {"port_number": port},
+            )
+            ptrace_status = self._get(
+                f"/devices/{dev}/ptrace/status",
+                {"port_number": port, "direction": "egress"},
+            )
+            ptrace_buffer = self._post(
+                f"/devices/{dev}/ptrace/read-buffer",
+                {"port_number": port, "direction": "egress", "max_rows": 256},
+            )
+
+            return {
+                "exerciser_status": exer_status,
+                "ptrace_status": ptrace_status,
+                "ptrace_buffer": ptrace_buffer,
+            }
+        finally:
+            # Always attempt to stop exerciser to prevent hardware leak
+            try:
+                self._post(
+                    f"/devices/{dev}/exerciser/stop", {"port_number": port}
+                )
+            except Exception:
+                pass
 
     def _extract_rows(self, resp: dict) -> list[tuple[int, list[int]]]:
         """Extract non-empty (row_index, dwords) pairs from capture response."""
@@ -457,15 +685,44 @@ class CaptureCorrelator:
         self.per_capture_dw17.append(capture_dw17)
         self.per_capture_dw18.append(capture_dw18)
 
+    def _dump_sample_rows(
+        self,
+        rows: list[tuple[int, list[int]]],
+        max_rows: int = 10,
+    ) -> list[dict]:
+        """Dump sample non-empty buffer rows as hex for human inspection.
+
+        Returns list of dicts with row_index and per-DW hex values.
+        """
+        samples = []
+        for row_idx, dwords in rows[:max_rows]:
+            # Separate payload (DW0-DW15) from metadata (DW16-DW18)
+            payload = dwords[:TBUF_PAYLOAD_DWORDS]
+            metadata = dwords[TBUF_PAYLOAD_DWORDS:]
+            # Find non-zero DW positions in payload
+            nonzero_payload = [
+                (i, f"0x{dw:08X}") for i, dw in enumerate(payload) if dw != 0
+            ]
+            samples.append({
+                "row_index": row_idx,
+                "dwords_hex": [f"0x{dw:08X}" for dw in dwords],
+                "payload_hex": [f"0x{dw:08X}" for dw in payload],
+                "metadata_hex": [f"0x{dw:08X}" for dw in metadata],
+                "nonzero_payload_dws": nonzero_payload,
+            })
+        return samples
+
     def _correlate_test(
         self,
         test_id: str,
         tlp_type_str: str,
         expected_header: list[int],
         rows: list[tuple[int, list[int]]],
+        tlp_type=None,
     ) -> dict:
         """Correlate expected header DWORDs against captured buffer rows.
 
+        Performs both standard PCIe header matching and Flit-mode analysis.
         Returns a correlation record dict.
         """
         best_row_idx = -1
@@ -496,6 +753,41 @@ class CaptureCorrelator:
             row_matches = _scan_row_for_header(dwords, expected_header, row_idx)
             all_matches.extend(row_matches)
 
+        # --- Flit-mode analysis ---
+        flit_analysis = {}
+        if tlp_type is not None:
+            flit_search = _build_flit_search_terms(expected_header, tlp_type)
+            flit_analysis["search_terms"] = {
+                "flit_type_byte": f"0x{flit_search['flit_type_byte']:02X}",
+                "distinctive_bytes": [f"0x{b:02X}" for b in flit_search["distinctive_bytes"]],
+                "distinctive_words": [
+                    {"value": f"0x{w:04X}", "field": f}
+                    for w, f in flit_search["distinctive_words"]
+                ],
+            }
+            # Scan rows for Flit-mode matches (limit to first 50 rows for perf)
+            flit_hits_by_row = []
+            total_flit_hits = 0
+            best_flit_row = None
+            best_flit_hit_count = 0
+            for row_idx, dwords in rows[:50]:
+                result = _scan_row_flit_mode(dwords, flit_search, row_idx)
+                if result["total_hits"] > 0:
+                    flit_hits_by_row.append(result)
+                    total_flit_hits += result["total_hits"]
+                    if result["total_hits"] > best_flit_hit_count:
+                        best_flit_hit_count = result["total_hits"]
+                        best_flit_row = result
+
+            flit_analysis["total_flit_hits"] = total_flit_hits
+            flit_analysis["rows_with_hits"] = len(flit_hits_by_row)
+            flit_analysis["best_row"] = best_flit_row
+            # Include up to 5 rows with hits for inspection
+            flit_analysis["sample_hit_rows"] = flit_hits_by_row[:5]
+
+        # --- Raw buffer sample ---
+        sample_rows = self._dump_sample_rows(rows, max_rows=10)
+
         correlation = {
             "test_id": test_id,
             "tlp_type": tlp_type_str,
@@ -520,6 +812,8 @@ class CaptureCorrelator:
                     for m in best_matches
                 ],
             },
+            "flit_analysis": flit_analysis,
+            "sample_rows": sample_rows,
             "all_row_scores": all_row_scores,
             "all_individual_matches": [
                 {
@@ -580,6 +874,8 @@ class CaptureCorrelator:
             print(f"  Using specified port: {self.port_number}")
 
         print(f"  Post-trigger wait: {self.wait_ms}ms")
+        print(f"  Trace point: {self.trace_point}")
+        print(f"  Data capture: {self.data_cap}")
         print("  Discovery complete.")
         return True
 
@@ -617,15 +913,17 @@ class CaptureCorrelator:
                 resp.get("ptrace_status") or {}
             ).get("triggered")
 
-            corr = self._correlate_test("1.1", "MR32", expected, rows)
+            corr = self._correlate_test("1.1", "MR32", expected, rows, TlpType.MR32)
             r.data["correlation"] = corr
 
             r.expected = f"Find {len(expected)} header DWs in buffer"
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.actual = (
                 f"score={score}/{len(expected)}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}, "
                 f"type={corr['best_match']['match_type']}, "
+                f"flit_hits={flit_hits}, "
                 f"rows={len(rows)}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -660,13 +958,15 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("1.2", "MW32", expected, rows)
+            corr = self._correlate_test("1.2", "MW32", expected, rows, TlpType.MW32)
             r.data["correlation"] = corr
 
             r.expected = f"Find {len(expected)} header DWs (incl data=0xDEADBEEF)"
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -706,13 +1006,15 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("2.1", "MR64", expected, rows)
+            corr = self._correlate_test("2.1", "MR64", expected, rows, TlpType.MR64)
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs in buffer"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -747,13 +1049,15 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("2.2", "MW64", expected, rows)
+            corr = self._correlate_test("2.2", "MW64", expected, rows, TlpType.MW64)
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs (incl data=0xCAFEBABE)"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -794,13 +1098,15 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("3.1", "CfgRd0", expected, rows)
+            corr = self._correlate_test("3.1", "CfgRd0", expected, rows, TlpType.CFRD0)
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -837,13 +1143,15 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("3.2", "CfgWr0", expected, rows)
+            corr = self._correlate_test("3.2", "CfgWr0", expected, rows, TlpType.CFWR0)
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs (incl data=0x12345678)"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -879,13 +1187,17 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("4.1", "ERR_COR", expected, rows)
+            corr = self._correlate_test(
+                "4.1", "ERR_COR", expected, rows, TlpType.ERR_COR
+            )
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs (msgcode=0x30)"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -914,13 +1226,17 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("4.2", "PME_ACK", expected, rows)
+            corr = self._correlate_test(
+                "4.2", "PME_ACK", expected, rows, TlpType.PME_ACK
+            )
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs (msgcode=0x1B)"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -949,13 +1265,17 @@ class CaptureCorrelator:
             self._collect_dw17_dw18(rows)
 
             r.data["total_rows"] = len(rows)
-            corr = self._correlate_test("4.3", "ERR_FATAL", expected, rows)
+            corr = self._correlate_test(
+                "4.3", "ERR_FATAL", expected, rows, TlpType.ERR_FATAL
+            )
             r.data["correlation"] = corr
 
             score = corr["best_match"]["score"]
+            flit_hits = corr.get("flit_analysis", {}).get("total_flit_hits", 0)
             r.expected = f"Find {len(expected)} header DWs (msgcode=0x33)"
             r.actual = (
                 f"score={score}/{len(expected)}, "
+                f"flit_hits={flit_hits}, "
                 f"buf_pos={corr['best_match']['buffer_start_pos']}"
             )
             r.status = "PASS" if score >= 2 else ("WARN" if score >= 1 else "FAIL")
@@ -1135,6 +1455,159 @@ class CaptureCorrelator:
         }
 
     # -----------------------------------------------------------------------
+    # Phase 6: Raw Buffer Diagnostic Dump
+    # -----------------------------------------------------------------------
+
+    def phase6_raw_dump(self):
+        """Capture and dump raw buffer data for manual inspection.
+
+        Sends a simple MR32 TLP and dumps the full buffer contents, plus
+        tries data_cap=True and different trace points to compare.
+        """
+        print("\n=== Phase 6: Raw Buffer Diagnostic Dump ===")
+
+        tlp_cfg = {
+            "tlp_type": "mr32",
+            "address": 0xFACE0000,
+            "requester_id": 0xABCD,
+            "tag": 0xFE,
+            "length_dw": 1,
+        }
+        expected = build_tlp_header(
+            TlpType.MR32,
+            address=0xFACE0000,
+            requester_id=0xABCD,
+            tag=0xFE,
+            length_dw=1,
+        )
+        flit_search = _build_flit_search_terms(expected, TlpType.MR32)
+
+        # 6.1 — Default config dump (trace_point=0, data_cap=False)
+        def test_6_1(r: TestResult):
+            resp = self._capture_and_send([tlp_cfg], trace_point=0, data_cap=False)
+            rows = self._extract_rows(resp)
+
+            samples = self._dump_sample_rows(rows, max_rows=20)
+            # Aggregate non-zero DW positions across all rows
+            dw_occupancy = [0] * TBUF_ROW_DWORDS
+            for _idx, dwords in rows:
+                for i, dw in enumerate(dwords):
+                    if dw != 0:
+                        dw_occupancy[i] += 1
+
+            # Flit scan
+            flit_total = 0
+            flit_sample = []
+            for row_idx, dwords in rows[:50]:
+                result = _scan_row_flit_mode(dwords, flit_search, row_idx)
+                flit_total += result["total_hits"]
+                if result["total_hits"] > 0 and len(flit_sample) < 3:
+                    flit_sample.append(result)
+
+            r.data = {
+                "config": "trace_point=0, data_cap=False (default)",
+                "total_rows": len(rows),
+                "sample_rows": samples,
+                "dw_occupancy": {
+                    f"DW{i}": count for i, count in enumerate(dw_occupancy) if count > 0
+                },
+                "expected_header": [f"0x{dw:08X}" for dw in expected],
+                "flit_type_byte": f"0x{flit_search['flit_type_byte']:02X}",
+                "flit_total_hits": flit_total,
+                "flit_sample_hits": flit_sample,
+            }
+            r.expected = "Dump raw buffer for inspection"
+            r.actual = (
+                f"rows={len(rows)}, "
+                f"flit_hits={flit_total}, "
+                f"active_dws={[f'DW{i}' for i, c in enumerate(dw_occupancy) if c > 0]}"
+            )
+            r.status = "PASS"
+
+        self._run_test(
+            "6.1_raw_default", 6,
+            "Raw dump: tp=0 data_cap=off", test_6_1,
+        )
+
+        # 6.2 — data_cap=True
+        def test_6_2(r: TestResult):
+            resp = self._capture_and_send([tlp_cfg], trace_point=0, data_cap=True)
+            rows = self._extract_rows(resp)
+            samples = self._dump_sample_rows(rows, max_rows=20)
+
+            dw_occupancy = [0] * TBUF_ROW_DWORDS
+            for _idx, dwords in rows:
+                for i, dw in enumerate(dwords):
+                    if dw != 0:
+                        dw_occupancy[i] += 1
+
+            flit_total = 0
+            for row_idx, dwords in rows[:50]:
+                result = _scan_row_flit_mode(dwords, flit_search, row_idx)
+                flit_total += result["total_hits"]
+
+            r.data = {
+                "config": "trace_point=0, data_cap=True",
+                "total_rows": len(rows),
+                "sample_rows": samples,
+                "dw_occupancy": {
+                    f"DW{i}": count for i, count in enumerate(dw_occupancy) if count > 0
+                },
+                "flit_total_hits": flit_total,
+            }
+            r.expected = "Dump raw buffer with data_cap=True"
+            r.actual = (
+                f"rows={len(rows)}, "
+                f"flit_hits={flit_total}, "
+                f"active_dws={[f'DW{i}' for i, c in enumerate(dw_occupancy) if c > 0]}"
+            )
+            r.status = "PASS"
+
+        self._run_test(
+            "6.2_raw_datacap", 6,
+            "Raw dump: tp=0 data_cap=on", test_6_2,
+        )
+
+        # 6.3 — trace_point=1 (Unscrambler/OSGen)
+        def test_6_3(r: TestResult):
+            resp = self._capture_and_send([tlp_cfg], trace_point=1, data_cap=False)
+            rows = self._extract_rows(resp)
+            samples = self._dump_sample_rows(rows, max_rows=20)
+
+            dw_occupancy = [0] * TBUF_ROW_DWORDS
+            for _idx, dwords in rows:
+                for i, dw in enumerate(dwords):
+                    if dw != 0:
+                        dw_occupancy[i] += 1
+
+            flit_total = 0
+            for row_idx, dwords in rows[:50]:
+                result = _scan_row_flit_mode(dwords, flit_search, row_idx)
+                flit_total += result["total_hits"]
+
+            r.data = {
+                "config": "trace_point=1 (Unscrambler/OSGen), data_cap=False",
+                "total_rows": len(rows),
+                "sample_rows": samples,
+                "dw_occupancy": {
+                    f"DW{i}": count for i, count in enumerate(dw_occupancy) if count > 0
+                },
+                "flit_total_hits": flit_total,
+            }
+            r.expected = "Dump raw buffer with trace_point=1"
+            r.actual = (
+                f"rows={len(rows)}, "
+                f"flit_hits={flit_total}, "
+                f"active_dws={[f'DW{i}' for i, c in enumerate(dw_occupancy) if c > 0]}"
+            )
+            r.status = "PASS"
+
+        self._run_test(
+            "6.3_raw_tp1", 6,
+            "Raw dump: tp=1 (Unscram) data_cap=off", test_6_3,
+        )
+
+    # -----------------------------------------------------------------------
     # Run all phases
     # -----------------------------------------------------------------------
 
@@ -1148,6 +1621,7 @@ class CaptureCorrelator:
             3: self.phase3_config,
             4: self.phase4_messages,
             5: self.phase5_consensus,
+            6: self.phase6_raw_dump,
         }
 
         for phase_num in sorted(self.phases):
@@ -1179,6 +1653,8 @@ class CaptureCorrelator:
             "device_info": self.device_info,
             "test_port": self.port_number,
             "wait_ms": self.wait_ms,
+            "trace_point": self.trace_point,
+            "data_cap": self.data_cap,
             "results": [asdict(r) for r in self.results],
             "correlations": self.correlations,
             "dw17_values": [f"0x{v:08X}" for v in all_dw17],
@@ -1206,6 +1682,8 @@ class CaptureCorrelator:
             f"Chip ID:   0x{self.device_info.get('chip_id', 0):04X}",
             f"Test port: {self.port_number}",
             f"Wait ms:   {self.wait_ms}",
+            f"Trace pt:  {self.trace_point}",
+            f"Data cap:  {self.data_cap}",
             f"Timestamp: {datetime.now(timezone.utc).isoformat()}",
             "",
             "--- Test Results ---",
@@ -1248,7 +1726,58 @@ class CaptureCorrelator:
         for dw_name, desc in mapping.get("mapping", {}).items():
             lines.append(f"  {dw_name:6s} = {desc}")
 
+        # --- Flit-Mode Analysis ---
         lines.append("")
+        lines.append("--- Flit-Mode Analysis ---")
+        flit_tests_with_hits = 0
+        total_flit_hits = 0
+        for corr in self.correlations:
+            fa = corr.get("flit_analysis", {})
+            hits = fa.get("total_flit_hits", 0)
+            if hits > 0:
+                flit_tests_with_hits += 1
+            total_flit_hits += hits
+        lines.append(f"  Tests with Flit hits: {flit_tests_with_hits}/{len(self.correlations)}")
+        lines.append(f"  Total Flit hits: {total_flit_hits}")
+        if total_flit_hits > 0:
+            lines.append("  Per-test Flit hits:")
+            for corr in self.correlations:
+                fa = corr.get("flit_analysis", {})
+                hits = fa.get("total_flit_hits", 0)
+                if hits > 0:
+                    best_row = fa.get("best_row", {})
+                    lines.append(
+                        f"    {corr['test_id']:5s} {corr['tlp_type']:10s}: "
+                        f"flit_hits={hits}, "
+                        f"rows_with_hits={fa.get('rows_with_hits', 0)}"
+                    )
+                    if best_row:
+                        for bh in best_row.get("flit_byte_hits", [])[:2]:
+                            lines.append(
+                                f"      type_byte @ DW{bh['dw_pos']}[byte{bh['byte_pos']}] "
+                                f"= {bh['dw_value']}"
+                            )
+                        for wh in best_row.get("word_hits", [])[:3]:
+                            lines.append(
+                                f"      word {wh['value']} ({wh['field']}) "
+                                f"@ DW{wh['dw_pos']}.{wh['half']} = {wh['dw_value']}"
+                            )
+        else:
+            lines.append("  No Flit-mode matches found in any test.")
+            lines.append(
+                "  (Buffer data may require Broadcom decode step to interpret.)"
+            )
+        lines.append("")
+
+        # --- Raw Dump Summary ---
+        raw_dump_results = [r for r in self.results if r.phase == 6]
+        if raw_dump_results:
+            lines.append("--- Raw Buffer Dump Summary ---")
+            for r in raw_dump_results:
+                lines.append(f"  {r.test_id}: {r.name}")
+                lines.append(f"    {r.actual}")
+            lines.append("")
+
         lines.append("--- DW17/DW18 Analysis ---")
 
         dw17 = self._analyze_dw17()
@@ -1282,6 +1811,12 @@ class CaptureCorrelator:
             "  3. DW17 monotonicity suggests it contains a timestamp counter.",
             "  4. DW18 top byte = 0x00 confirms 8 reserved bits per the spec.",
             "  5. If all rows are empty, try a different trace point or direction.",
+            "  6. Gen6 Flit mode: TLP type byte at DW0[7:0], not DW0[31:24].",
+            "     Flit hits indicate Flit-mode encoding detected in buffer.",
+            "  7. Phase 6 raw dumps compare trace_point/data_cap configurations",
+            "     to identify which settings produce meaningful captured data.",
+            "  8. Raw buffer may require Broadcom 'decode' step (SwitchCLID utility)",
+            "     to fully interpret captured Flit data.",
             "=" * 72,
         ])
 
@@ -1339,8 +1874,16 @@ def main():
         help="Post-trigger wait in ms (default: 500)",
     )
     parser.add_argument(
-        "--phases", default="1,2,3,4,5",
-        help="Comma-separated phase numbers to run (default: 1,2,3,4,5)",
+        "--phases", default="1,2,3,4,5,6",
+        help="Comma-separated phase numbers to run (default: 1,2,3,4,5,6)",
+    )
+    parser.add_argument(
+        "--trace-point", type=int, default=0,
+        help="PTrace capture trace point: 0=DLLP/TLP (default), 1=Unscrambler/OSGen",
+    )
+    parser.add_argument(
+        "--data-cap", action="store_true", default=False,
+        help="Enable data capture mode in PTrace (default: off)",
     )
     args = parser.parse_args()
 
@@ -1353,6 +1896,8 @@ def main():
     print("PTrace Capture Correlation")
     print(f"Output: {output_dir}")
     print(f"Phases: {sorted(phases)}")
+    print(f"Trace point: {args.trace_point}")
+    print(f"Data capture: {args.data_cap}")
 
     correlator = CaptureCorrelator(
         base_url=args.base_url,
@@ -1361,6 +1906,8 @@ def main():
         output_dir=output_dir,
         phases=phases,
         wait_ms=args.wait_ms,
+        trace_point=args.trace_point,
+        data_cap=args.data_cap,
     )
 
     sys.exit(correlator.run())
