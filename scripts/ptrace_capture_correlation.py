@@ -16,7 +16,7 @@ Usage:
                                                  [--port PORT_NUMBER]
                                                  [--output-dir ./ptrace_correlation]
                                                  [--wait-ms 500]
-                                                 [--phases 1,2,3,4,5,6]
+                                                 [--phases 1,2,3,4,5,6,7]
                                                  [--trace-point 0]
                                                  [--data-cap]
 
@@ -341,6 +341,42 @@ def _is_row_empty(row_dwords: list[int]) -> bool:
     return all(dw == 0 for dw in row_dwords)
 
 
+def _build_filter_hex(match_byte: int, dw_position: int) -> tuple[str, str]:
+    """Build 128-char match/mask hex strings for a PTrace 512-bit filter.
+
+    Targets a single byte at the lowest byte position [7:0] of the specified
+    DWORD in the 16-DWORD filter block.
+
+    Args:
+        match_byte: The byte value to match (e.g., 0x04 for CfgRd0 flit type).
+        dw_position: Which DWORD (0-15) contains the target byte.
+
+    Returns:
+        (match_hex, mask_hex) — each is a 128-character hex string.
+
+    Encoding:
+        - Each DWORD is written as 8 little-endian hex chars.
+        - Mask polarity: bit=1 → don't care, bit=0 → must match.
+        - match: all zeros except dw_position = match_byte & 0xFF at byte 0.
+        - mask: all 0xFFFFFFFF except dw_position = 0xFFFFFF00.
+    """
+    match_dwords = [0x00000000] * 16
+    mask_dwords = [0xFFFFFFFF] * 16
+
+    match_dwords[dw_position] = match_byte & 0xFF
+    mask_dwords[dw_position] = 0xFFFFFF00
+
+    def _dwords_to_hex(dwords: list[int]) -> str:
+        parts = []
+        for dw in dwords:
+            # Little-endian: least significant byte first
+            b = dw.to_bytes(4, byteorder="little")
+            parts.append(b.hex())
+        return "".join(parts)
+
+    return _dwords_to_hex(match_dwords), _dwords_to_hex(mask_dwords)
+
+
 def _scan_row_for_header(
     row_dwords: list[int],
     expected_header: list[int],
@@ -656,6 +692,125 @@ class CaptureCorrelator:
             }
         finally:
             # Always attempt to stop exerciser to prevent hardware leak
+            try:
+                self._post(
+                    f"/devices/{dev}/exerciser/stop", {"port_number": port}
+                )
+            except Exception:
+                pass
+
+    def _capture_with_filter(
+        self,
+        tlp_configs: list[dict],
+        filter_match_hex: str,
+        filter_mask_hex: str,
+        trace_point: int = 0,
+        data_cap: bool = False,
+    ) -> dict:
+        """Capture with PTrace filter enabled.
+
+        Configures PTrace with filter_en=True, writes filter match/mask data
+        to filter index 0, then runs the capture-send-trigger-read sequence.
+
+        Args:
+            tlp_configs: TLP configurations to send via exerciser.
+            filter_match_hex: 128-char hex string for filter match block.
+            filter_mask_hex: 128-char hex string for filter mask block.
+            trace_point: PTrace trace point (0=DLLP/TLP, 1=Unscrambler).
+            data_cap: Enable data capture mode.
+
+        Returns:
+            Dict with ptrace_status, ptrace_buffer, and exerciser_status.
+        """
+        dev = self.device_id
+        port = self.port_number
+
+        # 1. Configure PTrace with filter enabled
+        cfg_body: dict[str, Any] = {
+            "port_number": port,
+            "direction": "egress",
+            "capture": {
+                "direction": "egress",
+                "port_number": port,
+                "trace_point": trace_point,
+                "idle_filt": True,
+                "nop_filt": True,
+                "data_cap": data_cap,
+                "filter_en": True,
+            },
+            "trigger": {"trigger_src": 0},  # manual trigger
+            "post_trigger": {},
+            "filter_control": {
+                "filter_match_sel0": 1,  # MATCH_DW1 per UG104
+            },
+        }
+        try:
+            self._post(f"/devices/{dev}/ptrace/configure", cfg_body)
+        except requests.HTTPError as exc:
+            if exc.response.status_code == 501:
+                # B0 doesn't support filter_control — retry without it
+                print("      (filter_control not supported, retrying without it)")
+                del cfg_body["filter_control"]
+                self._post(f"/devices/{dev}/ptrace/configure", cfg_body)
+            else:
+                raise
+
+        try:
+            # 2. Write filter match/mask data
+            filter_body = {
+                "filter_idx": 0,
+                "match_hex": filter_match_hex,
+                "mask_hex": filter_mask_hex,
+            }
+            self._post(
+                f"/devices/{dev}/ptrace/filter"
+                f"?port_number={port}&direction=egress",
+                filter_body,
+            )
+
+            # 3. Start capture
+            self._post(
+                f"/devices/{dev}/ptrace/start",
+                {"port_number": port, "direction": "egress"},
+            )
+
+            # 4. Send TLPs
+            send_body = {
+                "port_number": port,
+                "tlps": tlp_configs,
+                "infinite_loop": False,
+                "max_outstanding_np": 8,
+            }
+            self._post(f"/devices/{dev}/exerciser/send", send_body)
+
+            # 5. Wait then trigger and stop
+            time.sleep(self.wait_ms / 1000.0)
+            self._post(
+                f"/devices/{dev}/ptrace/manual-trigger",
+                {"port_number": port, "direction": "egress"},
+            )
+            time.sleep(0.01)
+            self._post(
+                f"/devices/{dev}/ptrace/stop",
+                {"port_number": port, "direction": "egress"},
+            )
+
+            # 6. Read results
+            ptrace_status = self._get(
+                f"/devices/{dev}/ptrace/status",
+                {"port_number": port, "direction": "egress"},
+            )
+            ptrace_buffer = self._get(
+                f"/devices/{dev}/ptrace/buffer",
+                {"port_number": port, "direction": "egress", "max_rows": 256},
+            )
+
+            return {
+                "ptrace_status": ptrace_status,
+                "ptrace_buffer": ptrace_buffer,
+            }
+        finally:
+            # Always stop exerciser to prevent hardware leak
             try:
                 self._post(
                     f"/devices/{dev}/exerciser/stop", {"port_number": port}
@@ -1608,6 +1763,252 @@ class CaptureCorrelator:
         )
 
     # -----------------------------------------------------------------------
+    # Phase 7: Filtered Capture Experiments
+    # -----------------------------------------------------------------------
+
+    def phase7_filtered_capture(self):
+        """Test PTrace hardware filter to exclude idle/NOP data.
+
+        Uses the 512-bit match/mask filter system (filter_en + filter index 0)
+        to capture only specific TLP types. Compares results against the
+        constant idle pattern observed in unfiltered captures.
+        """
+        print("\n=== Phase 7: Filtered Capture Experiments ===")
+
+        # First, capture an unfiltered baseline to identify the idle pattern
+        baseline_tlp_cfg = {
+            "tlp_type": "mr32",
+            "address": 0x00010000,
+            "requester_id": 0x0001,
+            "tag": 0x01,
+            "length_dw": 1,
+        }
+
+        def _get_idle_signature(rows: list[tuple[int, list[int]]]) -> tuple[int, str]:
+            """Extract the dominant DW11-DW15 pattern as an idle signature.
+
+            Returns (row_count, hex signature of DW11-DW15 from first row).
+            """
+            if not rows:
+                return 0, ""
+            # Use first row's DW11-DW15 as the idle reference
+            _, first_dwords = rows[0]
+            sig_dws = first_dwords[11:16] if len(first_dwords) >= 16 else []
+            sig_hex = "_".join(f"{dw:08X}" for dw in sig_dws)
+            return len(rows), sig_hex
+
+        def _rows_differ_from_idle(
+            rows: list[tuple[int, list[int]]], idle_sig: str
+        ) -> bool:
+            """Check if captured rows differ from the constant idle pattern."""
+            if not rows:
+                # No rows at all — filter may have excluded everything (good)
+                return True
+            if not idle_sig:
+                return True
+            # Check if any row has DW11-DW15 different from idle signature
+            for _, dwords in rows:
+                if len(dwords) >= 16:
+                    row_sig = "_".join(f"{dw:08X}" for dw in dwords[11:16])
+                    if row_sig != idle_sig:
+                        return True
+            # Also check if DW0-DW10 has any non-zero content (TLP data)
+            for _, dwords in rows:
+                for i in range(min(11, len(dwords))):
+                    if dwords[i] != 0:
+                        return True
+            return False
+
+        # --- Capture unfiltered baseline ---
+        def test_7_0(r: TestResult):
+            resp = self._capture_and_send_custom(
+                [baseline_tlp_cfg], trace_point=0, data_cap=False
+            )
+            rows = self._extract_rows(resp)
+            idle_count, idle_sig = _get_idle_signature(rows)
+
+            # Store baseline for sub-tests
+            self._phase7_idle_sig = idle_sig
+            self._phase7_idle_count = idle_count
+
+            dw_occupancy = [0] * TBUF_ROW_DWORDS
+            for _, dwords in rows:
+                for i, dw in enumerate(dwords):
+                    if dw != 0:
+                        dw_occupancy[i] += 1
+
+            r.data = {
+                "config": "Unfiltered baseline (no filter_en)",
+                "total_rows": idle_count,
+                "idle_signature": idle_sig,
+                "dw_occupancy": {
+                    f"DW{i}": count for i, count in enumerate(dw_occupancy) if count > 0
+                },
+                "sample_rows": self._dump_sample_rows(rows, max_rows=5),
+            }
+            r.expected = "Capture idle baseline for comparison"
+            r.actual = f"rows={idle_count}, idle_sig={idle_sig[:40]}..."
+            r.status = "PASS" if idle_count > 0 else "WARN"
+            if idle_count == 0:
+                r.notes = "No rows in baseline — filtered tests may not be comparable"
+
+        self._run_test(
+            "7.0_baseline", 7,
+            "Unfiltered baseline capture", test_7_0,
+        )
+
+        # --- Filter test definitions ---
+        # CfgRd0 flit type byte: Fmt=0b00, Type=0b00100 → 0x04
+        # MW32 flit type byte: Fmt=0b10, Type=0b00000 → 0x40
+        filter_tests = [
+            {
+                "test_id": "7.1_cfgrd0_dw0",
+                "name": "Filter CfgRd0 (0x04) at DW0",
+                "tlp_type": "cfrd0",
+                "tlp_cfg": {
+                    "tlp_type": "cfrd0",
+                    "target_id": 0x0500,
+                    "requester_id": 0xF001,
+                    "tag": 0x71,
+                    "length_dw": 1,
+                },
+                "match_byte": 0x04,
+                "dw_position": 0,
+            },
+            {
+                "test_id": "7.2_cfgrd0_dw11",
+                "name": "Filter CfgRd0 (0x04) at DW11",
+                "tlp_type": "cfrd0",
+                "tlp_cfg": {
+                    "tlp_type": "cfrd0",
+                    "target_id": 0x0500,
+                    "requester_id": 0xF002,
+                    "tag": 0x72,
+                    "length_dw": 1,
+                },
+                "match_byte": 0x04,
+                "dw_position": 11,
+            },
+            {
+                "test_id": "7.3_mw32_dw0",
+                "name": "Filter MW32 (0x40) at DW0",
+                "tlp_type": "mw32",
+                "tlp_cfg": {
+                    "tlp_type": "mw32",
+                    "address": 0xF0CE0000,
+                    "requester_id": 0xF003,
+                    "tag": 0x73,
+                    "length_dw": 1,
+                    "data": "DEADF00D",
+                },
+                "match_byte": 0x40,
+                "dw_position": 0,
+            },
+            {
+                "test_id": "7.4_mw32_dw11",
+                "name": "Filter MW32 (0x40) at DW11",
+                "tlp_type": "mw32",
+                "tlp_cfg": {
+                    "tlp_type": "mw32",
+                    "address": 0xF0CE0000,
+                    "requester_id": 0xF004,
+                    "tag": 0x74,
+                    "length_dw": 1,
+                    "data": "DEADF00D",
+                },
+                "match_byte": 0x40,
+                "dw_position": 11,
+            },
+        ]
+
+        # Store per-test results for summary
+        self._phase7_results: list[dict] = []
+
+        for ft in filter_tests:
+            def _make_test(ft_spec: dict):
+                def test_fn(r: TestResult):
+                    match_hex, mask_hex = _build_filter_hex(
+                        ft_spec["match_byte"], ft_spec["dw_position"]
+                    )
+
+                    r.data["filter_match_hex"] = match_hex
+                    r.data["filter_mask_hex"] = mask_hex
+                    r.data["match_byte"] = f"0x{ft_spec['match_byte']:02X}"
+                    r.data["dw_position"] = ft_spec["dw_position"]
+
+                    resp = self._capture_with_filter(
+                        [ft_spec["tlp_cfg"]],
+                        filter_match_hex=match_hex,
+                        filter_mask_hex=mask_hex,
+                        trace_point=0,
+                        data_cap=False,
+                    )
+                    rows = self._extract_rows(resp)
+                    samples = self._dump_sample_rows(rows, max_rows=10)
+
+                    dw_occupancy = [0] * TBUF_ROW_DWORDS
+                    for _, dwords in rows:
+                        for i, dw in enumerate(dwords):
+                            if dw != 0:
+                                dw_occupancy[i] += 1
+
+                    idle_sig = getattr(self, "_phase7_idle_sig", "")
+                    idle_count = getattr(self, "_phase7_idle_count", 0)
+                    differs = _rows_differ_from_idle(rows, idle_sig)
+
+                    r.data["total_rows"] = len(rows)
+                    r.data["idle_baseline_rows"] = idle_count
+                    r.data["content_differs_from_idle"] = differs
+                    r.data["sample_rows"] = samples
+                    r.data["dw_occupancy"] = {
+                        f"DW{i}": count
+                        for i, count in enumerate(dw_occupancy)
+                        if count > 0
+                    }
+
+                    r.expected = (
+                        f"Filter byte 0x{ft_spec['match_byte']:02X} "
+                        f"at DW{ft_spec['dw_position']} — "
+                        f"buffer differs from idle"
+                    )
+                    r.actual = (
+                        f"rows={len(rows)} (baseline={idle_count}), "
+                        f"differs={differs}, "
+                        f"active_dws="
+                        f"{[f'DW{i}' for i, c in enumerate(dw_occupancy) if c > 0]}"
+                    )
+
+                    # PASS if content differs from constant idle pattern
+                    # or if fewer rows captured (filter excluded idle)
+                    if differs:
+                        r.status = "PASS"
+                        r.notes = "Filter produced non-idle content"
+                    elif len(rows) < idle_count:
+                        r.status = "PASS"
+                        r.notes = (
+                            f"Fewer rows ({len(rows)} vs {idle_count}) — "
+                            f"filter excluded some data"
+                        )
+                    else:
+                        r.status = "FAIL"
+                        r.notes = "Same idle data as unfiltered — filter had no effect"
+
+                    # Record for summary
+                    self._phase7_results.append({
+                        "test_id": ft_spec["test_id"],
+                        "match_byte": f"0x{ft_spec['match_byte']:02X}",
+                        "dw_position": ft_spec["dw_position"],
+                        "rows": len(rows),
+                        "differs_from_idle": differs,
+                        "status": r.status,
+                    })
+
+                return test_fn
+            self._run_test(
+                ft["test_id"], 7, ft["name"], _make_test(ft),
+            )
+
+    # -----------------------------------------------------------------------
     # Run all phases
     # -----------------------------------------------------------------------
 
@@ -1622,6 +2023,7 @@ class CaptureCorrelator:
             4: self.phase4_messages,
             5: self.phase5_consensus,
             6: self.phase6_raw_dump,
+            7: self.phase7_filtered_capture,
         }
 
         for phase_num in sorted(self.phases):
@@ -1778,6 +2180,24 @@ class CaptureCorrelator:
                 lines.append(f"    {r.actual}")
             lines.append("")
 
+        # --- Filtered Capture Experiments ---
+        phase7_results = getattr(self, "_phase7_results", [])
+        if phase7_results:
+            lines.append("--- Filtered Capture Experiments ---")
+            idle_count = getattr(self, "_phase7_idle_count", 0)
+            lines.append(f"  Baseline (unfiltered) rows: {idle_count}")
+            for pr in phase7_results:
+                status_char = {"PASS": "+", "FAIL": "!", "WARN": "~", "ERROR": "X"}.get(
+                    pr["status"], "?"
+                )
+                lines.append(
+                    f"  [{status_char}] {pr['test_id']:20s}: "
+                    f"filter={pr['match_byte']} @ DW{pr['dw_position']:<2d}  "
+                    f"rows={pr['rows']:3d}  "
+                    f"differs={pr['differs_from_idle']}"
+                )
+            lines.append("")
+
         lines.append("--- DW17/DW18 Analysis ---")
 
         dw17 = self._analyze_dw17()
@@ -1817,6 +2237,9 @@ class CaptureCorrelator:
             "     to identify which settings produce meaningful captured data.",
             "  8. Raw buffer may require Broadcom 'decode' step (SwitchCLID utility)",
             "     to fully interpret captured Flit data.",
+            "  9. Phase 7 uses 512-bit match/mask filters (filter_en + filter index 0)",
+            "     to test whether hardware filtering can exclude idle/NOP Flit data.",
+            "     Mask polarity: bit=1 → don't care, bit=0 → must match.",
             "=" * 72,
         ])
 
@@ -1874,8 +2297,8 @@ def main():
         help="Post-trigger wait in ms (default: 500)",
     )
     parser.add_argument(
-        "--phases", default="1,2,3,4,5,6",
-        help="Comma-separated phase numbers to run (default: 1,2,3,4,5,6)",
+        "--phases", default="1,2,3,4,5,6,7",
+        help="Comma-separated phase numbers to run (default: 1,2,3,4,5,6,7)",
     )
     parser.add_argument(
         "--trace-point", type=int, default=0,
