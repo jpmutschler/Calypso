@@ -85,7 +85,7 @@ _TLP_FMT_TYPE: dict[TlpType, tuple[int, int]] = {
     TlpType.PM_NAK: (0b01, 0b10100),  # 4DW, no data, Msg
     TlpType.PME: (0b01, 0b10000),  # 4DW, no data, Msg
     TlpType.PME_OFF: (0b01, 0b10011),  # 4DW, no data, Msg
-    TlpType.PME_ACK: (0b01, 0b10100),  # 4DW, no data, Msg
+    TlpType.PME_ACK: (0b01, 0b10101),  # 4DW, no data, Msg (routing=101 Gather&Route)
     TlpType.ERR_COR: (0b01, 0b10000),  # 4DW, no data, Msg
     TlpType.ERR_NF: (0b01, 0b10000),  # 4DW, no data, Msg
     TlpType.ERR_FATAL: (0b01, 0b10000),  # 4DW, no data, Msg

@@ -150,15 +150,15 @@ class CondAttr6Reg:
     """Condition Attribute 6 Register (LtssmState, FlitMode, CxlMode).
 
     Bitfields:
-        [8:0]  LtssmState (9-bit, hardware-truncated)
-        [16]   FlitMode
-        [17]   CxlMode
+        [11:0]  LtssmState (12-bit)
+        [16]    FlitMode
+        [17]    CxlMode
 
-    Note: The LTSSM snapshot API returns a 12-bit encoding (top 4 bits = major
-    state, lower 8 bits = sub-state, e.g. 0x301 = L0 sub=1). This register
-    only stores 9 bits, so ``to_register()`` masks with ``& 0x1FF``. The
-    relationship between the 12-bit snapshot encoding and the 9-bit condition
-    matching encoding needs further hardware validation.
+    The LTSSM snapshot API returns a 12-bit encoding (top 4 bits = major
+    state, lower 8 bits = sub-state, e.g. 0x301 = L0 sub=1). Hardware
+    validation confirmed that the condition register uses the same 12-bit
+    encoding — bits [11:0] are active despite the original 9-bit documentation.
+    Bits [15:12] are reserved and safe to write as zero.
     """
 
     ltssm_state: int = 0
@@ -166,7 +166,7 @@ class CondAttr6Reg:
     cxl_mode: bool = False
 
     def to_register(self) -> int:
-        value = self.ltssm_state & 0x1FF
+        value = self.ltssm_state & 0xFFF
         if self.flit_mode:
             value |= 1 << 16
         if self.cxl_mode:
@@ -176,7 +176,7 @@ class CondAttr6Reg:
     @classmethod
     def from_register(cls, value: int) -> CondAttr6Reg:
         return cls(
-            ltssm_state=value & 0x1FF,
+            ltssm_state=value & 0xFFF,
             flit_mode=bool(value & (1 << 16)),
             cxl_mode=bool(value & (1 << 17)),
         )

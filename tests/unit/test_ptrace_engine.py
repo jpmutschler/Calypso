@@ -285,30 +285,45 @@ class TestConfigureErrorTrigger:
 
 
 class TestConfigureEventCounter:
-    """Event counter configuration register writes."""
+    """Event counter writes source to CFG and threshold to THRESHOLD register."""
 
     @patch("calypso.core.ptrace.write_mapped_register")
-    def test_counter_0_a0(self, mock_write, engine_a0):
+    def test_counter_0_a0_writes_both_registers(self, mock_write, engine_a0):
         cfg = PTraceEventCounterCfg(counter_id=0, event_source=10, threshold=500)
         engine_a0.configure_event_counter(PTraceDirection.INGRESS, cfg)
-        addr = 0xF00000 + 0x4000 + LAYOUT_A0.EVT_CTR0_CFG
-        mock_write.assert_called_once()
-        assert mock_write.call_args[0][1] == addr
+        base = 0xF00000 + 0x4000
+        assert mock_write.call_count == 2
+        # First write: CFG register (event source)
+        cfg_addr = base + LAYOUT_A0.EVT_CTR0_CFG
+        assert mock_write.call_args_list[0][0][1] == cfg_addr
+        assert mock_write.call_args_list[0][0][2] == 10  # event_source
+        # Second write: THRESHOLD register
+        thresh_addr = base + LAYOUT_A0.EVT_CTR0_THRESHOLD
+        assert mock_write.call_args_list[1][0][1] == thresh_addr
+        assert mock_write.call_args_list[1][0][2] == 500  # threshold
 
     @patch("calypso.core.ptrace.write_mapped_register")
-    def test_counter_1_a0(self, mock_write, engine_a0):
+    def test_counter_1_a0_writes_both_registers(self, mock_write, engine_a0):
         cfg = PTraceEventCounterCfg(counter_id=1, event_source=20, threshold=1000)
         engine_a0.configure_event_counter(PTraceDirection.INGRESS, cfg)
-        addr = 0xF00000 + 0x4000 + LAYOUT_A0.EVT_CTR1_CFG
-        mock_write.assert_called_once()
-        assert mock_write.call_args[0][1] == addr
+        base = 0xF00000 + 0x4000
+        assert mock_write.call_count == 2
+        cfg_addr = base + LAYOUT_A0.EVT_CTR1_CFG
+        assert mock_write.call_args_list[0][0][1] == cfg_addr
+        thresh_addr = base + LAYOUT_A0.EVT_CTR1_THRESHOLD
+        assert mock_write.call_args_list[1][0][1] == thresh_addr
+        assert mock_write.call_args_list[1][0][2] == 1000
 
     @patch("calypso.core.ptrace.write_mapped_register")
-    def test_counter_0_b0(self, mock_write, engine_b0):
+    def test_counter_0_b0_writes_both_registers(self, mock_write, engine_b0):
         cfg = PTraceEventCounterCfg(counter_id=0, event_source=10, threshold=500)
         engine_b0.configure_event_counter(PTraceDirection.INGRESS, cfg)
-        addr = 0xF00000 + 0x4000 + LAYOUT_B0.EVT_CTR0_CFG
-        assert mock_write.call_args[0][1] == addr
+        base = 0xF00000 + 0x4000
+        assert mock_write.call_count == 2
+        cfg_addr = base + LAYOUT_B0.EVT_CTR0_CFG
+        assert mock_write.call_args_list[0][0][1] == cfg_addr
+        thresh_addr = base + LAYOUT_B0.EVT_CTR0_THRESHOLD
+        assert mock_write.call_args_list[1][0][1] == thresh_addr
 
 
 class TestWriteFilter:

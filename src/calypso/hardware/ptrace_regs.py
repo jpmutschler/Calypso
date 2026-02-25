@@ -683,24 +683,38 @@ PORT_ERR_NAMES: dict[int, str] = {
 
 @dataclass
 class EventCounterCfgReg:
-    """PTrace Event Counter Config Register.
+    """PTrace Event Counter Config Register (CFG offset).
 
     Bitfields:
         [5:0]   EventSource -- counter event source ID
-        [31:16] Threshold -- counter threshold value
+
+    Note: The threshold is in a SEPARATE register at CFG+4 (EVT_CTR0_THRESHOLD
+    or EVT_CTR1_THRESHOLD). Use ``EventCounterThresholdReg`` for that register.
     """
 
     event_source: int = 0
-    threshold: int = 0
 
     def to_register(self) -> int:
-        value = self.event_source & 0x3F
-        value |= (self.threshold & 0xFFFF) << 16
-        return value
+        return self.event_source & 0x3F
 
     @classmethod
     def from_register(cls, value: int) -> EventCounterCfgReg:
-        return cls(
-            event_source=value & 0x3F,
-            threshold=(value >> 16) & 0xFFFF,
-        )
+        return cls(event_source=value & 0x3F)
+
+
+@dataclass
+class EventCounterThresholdReg:
+    """PTrace Event Counter Threshold Register (CFG+4 offset).
+
+    Bitfields:
+        [15:0]  Threshold -- counter threshold value
+    """
+
+    threshold: int = 0
+
+    def to_register(self) -> int:
+        return self.threshold & 0xFFFF
+
+    @classmethod
+    def from_register(cls, value: int) -> EventCounterThresholdReg:
+        return cls(threshold=value & 0xFFFF)

@@ -455,28 +455,19 @@ class PTraceValidator:
             self._clear(port)
 
             # The LTSSM snapshot returns a 12-bit encoding (top 4 = major state,
-            # lower 8 = sub-state). The CondAttr6 register has 9 bits [8:0] for
-            # LTSSM matching. We try matching on the top-state bits only (mask
-            # the top nibble shifted into the 9-bit field), since the exact
-            # mapping between the 12-bit snapshot and 9-bit condition encoding
-            # is not yet fully characterized.
-            #
-            # Strategy: pass the full value (model accepts 0-4095, hardware
-            # truncates to 9 bits). Use a mask that matches only the major
-            # state portion (bits [8:4] or top nibble depending on encoding).
-            # We try the raw 9-bit truncated value with full 9-bit mask first.
-            ltssm_9bit = ltssm & 0x1FF
+            # lower 8 = sub-state, e.g. 0x301 = L0 sub=1). The CondAttr6
+            # register accepts the full 12-bit value in bits [11:0] (validated
+            # on A0 hardware — the original 9-bit documentation was incorrect).
             r.data["ltssm_12bit"] = f"0x{ltssm:03X}"
-            r.data["ltssm_9bit"] = f"0x{ltssm_9bit:03X}"
 
-            # Configure condition 0: match truncated LTSSM state
+            # Configure condition 0: match full 12-bit LTSSM state
             self._ptrace_post("condition-attributes", {
                 "port_number": port,
                 "direction": "ingress",
                 "config": {
                     "condition_id": 0,
-                    "ltssm_state": ltssm_9bit,
-                    "ltssm_state_mask": 0x1FF,
+                    "ltssm_state": ltssm,
+                    "ltssm_state_mask": 0xFFF,
                 },
             })
 
@@ -490,7 +481,7 @@ class PTraceValidator:
             s = self._status(port)
             r.data.update({
                 "status": s,
-                "ltssm_state_used": f"0x{ltssm_9bit:03X}",
+                "ltssm_state_used": f"0x{ltssm:03X}",
             })
             triggered = s.get("triggered", False)
             r.expected = "triggered=true (condition matches current LTSSM state)"
@@ -498,10 +489,9 @@ class PTraceValidator:
             if triggered:
                 r.status = "PASS"
             else:
-                r.status = "WARN"
-                r.notes = ("Cond0 did not trigger — the 9-bit truncated LTSSM value "
-                           f"(0x{ltssm_9bit:03X}) may not match what hardware sees. "
-                           "The 12-bit-to-9-bit LTSSM encoding mapping needs investigation.")
+                r.status = "FAIL"
+                r.notes = (f"Cond0 did not trigger with full 12-bit LTSSM 0x{ltssm:03X}. "
+                           "Check that the port LTSSM state is stable during the test.")
             self._stop(port)
 
         self._run_test("2.1_cond0_ltssm_match", 2, "Cond0 LTSSM match trigger", test_2_1)
@@ -511,14 +501,14 @@ class PTraceValidator:
             self._stop(port)
             self._clear(port)
 
-            # LTSSM state 0x1FF with full mask — should never match
+            # LTSSM state 0xFFF with full mask — should never match
             self._ptrace_post("condition-attributes", {
                 "port_number": port,
                 "direction": "ingress",
                 "config": {
                     "condition_id": 0,
-                    "ltssm_state": 0x1FF,
-                    "ltssm_state_mask": 0x1FF,
+                    "ltssm_state": 0xFFF,
+                    "ltssm_state_mask": 0xFFF,
                 },
             })
 
@@ -554,18 +544,17 @@ class PTraceValidator:
                 r.notes = "LTSSM state unknown"
                 return
 
-            ltssm_9bit = ltssm & 0x1FF
             self._stop(port)
             self._clear(port)
 
-            # Configure condition 1 with 9-bit truncated LTSSM
+            # Configure condition 1 with full 12-bit LTSSM
             self._ptrace_post("condition-attributes", {
                 "port_number": port,
                 "direction": "ingress",
                 "config": {
                     "condition_id": 1,
-                    "ltssm_state": ltssm_9bit,
-                    "ltssm_state_mask": 0x1FF,
+                    "ltssm_state": ltssm,
+                    "ltssm_state_mask": 0xFFF,
                 },
             })
 
@@ -577,14 +566,13 @@ class PTraceValidator:
             self._start(port)
             time.sleep(2.0)
             s = self._status(port)
-            r.data = {"status": s, "ltssm_9bit": f"0x{ltssm_9bit:03X}"}
+            r.data = {"status": s, "ltssm_state": f"0x{ltssm:03X}"}
             triggered = s.get("triggered", False)
             r.expected = "triggered=true"
             r.actual = f"triggered={triggered}"
-            r.status = "PASS" if triggered else "WARN"
+            r.status = "PASS" if triggered else "FAIL"
             if not triggered:
-                r.notes = ("Cond1 did not trigger — 9-bit LTSSM encoding may not match "
-                           "hardware view")
+                r.notes = "Cond1 did not trigger on current LTSSM state"
             self._stop(port)
 
         self._run_test("2.3_cond1_trigger", 2, "Cond1 trigger test", test_2_3)
@@ -597,19 +585,18 @@ class PTraceValidator:
                 r.notes = "LTSSM state unknown"
                 return
 
-            ltssm_9bit = ltssm & 0x1FF
             self._stop(port)
             self._clear(port)
 
-            # Cond0 matches (9-bit truncated LTSSM), Cond1 doesn't (0x1FF)
+            # Cond0 matches (full 12-bit LTSSM), Cond1 doesn't (0xFFF impossible)
             self._ptrace_post("condition-attributes", {
                 "port_number": port, "direction": "ingress",
-                "config": {"condition_id": 0, "ltssm_state": ltssm_9bit,
-                           "ltssm_state_mask": 0x1FF},
+                "config": {"condition_id": 0, "ltssm_state": ltssm,
+                           "ltssm_state_mask": 0xFFF},
             })
             self._ptrace_post("condition-attributes", {
                 "port_number": port, "direction": "ingress",
-                "config": {"condition_id": 1, "ltssm_state": 0x1FF, "ltssm_state_mask": 0x1FF},
+                "config": {"condition_id": 1, "ltssm_state": 0xFFF, "ltssm_state_mask": 0xFFF},
             })
 
             self._configure(
@@ -640,19 +627,18 @@ class PTraceValidator:
                 r.notes = "LTSSM state unknown"
                 return
 
-            ltssm_9bit = ltssm & 0x1FF
             self._stop(port)
             self._clear(port)
 
-            # Cond0 matches (9-bit truncated), Cond1 doesn't
+            # Cond0 matches (full 12-bit LTSSM), Cond1 doesn't (0xFFF impossible)
             self._ptrace_post("condition-attributes", {
                 "port_number": port, "direction": "ingress",
-                "config": {"condition_id": 0, "ltssm_state": ltssm_9bit,
-                           "ltssm_state_mask": 0x1FF},
+                "config": {"condition_id": 0, "ltssm_state": ltssm,
+                           "ltssm_state_mask": 0xFFF},
             })
             self._ptrace_post("condition-attributes", {
                 "port_number": port, "direction": "ingress",
-                "config": {"condition_id": 1, "ltssm_state": 0x1FF, "ltssm_state_mask": 0x1FF},
+                "config": {"condition_id": 1, "ltssm_state": 0xFFF, "ltssm_state_mask": 0xFFF},
             })
 
             self._configure(

@@ -31,6 +31,7 @@ from calypso.hardware.ptrace_regs import (
     CaptureControlReg,
     CaptureStatusReg,
     EventCounterCfgReg,
+    EventCounterThresholdReg,
     FilterControlReg,
     FilterSrcSel,
     FlitMatchSel,
@@ -554,9 +555,26 @@ class TestCondAttr6Reg:
         reg = CondAttr6Reg()
         assert reg.to_register() == 0
 
-    def test_ltssm_state(self):
+    def test_ltssm_state_9bit(self):
         reg = CondAttr6Reg(ltssm_state=0x1FF)
-        assert reg.to_register() & 0x1FF == 0x1FF
+        assert reg.to_register() & 0xFFF == 0x1FF
+
+    def test_ltssm_state_12bit(self):
+        """Full 12-bit LTSSM values (e.g. 0x301 = L0 sub-1) must survive."""
+        reg = CondAttr6Reg(ltssm_state=0x301)
+        assert reg.to_register() & 0xFFF == 0x301
+
+    def test_ltssm_state_12bit_max(self):
+        """Maximum 12-bit LTSSM value must survive roundtrip."""
+        reg = CondAttr6Reg(ltssm_state=0xFFF)
+        decoded = CondAttr6Reg.from_register(reg.to_register())
+        assert decoded.ltssm_state == 0xFFF
+
+    def test_ltssm_state_truncates_above_12bit(self):
+        """Values above 12-bit should be masked, not leak into reserved bits."""
+        reg = CondAttr6Reg(ltssm_state=0x1FFF)
+        assert reg.to_register() & 0xFFF == 0xFFF
+        assert reg.to_register() & (1 << 12) == 0
 
     def test_flit_mode(self):
         reg = CondAttr6Reg(flit_mode=True)
@@ -597,7 +615,7 @@ class TestTBufAccessCtlReg:
 
 
 class TestEventCounterCfgReg:
-    """Event Counter Config Register encode/decode."""
+    """Event Counter Config Register — source only (threshold is separate)."""
 
     def test_defaults(self):
         reg = EventCounterCfgReg()
@@ -607,15 +625,36 @@ class TestEventCounterCfgReg:
         reg = EventCounterCfgReg(event_source=42)
         assert reg.to_register() & 0x3F == 42
 
-    def test_threshold(self):
-        reg = EventCounterCfgReg(threshold=0xABCD)
-        assert (reg.to_register() >> 16) & 0xFFFF == 0xABCD
-
-    def test_roundtrip(self):
-        original = EventCounterCfgReg(event_source=33, threshold=1000)
+    def test_source_roundtrip(self):
+        original = EventCounterCfgReg(event_source=33)
         decoded = EventCounterCfgReg.from_register(original.to_register())
         assert decoded.event_source == original.event_source
+
+    def test_source_only_no_high_bits(self):
+        """CFG register should only use bits [5:0], no threshold bits."""
+        reg = EventCounterCfgReg(event_source=63)
+        assert reg.to_register() == 63
+
+
+class TestEventCounterThresholdReg:
+    """Event Counter Threshold Register — separate from CFG."""
+
+    def test_defaults(self):
+        reg = EventCounterThresholdReg()
+        assert reg.to_register() == 0
+
+    def test_threshold(self):
+        reg = EventCounterThresholdReg(threshold=0xABCD)
+        assert reg.to_register() == 0xABCD
+
+    def test_roundtrip(self):
+        original = EventCounterThresholdReg(threshold=1000)
+        decoded = EventCounterThresholdReg.from_register(original.to_register())
         assert decoded.threshold == original.threshold
+
+    def test_threshold_truncates_above_16bit(self):
+        reg = EventCounterThresholdReg(threshold=0x1FFFF)
+        assert reg.to_register() == 0xFFFF
 
 
 class TestPortErrType:

@@ -30,6 +30,7 @@ from calypso.hardware.ptrace_regs import (
     CaptureControlReg,
     CaptureStatusReg,
     EventCounterCfgReg,
+    EventCounterThresholdReg,
     FilterControlReg,
     InvertFilterControlReg,
     PostTriggerCfgReg,
@@ -244,17 +245,26 @@ class PTraceEngine:
     def configure_event_counter(
         self, direction: PTraceDirection, cfg: PTraceEventCounterCfg
     ) -> None:
-        """Write an event counter config register."""
+        """Write event counter config (source) and threshold registers.
+
+        The event source and threshold live in separate registers:
+        - EVT_CTRn_CFG: event_source [5:0]
+        - EVT_CTRn_THRESHOLD: threshold [15:0] (at CFG + 4)
+        """
         hw = _dir_to_hw(direction)
-        reg = EventCounterCfgReg(
-            event_source=cfg.event_source,
-            threshold=cfg.threshold,
-        )
-        offset = (
-            self._layout.EVT_CTR0_CFG if cfg.counter_id == 0
-            else self._layout.EVT_CTR1_CFG
-        )
-        self._write_offset(hw, offset, reg.to_register())
+
+        cfg_reg = EventCounterCfgReg(event_source=cfg.event_source)
+        thresh_reg = EventCounterThresholdReg(threshold=cfg.threshold)
+
+        if cfg.counter_id == 0:
+            cfg_off = self._layout.EVT_CTR0_CFG
+            thresh_off = self._layout.EVT_CTR0_THRESHOLD
+        else:
+            cfg_off = self._layout.EVT_CTR1_CFG
+            thresh_off = self._layout.EVT_CTR1_THRESHOLD
+
+        self._write_offset(hw, cfg_off, cfg_reg.to_register())
+        self._write_offset(hw, thresh_off, thresh_reg.to_register())
 
     def write_filter(
         self,

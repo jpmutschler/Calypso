@@ -433,6 +433,10 @@ class TestBuildTlpHeader:
     def test_message_tlp_pme_ack(self):
         header = build_tlp_header(TlpType.PME_ACK)
         assert header[1] & 0xFF == 0x1B
+        # Verify routing=101 (Gather & Route to RC): Fmt=01, Type=10101
+        dw0 = header[0]
+        assert (dw0 >> 29) & 0x7 == 0b01
+        assert (dw0 >> 24) & 0x1F == 0b10101
 
     def test_message_tlp_err_nf(self):
         header = build_tlp_header(TlpType.ERR_NF)
