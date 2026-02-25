@@ -644,8 +644,8 @@ class CaptureCorrelator:
                 f"/devices/{dev}/ptrace/status",
                 {"port_number": port, "direction": "egress"},
             )
-            ptrace_buffer = self._post(
-                f"/devices/{dev}/ptrace/read-buffer",
+            ptrace_buffer = self._get(
+                f"/devices/{dev}/ptrace/buffer",
                 {"port_number": port, "direction": "egress", "max_rows": 256},
             )
 
