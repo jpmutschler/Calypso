@@ -173,14 +173,14 @@ class WorkflowExecutor:
         self._key = dev_key
         self._device_id = device_id
 
-    def run(self, workflow: WorkflowDefinition) -> list[RecipeSummary]:
+    def run(self, workflow: WorkflowDefinition, run_id: str | None = None) -> list[RecipeSummary]:
         """Execute all steps in a workflow.
 
         Thread-safe: updates _active_runs, stores results in _completed_runs.
         """
         from calypso.workflows import get_recipe
 
-        run_id = str(uuid.uuid4())[:8]
+        run_id = run_id or str(uuid.uuid4())[:8]
         ctx = WorkflowExecutionContext()
         start_time = time.monotonic()
         summaries: list[RecipeSummary] = []

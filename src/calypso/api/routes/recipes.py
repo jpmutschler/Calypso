@@ -92,17 +92,17 @@ async def start_recipe(
 
     # Check if already running
     progress = get_recipe_progress(device_id)
-    if progress is not None and progress.get("status") == "running":
+    if progress is not None and progress.status == "running":
         raise HTTPException(status_code=409, detail="A recipe is already running on this device")
 
     def _run():
         try:
             run_single_recipe(
+                body.recipe_id,
                 sw._device_obj,
                 sw._device_key,
                 device_id,
-                body.recipe_id,
-                body.parameters,
+                **body.parameters,
             )
         except Exception:
             logger.exception("Recipe execution failed for %s on %s", body.recipe_id, device_id)
@@ -256,10 +256,12 @@ async def get_saved_workflow(workflow_id: str) -> dict:
 @router.post("/workflows")
 async def save_workflow_endpoint(body: SaveWorkflowRequest) -> dict[str, str]:
     """Save a workflow definition."""
+    from calypso.workflows.workflow_models import WorkflowDefinition
     from calypso.workflows.workflow_storage import save_workflow
 
-    workflow_id = save_workflow(body.workflow)
-    return {"status": "saved", "workflow_id": workflow_id}
+    workflow = WorkflowDefinition(**body.workflow)
+    saved = save_workflow(workflow)
+    return {"status": "saved", "workflow_id": saved.workflow_id}
 
 
 @router.delete("/workflows/{workflow_id}")
