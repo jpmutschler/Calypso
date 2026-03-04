@@ -6,15 +6,22 @@ import asyncio
 from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from calypso.hardware.pcie_registers import PCIeLinkSpeed, SPEED_STRINGS
 from calypso.models.pcie_config import (
     AerStatus,
     ConfigSpaceDump,
     DeviceControlStatus,
+    FlitErrorInjectionConfig,
+    FlitErrorInjectionStatus,
+    FlitErrorLogEntry,
+    FlitLoggingStatus,
+    FlitPerfConfig,
+    FlitPerfStatus,
     LinkCapabilities,
     LinkControlStatus,
+    OsErrorInjectionConfig,
     PcieCapabilityInfo,
 )
 from calypso.utils.logging import get_logger
@@ -327,6 +334,306 @@ async def write_config_register(
                 "offset": f"0x{body.offset:03X}",
                 "value": f"0x{body.value:08X}",
             }
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+# --- Flit Logging (0x0032) ---
+
+
+@router.get("/devices/{device_id}/flit-logging", response_model=FlitLoggingStatus | None)
+async def get_flit_logging(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> FlitLoggingStatus | None:
+    """Read Flit Logging capability status. Returns null if not present."""
+
+    def _read() -> FlitLoggingStatus | None:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            return reader.get_flit_logging_status()
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_read)
+
+
+@router.post(
+    "/devices/{device_id}/flit-logging/drain-log",
+    response_model=list[FlitErrorLogEntry],
+)
+async def drain_flit_error_log(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> list[FlitErrorLogEntry]:
+    """Drain the Flit Error Log FIFO."""
+
+    def _read() -> list[FlitErrorLogEntry]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            return reader.read_all_flit_error_log_entries()
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_read)
+
+
+class FberStartRequest(BaseModel):
+    granularity: int = Field(default=0, ge=0, le=2)
+
+
+@router.post("/devices/{device_id}/flit-logging/fber/start")
+async def start_fber(
+    device_id: str,
+    body: FberStartRequest,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Start FBER measurement."""
+    logger.warning(
+        "fber_start_requested",
+        device_id=device_id,
+        port_number=port_number,
+        granularity=body.granularity,
+    )
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.start_fber_measurement(body.granularity)
+            return {"status": "started"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-logging/fber/stop")
+async def stop_fber(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Stop FBER measurement."""
+    logger.warning("fber_stop_requested", device_id=device_id, port_number=port_number)
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.stop_fber_measurement()
+            return {"status": "stopped"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-logging/fber/clear")
+async def clear_fber(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Clear FBER counters."""
+    logger.warning("fber_clear_requested", device_id=device_id, port_number=port_number)
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.clear_fber_counters()
+            return {"status": "cleared"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+# --- Flit Performance Measurement (0x0033) ---
+
+
+@router.get("/devices/{device_id}/flit-perf", response_model=FlitPerfStatus | None)
+async def get_flit_perf(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> FlitPerfStatus | None:
+    """Read Flit Performance Measurement status. Returns null if not present."""
+
+    def _read() -> FlitPerfStatus | None:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            return reader.get_flit_perf_status()
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_read)
+
+
+@router.post("/devices/{device_id}/flit-perf/start")
+async def start_flit_perf(
+    device_id: str,
+    body: FlitPerfConfig,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Start Flit Performance Measurement."""
+    logger.warning(
+        "flit_perf_start_requested",
+        device_id=device_id,
+        port_number=port_number,
+        config=body.model_dump(),
+    )
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.start_flit_perf_measurement(body)
+            return {"status": "started"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-perf/stop")
+async def stop_flit_perf(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Stop Flit Performance Measurement."""
+    logger.warning("flit_perf_stop_requested", device_id=device_id, port_number=port_number)
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.stop_flit_perf_measurement()
+            return {"status": "stopped"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+# --- Flit Error Injection (0x0034) ---
+
+
+@router.get(
+    "/devices/{device_id}/flit-error-injection",
+    response_model=FlitErrorInjectionStatus | None,
+)
+async def get_flit_error_injection(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> FlitErrorInjectionStatus | None:
+    """Read Flit Error Injection status. Returns null if not present."""
+
+    def _read() -> FlitErrorInjectionStatus | None:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            return reader.get_flit_error_injection_status()
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_read)
+
+
+@router.post("/devices/{device_id}/flit-error-injection/flit/configure")
+async def configure_flit_injection(
+    device_id: str,
+    body: FlitErrorInjectionConfig,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Configure and enable Flit error injection."""
+    logger.warning(
+        "flit_error_injection_configure",
+        device_id=device_id,
+        port_number=port_number,
+        config=body.model_dump(),
+    )
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.configure_flit_error_injection(body)
+            return {"status": "configured"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-error-injection/flit/disable")
+async def disable_flit_injection(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Disable Flit error injection."""
+    logger.warning("flit_error_injection_disable", device_id=device_id, port_number=port_number)
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.disable_flit_error_injection()
+            return {"status": "disabled"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-error-injection/os/configure")
+async def configure_os_injection(
+    device_id: str,
+    body: OsErrorInjectionConfig,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Configure and enable Ordered Set error injection."""
+    logger.warning(
+        "os_error_injection_configure",
+        device_id=device_id,
+        port_number=port_number,
+        config=body.model_dump(),
+    )
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.configure_os_error_injection(body)
+            return {"status": "configured"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            cleanup()
+
+    return await asyncio.to_thread(_do)
+
+
+@router.post("/devices/{device_id}/flit-error-injection/os/disable")
+async def disable_os_injection(
+    device_id: str,
+    port_number: int | None = Query(None),
+) -> dict[str, str]:
+    """Disable Ordered Set error injection."""
+    logger.warning("os_error_injection_disable", device_id=device_id, port_number=port_number)
+
+    def _do() -> dict[str, str]:
+        reader, cleanup = _get_config_reader_for_port(device_id, port_number)
+        try:
+            reader.disable_os_error_injection()
+            return {"status": "disabled"}
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:
             cleanup()
 

@@ -187,3 +187,162 @@ class ConfigSpaceDump(BaseModel):
     port_number: int
     registers: list[ConfigRegister] = Field(default_factory=list)
     capabilities: list[PcieCapabilityInfo] = Field(default_factory=list)
+
+
+# =============================================================================
+# Flit Logging (Extended Capability 0x0032)
+# =============================================================================
+
+
+class FlitErrorLogEntry(BaseModel):
+    """A single decoded Flit Error Log FIFO entry."""
+
+    valid: bool = False
+    link_width: int = 0
+    flit_offset: int = 0
+    consecutive_errors: int = 0
+    more_entries: bool = False
+    unrecognized_flit: bool = False
+    fec_uncorrectable: bool = False
+    syndrome_0: int = 0
+    syndrome_1: int = 0
+    syndrome_2: int = 0
+    syndrome_3: int = 0
+    raw_log1: int = 0
+    raw_log2: int = 0
+
+
+class FlitErrorCounter(BaseModel):
+    """Flit Error Counter control + status."""
+
+    enable: bool = False
+    interrupt_enable: bool = False
+    events_to_count: int = 0
+    trigger_event_count: int = 0
+    link_width: int = 0
+    interrupt_generated: bool = False
+    counter: int = 0
+    raw_value: int = 0
+
+
+class FberStatus(BaseModel):
+    """FBER (Flit Bit Error Rate) measurement status."""
+
+    enabled: bool = False
+    granularity: int = 0
+    flit_counter: int = 0
+    lane_counters: list[int] = Field(default_factory=list)
+    raw_control: int = 0
+
+
+class FlitLoggingStatus(BaseModel):
+    """Composite Flit Logging capability status."""
+
+    cap_offset: int
+    error_log_entries: list[FlitErrorLogEntry] = Field(default_factory=list)
+    error_counter: FlitErrorCounter = Field(default_factory=FlitErrorCounter)
+    fber: FberStatus = Field(default_factory=FberStatus)
+
+
+# =============================================================================
+# Flit Performance Measurement (Extended Capability 0x0033)
+# =============================================================================
+
+
+class FlitPerfConfig(BaseModel):
+    """Configuration for Flit Performance Measurement."""
+
+    response_type: int = Field(default=0, ge=0, le=0x7)
+    flit_type: int = Field(default=0, ge=0, le=0x3)
+    num_instances: int = Field(default=1, ge=0, le=0x1F)
+    interrupt_threshold: int = Field(default=0, ge=0, le=0x7)
+    ltssm_tracker: int = Field(default=0, ge=0, le=0x1F)
+    ltssm_num_instances: int = Field(default=0, ge=0, le=0x1F)
+
+
+class FlitPerfLtssmStatus(BaseModel):
+    """Per-LTSSM-register status from Flit Perf Measurement."""
+
+    tracking_status: int = 0
+    tracking_count: int = 0
+    interrupt: bool = False
+    counter: int = 0
+    raw_value: int = 0
+
+
+class FlitPerfStatus(BaseModel):
+    """Composite Flit Performance Measurement status."""
+
+    cap_offset: int
+    interrupt_vector: int = 0
+    ltssm_tracking_count: int = 0
+    tracking_status: int = 0
+    flits_tracked: int = 0
+    interrupt_generated: bool = False
+    ltssm_counter: int = 0
+    ltssm_statuses: list[FlitPerfLtssmStatus] = Field(default_factory=list)
+    raw_capability: int = 0
+    raw_control: int = 0
+    raw_status: int = 0
+
+
+# =============================================================================
+# Flit Error Injection (Extended Capability 0x0034)
+# =============================================================================
+
+
+class FlitErrorInjectionConfig(BaseModel):
+    """Configuration for Flit error injection."""
+
+    inject_tx: bool = True
+    inject_rx: bool = False
+    data_rate: int = Field(default=0, ge=0, le=0x1FFF)
+    num_errors: int = Field(default=1, ge=0, le=0x1F)
+    spacing: int = Field(default=0, ge=0, le=0xFF)
+    flit_type: int = Field(default=0, ge=0, le=0x7)
+    consecutive: int = Field(default=0, ge=0, le=0x7)
+    error_type: int = Field(default=0, ge=0, le=0x3)
+    error_offset: int = Field(default=0, ge=0, le=0x7F)
+    error_magnitude: int = Field(default=0, ge=0, le=0xFF)
+
+
+class OsErrorInjectionConfig(BaseModel):
+    """Configuration for Ordered Set error injection."""
+
+    inject_tx: bool = True
+    inject_rx: bool = False
+    num_errors: int = Field(default=1, ge=0, le=0x1F)
+    spacing: int = Field(default=0, ge=0, le=0xFF)
+    os_type_skp: bool = False
+    os_type_eieos: bool = False
+    os_type_ts1: bool = False
+    os_type_ts2: bool = False
+    os_type_eios: bool = False
+    os_type_sds: bool = False
+    os_type_eideos: bool = False
+    ltssm_detect: bool = False
+    ltssm_polling: bool = False
+    ltssm_config: bool = False
+    ltssm_l0: bool = False
+    ltssm_recovery: bool = False
+    ltssm_loopback: bool = False
+    ltssm_hot_reset: bool = False
+    error_bytes: int = Field(default=0, ge=0, le=0xFFFF)
+    lane_mask: int = Field(default=0xFFFF, ge=0, le=0xFFFF)
+
+
+class FlitErrorInjectionStatus(BaseModel):
+    """Composite Flit Error Injection capability status."""
+
+    cap_offset: int
+    flit_tx_status: int = 0
+    flit_rx_status: int = 0
+    os_tx_status: int = 0
+    os_rx_status: int = 0
+    raw_flit_ctl1: int = 0
+    raw_flit_ctl2: int = 0
+    raw_flit_status: int = 0
+    raw_os_ctl1: int = 0
+    raw_os_ctl2: int = 0
+    raw_os_tx_status: int = 0
+    raw_os_rx_status: int = 0

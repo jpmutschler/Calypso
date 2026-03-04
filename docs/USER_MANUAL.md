@@ -468,7 +468,34 @@ Clicking a capability expands it to show:
 - **Raw DWORDs** for unrecognized capabilities (first 4 DWORDs)
 
 Standard capabilities: Power Management, MSI, MSI-X, PCI Express, etc.
-Extended capabilities: AER, SR-IOV, ACS, LTR, L1 PM, Lane Margining, Physical Layer 16/32/64 GT/s, etc.
+Extended capabilities: AER, SR-IOV, ACS, LTR, L1 PM, Lane Margining, Physical Layer 16/32/64 GT/s, Flit Logging (0x0032), Flit Performance Measurement (0x0033), Flit Error Injection (0x0034), etc.
+
+#### Flit Logging (Gen6)
+
+Decoded fields for the PCIe 6.0.1 Flit Logging extended capability (0x0032):
+
+- **Error Log FIFO** -- displays the current head entry with decoded fields: valid, link width, flit offset, consecutive error count, unrecognized flit, FEC uncorrectable, and 4 syndrome bytes
+- **Error Counter** -- enable status, events-to-count selector, trigger threshold, link width, interrupt status, and running counter value
+- **FBER Control** -- enable status and measurement granularity
+- **FBER Counters** -- 64-bit flit counter and per-lane correctable error counts (16 lanes displayed in a grid)
+
+#### Flit Performance Measurement (Gen6)
+
+Decoded fields for the Flit Performance Measurement extended capability (0x0033):
+
+- **Capability** -- interrupt vector, LTSSM tracking register count
+- **Control** -- response type, flit type, instance count, interrupt threshold, LTSSM tracker selection
+- **Status** -- tracking state, flits tracked count, interrupt status, LTSSM counter
+- **LTSSM Status** -- per-register tracking status, tracking count, interrupt flag, and counter (up to 5 registers)
+
+#### Flit Error Injection (Gen6)
+
+Decoded fields for the Flit Error Injection extended capability (0x0034):
+
+- **Flit Injection Control** -- direction (TX/RX), data rate, error count, spacing, flit type, consecutive count, error type, offset, magnitude
+- **Flit Injection Status** -- TX and RX status with color-coded indicators (idle/active/complete/error)
+- **Ordered Set Injection Control** -- direction, error count, spacing, OS type checkboxes (SKP, EIEOS, TS1, TS2, EIOS, SDS, EIDEOS), LTSSM state filters, error bytes, lane mask
+- **OS Injection Status** -- TX and RX raw status values
 
 #### Config Space Write
 
@@ -1670,6 +1697,34 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `GET` | `/api/devices/{id}/aer` | Read AER status. Params: `port_number` |
 | `POST` | `/api/devices/{id}/aer/clear` | Clear AER error registers. Params: `port_number` |
 | `POST` | `/api/devices/{id}/config-write` | Write config DWORD. Body: `{offset, value}`. Params: `port_number` |
+
+### Flit Logging (Gen6)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/devices/{id}/flit-logging` | Read Flit Logging status (counter + FBER). Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-logging/drain-log` | Drain error log FIFO. Returns list of entries. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-logging/fber/start` | Start FBER measurement. Body: `{granularity: 0-2}`. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-logging/fber/stop` | Stop FBER measurement. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-logging/fber/clear` | Clear FBER counters (W1C). Params: `port_number` |
+
+### Flit Performance Measurement (Gen6)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/devices/{id}/flit-perf` | Read Flit Perf Measurement status. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-perf/start` | Start measurement. Body: `FlitPerfConfig`. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-perf/stop` | Stop measurement. Params: `port_number` |
+
+### Flit Error Injection (Gen6)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/devices/{id}/flit-error-injection` | Read injection status. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-error-injection/flit/configure` | Configure Flit injection. Body: `FlitErrorInjectionConfig`. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-error-injection/flit/disable` | Disable Flit injection. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-error-injection/os/configure` | Configure OS injection. Body: `OsErrorInjectionConfig`. Params: `port_number` |
+| `POST` | `/api/devices/{id}/flit-error-injection/os/disable` | Disable OS injection. Params: `port_number` |
 
 ### EEPROM
 

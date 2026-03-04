@@ -676,6 +676,270 @@ def render_vendor_specific(base: int, reg_map: dict[int, int]) -> None:
             _kv("Data[0]", f"0x{data1:08X}")
 
 
+def render_flit_logging(base: int, reg_map: dict[int, int]) -> None:
+    """Decode Flit Logging (ext_cap_id=0x0032)."""
+    log1 = _reg(base + 0x04, reg_map)
+    log2 = _reg(base + 0x08, reg_map)
+    counter_raw = _reg(base + 0x0C, reg_map)
+    fber_ctl = _reg(base + 0x10, reg_map)
+    fber_flit_lo = _reg(base + 0x14, reg_map)
+    fber_flit_hi = _reg(base + 0x18, reg_map)
+
+    # Error Log (FIFO head)
+    valid = bool(log1 & 1)
+    ui.label("Error Log (FIFO Head)").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    if valid:
+        link_width = (log1 >> 1) & 0x7
+        flit_offset = (log1 >> 4) & 0xF
+        consec = (log1 >> 8) & 0x1F
+        more = bool(log1 & (1 << 13))
+        unrecognized = bool(log1 & (1 << 14))
+        fec_uncorr = bool(log1 & (1 << 15))
+
+        with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+            _kv("Valid", "Yes")
+            _kv("Link Width", f"x{1 << link_width}" if link_width < 6 else str(link_width))
+            _kv("Flit Offset", str(flit_offset))
+            _kv("Consecutive Errors", str(consec))
+            _kv("More Entries", "Yes" if more else "No")
+            _flag("Unrecognized Flit", unrecognized)
+            _flag("FEC Uncorrectable", fec_uncorr)
+            _kv("Syndrome", f"0x{(log1 >> 16) & 0xFFFF:04X}")
+            _kv("Log 2", f"0x{log2:08X}")
+    else:
+        ui.label("  (empty)").style(
+            f"color: {COLORS.text_muted}; font-family: monospace; font-size: 12px"
+        )
+
+    # Error Counter
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("Error Counter").style(f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold")
+    ctl = counter_raw & 0xFFFF
+    sts = (counter_raw >> 16) & 0xFFFF
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Enabled", "Yes" if ctl & 1 else "No")
+        _kv("Interrupt Enable", "Yes" if ctl & 2 else "No")
+        events = (ctl >> 2) & 0x3
+        event_names = {0: "All errors", 1: "FEC uncorrectable", 2: "Unrecognized flit", 3: "Rsvd"}
+        _kv("Events to Count", event_names.get(events, str(events)))
+        _kv("Trigger Count", str((ctl >> 4) & 0xFF))
+        _kv("Counter Value", str((sts >> 8) & 0xFF))
+        _flag("Interrupt Generated", bool(sts & (1 << 3)))
+
+    # FBER
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("FBER (Flit Bit Error Rate)").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    fber_enabled = bool(fber_ctl & 1)
+    granularity = (fber_ctl >> 2) & 0x3
+    gran_names = {0: "Per-Flit", 1: "Per-1K Flits", 2: "Per-1M Flits", 3: "Rsvd"}
+    flit_count = (fber_flit_hi << 32) | fber_flit_lo
+
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("FBER Enabled", "Yes" if fber_enabled else "No")
+        _kv("Granularity", gran_names.get(granularity, str(granularity)))
+        _kv("Flit Counter", f"{flit_count:,}")
+
+    # Per-lane correctable errors (Status 3-10)
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("Per-Lane Correctable Errors").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    with ui.grid(columns=4).classes("gap-x-4 gap-y-1"):
+        for i in range(8):
+            reg = _reg(base + 0x1C + i * 4, reg_map)
+            lane_lo = reg & 0xFFFF
+            lane_hi = (reg >> 16) & 0xFFFF
+            lane_a = i * 2
+            lane_b = i * 2 + 1
+            color_a = COLORS.yellow if lane_lo > 0 else COLORS.text_muted
+            color_b = COLORS.yellow if lane_hi > 0 else COLORS.text_muted
+            ui.label(f"Lane {lane_a:2d}: {lane_lo}").style(
+                f"color: {color_a}; font-family: monospace; font-size: 12px"
+            )
+            ui.label(f"Lane {lane_b:2d}: {lane_hi}").style(
+                f"color: {color_b}; font-family: monospace; font-size: 12px"
+            )
+
+
+def render_flit_perf_measurement(base: int, reg_map: dict[int, int]) -> None:
+    """Decode Flit Performance Measurement (ext_cap_id=0x0033)."""
+    cap = _reg(base + 0x04, reg_map)
+    ctl = _reg(base + 0x08, reg_map)
+    sts = _reg(base + 0x0C, reg_map)
+
+    int_vector = cap & 0x3FF
+    ltssm_count = (cap >> 10) & 0x7
+
+    # Capability
+    ui.label("Capability").style(f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold")
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Interrupt Vector", str(int_vector))
+        _kv("LTSSM Tracking Count", str(ltssm_count))
+
+    # Control
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("Control").style(f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold")
+    enabled = bool(ctl & 1)
+    resp_type = (ctl >> 1) & 0x7
+    flit_type = (ctl >> 4) & 0x3
+    num_inst = (ctl >> 6) & 0x1F
+    int_thresh = (ctl >> 11) & 0x7
+    resp_names = {0: "Ack", 1: "Nak", 2: "Replay", 3: "Rsvd"}
+    flit_names = {0: "All", 1: "Standard TLP", 2: "Control", 3: "Vendor"}
+
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Enabled", "Yes" if enabled else "No")
+        _kv("Response Type", resp_names.get(resp_type, str(resp_type)))
+        _kv("Flit Type", flit_names.get(flit_type, str(flit_type)))
+        _kv("Num Instances", str(num_inst))
+        _kv("Interrupt Threshold", str(int_thresh))
+
+    # Status
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("Status").style(f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold")
+    tracking = sts & 0x3
+    flits_tracked = (sts >> 2) & 0x1F
+    int_gen = bool(sts & (1 << 7))
+    ltssm_counter = (sts >> 8) & 0xFFFF
+    tracking_names = {0: "Idle", 1: "In Progress", 2: "Complete", 3: "Error"}
+
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Tracking Status", tracking_names.get(tracking, str(tracking)))
+        _kv("Flits Tracked", str(flits_tracked))
+        _flag("Interrupt Generated", int_gen)
+        _kv("LTSSM Counter", str(ltssm_counter))
+
+    # LTSSM Status registers
+    if ltssm_count > 0:
+        ui.separator().style(f"background: {COLORS.border}")
+        ui.label("LTSSM Status Registers").style(
+            f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+        )
+        with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+            for i in range(min(ltssm_count, 5)):
+                reg = _reg(base + 0x10 + i * 4, reg_map)
+                _kv(f"LTSSM Status {i + 1}", f"0x{reg:08X}")
+
+
+def render_flit_error_injection(base: int, reg_map: dict[int, int]) -> None:
+    """Decode Flit Error Injection (ext_cap_id=0x0034)."""
+    flit_ctl1 = _reg(base + 0x04, reg_map)
+    flit_ctl2 = _reg(base + 0x08, reg_map)
+    flit_sts = _reg(base + 0x0C, reg_map)
+    os_ctl1 = _reg(base + 0x10, reg_map)
+    os_ctl2 = _reg(base + 0x14, reg_map)
+    os_tx_sts = _reg(base + 0x18, reg_map)
+    os_rx_sts = _reg(base + 0x1C, reg_map)
+
+    # Flit Injection Control
+    ui.label("Flit Injection Control").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    flit_enabled = bool(flit_ctl1 & 1)
+    flit_tx = bool(flit_ctl1 & 2)
+    flit_rx = bool(flit_ctl1 & 4)
+    data_rate = (flit_ctl1 >> 3) & 0x1FFF
+    num_errors = (flit_ctl1 >> 16) & 0x1F
+    spacing = (flit_ctl1 >> 21) & 0xFF
+    flit_type = (flit_ctl1 >> 29) & 0x7
+    consec = flit_ctl2 & 0x7
+    err_type = (flit_ctl2 >> 3) & 0x3
+    err_offset = (flit_ctl2 >> 5) & 0x7F
+    err_mag = (flit_ctl2 >> 12) & 0xFF
+    err_type_names = {0: "Single-bit", 1: "Multi-bit", 2: "Burst", 3: "Rsvd"}
+
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Enabled", "Yes" if flit_enabled else "No")
+        _flag("Inject TX", flit_tx)
+        _flag("Inject RX", flit_rx)
+        _kv("Data Rate", str(data_rate))
+        _kv("Num Errors", str(num_errors))
+        _kv("Spacing", str(spacing))
+        _kv("Flit Type", str(flit_type))
+        _kv("Consecutive", str(consec))
+        _kv("Error Type", err_type_names.get(err_type, str(err_type)))
+        _kv("Error Offset", str(err_offset))
+        _kv("Error Magnitude", str(err_mag))
+
+    # Flit Injection Status
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("Flit Injection Status").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    tx_sts = flit_sts & 0x3
+    rx_sts = (flit_sts >> 2) & 0x3
+    inj_sts_names = {0: "Idle", 1: "In Progress", 2: "Complete", 3: "Error"}
+    tx_color = COLORS.cyan if tx_sts == 1 else COLORS.text_muted
+    rx_color = COLORS.cyan if rx_sts == 1 else COLORS.text_muted
+    ui.label(f"  TX: {inj_sts_names.get(tx_sts, str(tx_sts))}").style(
+        f"color: {tx_color}; font-family: monospace; font-size: 12px"
+    )
+    ui.label(f"  RX: {inj_sts_names.get(rx_sts, str(rx_sts))}").style(
+        f"color: {rx_color}; font-family: monospace; font-size: 12px"
+    )
+
+    # OS Injection Control
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("OS Injection Control").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    os_enabled = bool(os_ctl1 & 1)
+    os_tx = bool(os_ctl1 & 2)
+    os_rx = bool(os_ctl1 & 4)
+    os_num = (os_ctl1 >> 3) & 0x1F
+    os_spacing = (os_ctl1 >> 8) & 0xFF
+    os_err_bytes = os_ctl2 & 0xFFFF
+    os_lane_mask = (os_ctl2 >> 16) & 0xFFFF
+
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("Enabled", "Yes" if os_enabled else "No")
+        _flag("Inject TX", os_tx)
+        _flag("Inject RX", os_rx)
+        _kv("Num Errors", str(os_num))
+        _kv("Spacing", str(os_spacing))
+        _kv("Error Bytes", f"0x{os_err_bytes:04X}")
+        _kv("Lane Mask", f"0x{os_lane_mask:04X}")
+
+    # OS Types
+    os_types = [
+        (16, "SKP"),
+        (17, "EIEOS"),
+        (18, "TS1"),
+        (19, "TS2"),
+        (20, "EIOS"),
+        (21, "SDS"),
+        (22, "EIDEOS"),
+    ]
+    for bit, name in os_types:
+        _flag(f"OS Type: {name}", bool(os_ctl1 & (1 << bit)))
+
+    # LTSSM States
+    ltssm_states = [
+        (23, "Detect"),
+        (24, "Polling"),
+        (25, "Config"),
+        (26, "L0"),
+        (27, "Recovery"),
+        (28, "Loopback"),
+        (29, "Hot Reset"),
+    ]
+    for bit, name in ltssm_states:
+        _flag(f"LTSSM: {name}", bool(os_ctl1 & (1 << bit)))
+
+    # OS Injection Status
+    ui.separator().style(f"background: {COLORS.border}")
+    ui.label("OS Injection Status").style(
+        f"color: {COLORS.cyan}; font-size: 12px; font-weight: bold"
+    )
+    with ui.grid(columns=2).classes("gap-x-4 gap-y-1"):
+        _kv("OS TX Status", f"0x{os_tx_sts:08X}")
+        _kv("OS RX Status", f"0x{os_rx_sts:08X}")
+
+
 def render_dvsec(base: int, reg_map: dict[int, int]) -> None:
     """Decode DVSEC (ext_cap_id=0x0023)."""
     dw1 = _reg(base + 0x04, reg_map)
@@ -725,6 +989,9 @@ _EXT_RENDERERS: dict[int, object] = {
     0x0027: render_lane_margining,
     0x002A: render_physical_32gt,
     0x0031: render_physical_64gt,
+    0x0032: render_flit_logging,
+    0x0033: render_flit_perf_measurement,
+    0x0034: render_flit_error_injection,
 }
 
 

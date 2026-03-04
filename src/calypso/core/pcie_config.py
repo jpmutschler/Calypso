@@ -8,11 +8,24 @@ from calypso.hardware.pcie_registers import (
     CorrErrBits,
     DevCapBits,
     ExtCapabilityID,
+    FberControlBits,
+    FlitErrInjCtl1Bits,
+    FlitErrInjStsBits,
+    FlitErrorCounterCtlBits,
+    FlitErrorCounterStsBits,
+    FlitErrorInjection,
+    FlitErrorLog1Bits,
+    FlitLogging,
+    FlitPerfCapBits,
+    FlitPerfCtlBits,
+    FlitPerfMeasurement,
+    FlitPerfStsBits,
     LinkCapBits,
     LinkCap2Bits,
     LinkCtl2Bits,
     LinkCtlBits,
     LinkStsBits,
+    OsErrInjCtl1Bits,
     PCIeCapability,
     PCIeCapabilityID,
     PCIeLinkSpeed,
@@ -32,8 +45,18 @@ from calypso.models.pcie_config import (
     EqStatus16GT,
     EqStatus32GT,
     EqStatus64GT,
+    FberStatus,
+    FlitErrorCounter,
+    FlitErrorInjectionConfig,
+    FlitErrorInjectionStatus,
+    FlitErrorLogEntry,
+    FlitLoggingStatus,
+    FlitPerfConfig,
+    FlitPerfLtssmStatus,
+    FlitPerfStatus,
     LinkCapabilities,
     LinkControlStatus,
+    OsErrorInjectionConfig,
     PcieCapabilityInfo,
     SupportedSpeedsVector,
 )
@@ -207,6 +230,9 @@ _EXT_CAP_DWORDS: dict[int, int] = {
     ExtCapabilityID.RECEIVER_LANE_MARGINING: 4,
     ExtCapabilityID.PHYSICAL_LAYER_32GT: 4,
     ExtCapabilityID.PHYSICAL_LAYER_64GT: 8,
+    ExtCapabilityID.FLIT_LOGGING: 15,
+    ExtCapabilityID.FLIT_PERF_MEASUREMENT: 9,
+    ExtCapabilityID.FLIT_ERROR_INJECTION: 9,
     ExtCapabilityID.DVSEC: 4,
     ExtCapabilityID.VENDOR_SPECIFIC: 4,
 }
@@ -696,3 +722,446 @@ class PcieConfigReader:
             Offset of the capability, or None if not present.
         """
         return self.find_extended_capability(ExtCapabilityID.RECEIVER_LANE_MARGINING)
+
+    # =====================================================================
+    # Flit Logging (Extended Capability 0x0032)
+    # =====================================================================
+
+    def get_flit_logging_status(self) -> FlitLoggingStatus | None:
+        """Read Flit Logging capability status (counter + FBER, not FIFO).
+
+        Returns:
+            FlitLoggingStatus, or None if capability not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            return None
+
+        counter = self._read_flit_error_counter(offset)
+        fber = self._read_fber_status(offset)
+
+        return FlitLoggingStatus(
+            cap_offset=offset,
+            error_counter=counter,
+            fber=fber,
+        )
+
+    def read_flit_error_log_entry(self) -> FlitErrorLogEntry | None:
+        """Read one Flit Error Log FIFO entry, advancing the FIFO.
+
+        Reads Log 1 + Log 2, then W1C clears the valid bit to pop the entry.
+
+        Returns:
+            FlitErrorLogEntry, or None if FIFO empty or capability not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            return None
+
+        log1 = self.read_config_register(offset + FlitLogging.ERROR_LOG_1)
+        if not (log1 & FlitErrorLog1Bits.VALID):
+            return None
+
+        log2 = self.read_config_register(offset + FlitLogging.ERROR_LOG_2)
+
+        entry = FlitErrorLogEntry(
+            valid=True,
+            link_width=(log1 & int(FlitErrorLog1Bits.LINK_WIDTH_MASK)) >> 1,
+            flit_offset=(log1 & int(FlitErrorLog1Bits.FLIT_OFFSET_MASK)) >> 4,
+            consecutive_errors=(log1 & int(FlitErrorLog1Bits.CONSECUTIVE_ERRORS_MASK)) >> 8,
+            more_entries=bool(log1 & FlitErrorLog1Bits.MORE_ENTRIES),
+            unrecognized_flit=bool(log1 & FlitErrorLog1Bits.UNRECOGNIZED_FLIT),
+            fec_uncorrectable=bool(log1 & FlitErrorLog1Bits.FEC_UNCORRECTABLE),
+            syndrome_0=(log1 >> 16) & 0xF,
+            syndrome_1=(log1 >> 20) & 0xF,
+            syndrome_2=(log1 >> 24) & 0xF,
+            syndrome_3=(log1 >> 28) & 0xF,
+            raw_log1=log1,
+            raw_log2=log2,
+        )
+
+        # W1C valid bit to advance FIFO
+        self.write_config_register(offset + FlitLogging.ERROR_LOG_1, int(FlitErrorLog1Bits.VALID))
+        return entry
+
+    def read_all_flit_error_log_entries(self, max_entries: int = 64) -> list[FlitErrorLogEntry]:
+        """Drain the Flit Error Log FIFO.
+
+        Args:
+            max_entries: Maximum entries to read (safety limit).
+
+        Returns:
+            List of FlitErrorLogEntry from the FIFO.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            return []
+
+        entries: list[FlitErrorLogEntry] = []
+        for _ in range(max_entries):
+            log1 = self.read_config_register(offset + FlitLogging.ERROR_LOG_1)
+            if not (log1 & FlitErrorLog1Bits.VALID):
+                break
+
+            log2 = self.read_config_register(offset + FlitLogging.ERROR_LOG_2)
+            entries.append(
+                FlitErrorLogEntry(
+                    valid=True,
+                    link_width=(log1 & int(FlitErrorLog1Bits.LINK_WIDTH_MASK)) >> 1,
+                    flit_offset=(log1 & int(FlitErrorLog1Bits.FLIT_OFFSET_MASK)) >> 4,
+                    consecutive_errors=(log1 & int(FlitErrorLog1Bits.CONSECUTIVE_ERRORS_MASK)) >> 8,
+                    more_entries=bool(log1 & FlitErrorLog1Bits.MORE_ENTRIES),
+                    unrecognized_flit=bool(log1 & FlitErrorLog1Bits.UNRECOGNIZED_FLIT),
+                    fec_uncorrectable=bool(log1 & FlitErrorLog1Bits.FEC_UNCORRECTABLE),
+                    syndrome_0=(log1 >> 16) & 0xF,
+                    syndrome_1=(log1 >> 20) & 0xF,
+                    syndrome_2=(log1 >> 24) & 0xF,
+                    syndrome_3=(log1 >> 28) & 0xF,
+                    raw_log1=log1,
+                    raw_log2=log2,
+                )
+            )
+            # W1C valid bit to advance FIFO
+            self.write_config_register(
+                offset + FlitLogging.ERROR_LOG_1, int(FlitErrorLog1Bits.VALID)
+            )
+        return entries
+
+    def configure_flit_error_counter(
+        self,
+        enable: bool,
+        interrupt_enable: bool = False,
+        events_to_count: int = 0,
+        trigger_count: int = 0,
+    ) -> None:
+        """Configure the Flit Error Counter (RMW lower 16 bits of +0x0C).
+
+        Args:
+            enable: Enable counter.
+            interrupt_enable: Enable interrupt on threshold.
+            events_to_count: Event type selector (2 bits).
+            trigger_count: Trigger event count (8 bits).
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            raise ValueError("Flit Logging capability (0x0032) not present on this device")
+
+        reg_offset = offset + FlitLogging.ERROR_COUNTER_CTL_STS
+        current = self.read_config_register(reg_offset)
+
+        # Preserve upper 16 bits (status), modify lower 16 bits (control)
+        ctl = 0
+        if enable:
+            ctl |= int(FlitErrorCounterCtlBits.ENABLE)
+        if interrupt_enable:
+            ctl |= int(FlitErrorCounterCtlBits.INTERRUPT_ENABLE)
+        ctl |= (events_to_count & 0x3) << 2
+        ctl |= (trigger_count & 0xFF) << 4
+
+        new_value = (current & 0xFFFF0000) | ctl
+        self.write_config_register(reg_offset, new_value)
+
+    def start_fber_measurement(self, granularity: int = 0) -> None:
+        """Start FBER measurement.
+
+        Args:
+            granularity: Measurement granularity (2 bits).
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            raise ValueError("Flit Logging capability (0x0032) not present on this device")
+
+        ctl = int(FberControlBits.ENABLE) | ((granularity & 0x3) << 2)
+        self.write_config_register(offset + FlitLogging.FBER_CONTROL, ctl)
+
+    def stop_fber_measurement(self) -> None:
+        """Stop FBER measurement by clearing enable bit."""
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            raise ValueError("Flit Logging capability (0x0032) not present on this device")
+
+        current = self.read_config_register(offset + FlitLogging.FBER_CONTROL)
+        new_value = current & ~int(FberControlBits.ENABLE)
+        self.write_config_register(offset + FlitLogging.FBER_CONTROL, new_value)
+
+    def clear_fber_counters(self) -> None:
+        """Clear FBER counters via W1C clear bit."""
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            raise ValueError("Flit Logging capability (0x0032) not present on this device")
+
+        current = self.read_config_register(offset + FlitLogging.FBER_CONTROL)
+        # Mask out W1C CLEAR bit from current value before ORing, to avoid
+        # accidentally re-clearing if the bit reads back as 1.
+        preserved = current & ~int(FberControlBits.CLEAR)
+        self.write_config_register(
+            offset + FlitLogging.FBER_CONTROL,
+            preserved | int(FberControlBits.CLEAR),
+        )
+
+    def get_fber_status(self) -> FberStatus | None:
+        """Read FBER control + 10 status DWORDs.
+
+        Returns:
+            FberStatus, or None if capability not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_LOGGING)
+        if offset is None:
+            return None
+        return self._read_fber_status(offset)
+
+    def _read_flit_error_counter(self, base: int) -> FlitErrorCounter:
+        """Read Flit Error Counter from a known capability base."""
+        raw = self.read_config_register(base + FlitLogging.ERROR_COUNTER_CTL_STS)
+        ctl = raw & 0xFFFF
+        sts = (raw >> 16) & 0xFFFF
+
+        return FlitErrorCounter(
+            enable=bool(ctl & FlitErrorCounterCtlBits.ENABLE),
+            interrupt_enable=bool(ctl & FlitErrorCounterCtlBits.INTERRUPT_ENABLE),
+            events_to_count=(ctl & int(FlitErrorCounterCtlBits.EVENTS_TO_COUNT_MASK)) >> 2,
+            trigger_event_count=(ctl & int(FlitErrorCounterCtlBits.TRIGGER_EVENT_COUNT_MASK)) >> 4,
+            link_width=sts & int(FlitErrorCounterStsBits.LINK_WIDTH_MASK),
+            interrupt_generated=bool(sts & FlitErrorCounterStsBits.INTERRUPT_GENERATED),
+            counter=(sts & int(FlitErrorCounterStsBits.COUNTER_MASK)) >> 8,
+            raw_value=raw,
+        )
+
+    def _read_fber_status(self, base: int) -> FberStatus:
+        """Read FBER status from a known capability base."""
+        control = self.read_config_register(base + FlitLogging.FBER_CONTROL)
+        flit_lo = self.read_config_register(base + FlitLogging.FBER_STATUS_1)
+        flit_hi = self.read_config_register(base + FlitLogging.FBER_STATUS_2)
+        flit_counter = (flit_hi << 32) | flit_lo
+
+        # Read 8 lane-pair registers (Status 3-10), each has two 16-bit counters
+        lane_counters: list[int] = []
+        for i in range(8):
+            reg = self.read_config_register(base + FlitLogging.FBER_STATUS_3 + (i * 4))
+            lane_counters.append(reg & 0xFFFF)  # even lane
+            lane_counters.append((reg >> 16) & 0xFFFF)  # odd lane
+
+        return FberStatus(
+            enabled=bool(control & FberControlBits.ENABLE),
+            granularity=(control & int(FberControlBits.GRANULARITY_MASK)) >> 2,
+            flit_counter=flit_counter,
+            lane_counters=lane_counters,
+            raw_control=control,
+        )
+
+    # =====================================================================
+    # Flit Performance Measurement (Extended Capability 0x0033)
+    # =====================================================================
+
+    def get_flit_perf_status(self) -> FlitPerfStatus | None:
+        """Read Flit Performance Measurement capability status.
+
+        Returns:
+            FlitPerfStatus, or None if capability not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_PERF_MEASUREMENT)
+        if offset is None:
+            return None
+
+        cap = self.read_config_register(offset + FlitPerfMeasurement.CAPABILITY)
+        ctl = self.read_config_register(offset + FlitPerfMeasurement.CONTROL)
+        sts = self.read_config_register(offset + FlitPerfMeasurement.STATUS)
+
+        ltssm_count = (cap & int(FlitPerfCapBits.LTSSM_TRACKING_COUNT_MASK)) >> 10
+
+        ltssm_statuses: list[FlitPerfLtssmStatus] = []
+        for i in range(min(ltssm_count, 5)):
+            reg = self.read_config_register(offset + FlitPerfMeasurement.LTSSM_STATUS_1 + (i * 4))
+            ltssm_statuses.append(
+                FlitPerfLtssmStatus(
+                    tracking_status=reg & int(FlitPerfStsBits.TRACKING_STATUS_MASK),
+                    tracking_count=(reg >> 2) & 0x1F,
+                    interrupt=bool(reg & FlitPerfStsBits.INTERRUPT_GENERATED),
+                    counter=(reg & int(FlitPerfStsBits.LTSSM_COUNTER_MASK)) >> 8,
+                    raw_value=reg,
+                )
+            )
+
+        return FlitPerfStatus(
+            cap_offset=offset,
+            interrupt_vector=cap & int(FlitPerfCapBits.INTERRUPT_VECTOR_MASK),
+            ltssm_tracking_count=ltssm_count,
+            tracking_status=sts & int(FlitPerfStsBits.TRACKING_STATUS_MASK),
+            flits_tracked=(sts & int(FlitPerfStsBits.FLITS_TRACKED_MASK)) >> 2,
+            interrupt_generated=bool(sts & FlitPerfStsBits.INTERRUPT_GENERATED),
+            ltssm_counter=(sts & int(FlitPerfStsBits.LTSSM_COUNTER_MASK)) >> 8,
+            ltssm_statuses=ltssm_statuses,
+            raw_capability=cap,
+            raw_control=ctl,
+            raw_status=sts,
+        )
+
+    def start_flit_perf_measurement(self, config: FlitPerfConfig) -> None:
+        """Start Flit Performance Measurement with the given config.
+
+        Args:
+            config: Measurement configuration.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_PERF_MEASUREMENT)
+        if offset is None:
+            raise ValueError("Flit Perf Measurement capability (0x0033) not present on this device")
+
+        ctl = int(FlitPerfCtlBits.ENABLE)
+        ctl |= (config.response_type & 0x7) << 1
+        ctl |= (config.flit_type & 0x3) << 4
+        ctl |= (config.num_instances & 0x1F) << 6
+        ctl |= (config.interrupt_threshold & 0x7) << 11
+        ctl |= (config.ltssm_tracker & 0x1F) << 14
+        ctl |= (config.ltssm_num_instances & 0x1F) << 19
+
+        self.write_config_register(offset + FlitPerfMeasurement.CONTROL, ctl)
+
+    def stop_flit_perf_measurement(self) -> None:
+        """Stop Flit Performance Measurement by clearing enable bit."""
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_PERF_MEASUREMENT)
+        if offset is None:
+            raise ValueError("Flit Perf Measurement capability (0x0033) not present on this device")
+
+        current = self.read_config_register(offset + FlitPerfMeasurement.CONTROL)
+        new_value = current & ~int(FlitPerfCtlBits.ENABLE)
+        self.write_config_register(offset + FlitPerfMeasurement.CONTROL, new_value)
+
+    # =====================================================================
+    # Flit Error Injection (Extended Capability 0x0034)
+    # =====================================================================
+
+    def get_flit_error_injection_status(self) -> FlitErrorInjectionStatus | None:
+        """Read Flit Error Injection capability status.
+
+        Returns:
+            FlitErrorInjectionStatus, or None if capability not present.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_ERROR_INJECTION)
+        if offset is None:
+            return None
+
+        flit_ctl1 = self.read_config_register(offset + FlitErrorInjection.FLIT_CTL_1)
+        flit_ctl2 = self.read_config_register(offset + FlitErrorInjection.FLIT_CTL_2)
+        flit_sts = self.read_config_register(offset + FlitErrorInjection.FLIT_STATUS)
+        os_ctl1 = self.read_config_register(offset + FlitErrorInjection.OS_CTL_1)
+        os_ctl2 = self.read_config_register(offset + FlitErrorInjection.OS_CTL_2)
+        os_tx_sts = self.read_config_register(offset + FlitErrorInjection.OS_TX_STATUS)
+        os_rx_sts = self.read_config_register(offset + FlitErrorInjection.OS_RX_STATUS)
+
+        return FlitErrorInjectionStatus(
+            cap_offset=offset,
+            flit_tx_status=flit_sts & int(FlitErrInjStsBits.TX_STATUS_MASK),
+            flit_rx_status=(flit_sts & int(FlitErrInjStsBits.RX_STATUS_MASK)) >> 2,
+            os_tx_status=os_tx_sts,
+            os_rx_status=os_rx_sts,
+            raw_flit_ctl1=flit_ctl1,
+            raw_flit_ctl2=flit_ctl2,
+            raw_flit_status=flit_sts,
+            raw_os_ctl1=os_ctl1,
+            raw_os_ctl2=os_ctl2,
+            raw_os_tx_status=os_tx_sts,
+            raw_os_rx_status=os_rx_sts,
+        )
+
+    def configure_flit_error_injection(self, config: FlitErrorInjectionConfig) -> None:
+        """Configure and enable Flit error injection.
+
+        Writes Control 2 first, then Control 1 with enable=1 to avoid
+        triggering injection with stale parameters.
+
+        Args:
+            config: Flit error injection configuration.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_ERROR_INJECTION)
+        if offset is None:
+            raise ValueError("Flit Error Injection capability (0x0034) not present on this device")
+
+        ctl2 = config.consecutive & 0x7
+        ctl2 |= (config.error_type & 0x3) << 3
+        ctl2 |= (config.error_offset & 0x7F) << 5
+        ctl2 |= (config.error_magnitude & 0xFF) << 12
+        self.write_config_register(offset + FlitErrorInjection.FLIT_CTL_2, ctl2)
+
+        ctl1 = int(FlitErrInjCtl1Bits.ENABLE)
+        if config.inject_tx:
+            ctl1 |= int(FlitErrInjCtl1Bits.INJECT_TX)
+        if config.inject_rx:
+            ctl1 |= int(FlitErrInjCtl1Bits.INJECT_RX)
+        ctl1 |= (config.data_rate & 0x1FFF) << 3
+        ctl1 |= (config.num_errors & 0x1F) << 16
+        ctl1 |= (config.spacing & 0xFF) << 21
+        ctl1 |= (config.flit_type & 0x7) << 29
+        self.write_config_register(offset + FlitErrorInjection.FLIT_CTL_1, ctl1)
+
+    def disable_flit_error_injection(self) -> None:
+        """Disable Flit error injection by clearing Control 1 enable bit."""
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_ERROR_INJECTION)
+        if offset is None:
+            raise ValueError("Flit Error Injection capability (0x0034) not present on this device")
+
+        current = self.read_config_register(offset + FlitErrorInjection.FLIT_CTL_1)
+        new_value = current & ~int(FlitErrInjCtl1Bits.ENABLE)
+        self.write_config_register(offset + FlitErrorInjection.FLIT_CTL_1, new_value)
+
+    def configure_os_error_injection(self, config: OsErrorInjectionConfig) -> None:
+        """Configure and enable Ordered Set error injection.
+
+        Writes OS Control 2 first, then OS Control 1 with enable=1.
+
+        Args:
+            config: OS error injection configuration.
+        """
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_ERROR_INJECTION)
+        if offset is None:
+            raise ValueError("Flit Error Injection capability (0x0034) not present on this device")
+
+        ctl2 = config.error_bytes & 0xFFFF
+        ctl2 |= (config.lane_mask & 0xFFFF) << 16
+        self.write_config_register(offset + FlitErrorInjection.OS_CTL_2, ctl2)
+
+        ctl1 = int(OsErrInjCtl1Bits.ENABLE)
+        if config.inject_tx:
+            ctl1 |= int(OsErrInjCtl1Bits.INJECT_TX)
+        if config.inject_rx:
+            ctl1 |= int(OsErrInjCtl1Bits.INJECT_RX)
+        ctl1 |= (config.num_errors & 0x1F) << 3
+        ctl1 |= (config.spacing & 0xFF) << 8
+        if config.os_type_skp:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_SKP)
+        if config.os_type_eieos:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_EIEOS)
+        if config.os_type_ts1:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_TS1)
+        if config.os_type_ts2:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_TS2)
+        if config.os_type_eios:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_EIOS)
+        if config.os_type_sds:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_SDS)
+        if config.os_type_eideos:
+            ctl1 |= int(OsErrInjCtl1Bits.OS_TYPE_EIDEOS)
+        if config.ltssm_detect:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_DETECT)
+        if config.ltssm_polling:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_POLLING)
+        if config.ltssm_config:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_CONFIG)
+        if config.ltssm_l0:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_L0)
+        if config.ltssm_recovery:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_RECOVERY)
+        if config.ltssm_loopback:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_LOOPBACK)
+        if config.ltssm_hot_reset:
+            ctl1 |= int(OsErrInjCtl1Bits.LTSSM_HOT_RESET)
+        self.write_config_register(offset + FlitErrorInjection.OS_CTL_1, ctl1)
+
+    def disable_os_error_injection(self) -> None:
+        """Disable OS error injection by clearing OS Control 1 enable bit."""
+        offset = self.find_extended_capability(ExtCapabilityID.FLIT_ERROR_INJECTION)
+        if offset is None:
+            raise ValueError("Flit Error Injection capability (0x0034) not present on this device")
+
+        current = self.read_config_register(offset + FlitErrorInjection.OS_CTL_1)
+        new_value = current & ~int(OsErrInjCtl1Bits.ENABLE)
+        self.write_config_register(offset + FlitErrorInjection.OS_CTL_1, new_value)

@@ -305,6 +305,9 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Workflows | `POST /{id}/workflows/run`, `GET /{id}/workflows/progress/{run_id}`, `GET /{id}/workflows/result/{run_id}`, `POST /{id}/workflows/cancel/{run_id}`, `GET /{id}/workflows/report/{run_id}` | Multi-recipe workflow execution + HTML reports |
 | Saved Workflows | `GET /workflows`, `GET /workflows/{id}`, `POST /workflows`, `DELETE /workflows/{id}` | Workflow definition CRUD |
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear`, `POST /{id}/config-write` | PCIe config space (port-targeted) |
+| Flit Logging | `GET /{id}/flit-logging`, `POST /{id}/flit-logging/drain-log`, `POST /{id}/flit-logging/fber/start`, `POST /{id}/flit-logging/fber/stop`, `POST /{id}/flit-logging/fber/clear` | Flit error log FIFO + FBER measurement |
+| Flit Perf | `GET /{id}/flit-perf`, `POST /{id}/flit-perf/start`, `POST /{id}/flit-perf/stop` | Flit performance measurement + LTSSM tracking |
+| Flit Error Injection | `GET /{id}/flit-error-injection`, `POST /{id}/flit-error-injection/flit/configure`, `POST /{id}/flit-error-injection/flit/disable`, `POST /{id}/flit-error-injection/os/configure`, `POST /{id}/flit-error-injection/os/disable` | Flit + Ordered Set error injection |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer (port-aware) |
 | Margining | `GET /{id}/phy/margining/capabilities`, `POST /{id}/phy/margining/sweep`, `GET /{id}/phy/margining/progress`, `GET /{id}/phy/margining/result`, `POST /{id}/phy/margining/reset`, `POST /{id}/phy/margining/sweep-pam4`, `GET /{id}/phy/margining/progress-pam4`, `GET /{id}/phy/margining/result-pam4` | Lane margining (NRZ + PAM4 3-eye) |
@@ -334,7 +337,7 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Configuration | `/switch/{id}/config` | Virtual switch and multi-host config |
 | Topology | `/switch/{id}/topology` | Fabric topology with connector health, hardware reference, downstream device identification |
 | Error Overview | `/switch/{id}/errors` | Combined AER, MCU, and LTSSM error view with per-port breakdown |
-| Registers | `/switch/{id}/registers` | Port-targeted config space browser with annotated hex dump, clickable expandable capabilities, register decode, config write with confirmation, AER, link control, device control |
+| Registers | `/switch/{id}/registers` | Port-targeted config space browser with annotated hex dump, clickable expandable capabilities, register decode (incl. Flit Logging, Flit Perf, Flit Error Injection), config write with confirmation, AER, link control, device control |
 | EEPROM | `/switch/{id}/eeprom` | Hex viewer, write with confirmation, CRC management |
 | PHY Monitor | `/switch/{id}/phy` | Port-aware link & EQ (16/32/64 GT/s), UTP testing with auto-poll SerDes, PHY register browser |
 | Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |

@@ -27,6 +27,7 @@ from typing import NamedTuple
 # Reference: PCI Local Bus Specification 3.0, Section 6.1
 # =============================================================================
 
+
 class PCIeConfigSpace(IntEnum):
     """
     Standard PCI Configuration Space register offsets.
@@ -34,42 +35,43 @@ class PCIeConfigSpace(IntEnum):
     These offsets are common to all PCI/PCIe devices and are defined
     in the PCI Local Bus Specification.
     """
+
     # Identification
-    VENDOR_ID = 0x00           # 16-bit: Vendor ID
-    DEVICE_ID = 0x02           # 16-bit: Device ID
+    VENDOR_ID = 0x00  # 16-bit: Vendor ID
+    DEVICE_ID = 0x02  # 16-bit: Device ID
 
     # Command and Status
-    COMMAND = 0x04             # 16-bit: Command register
-    STATUS = 0x06              # 16-bit: Status register
+    COMMAND = 0x04  # 16-bit: Command register
+    STATUS = 0x06  # 16-bit: Status register
 
     # Class and Revision
-    REVISION_ID = 0x08         # 8-bit: Revision ID
-    PROG_IF = 0x09             # 8-bit: Programming Interface
-    SUBCLASS = 0x0A            # 8-bit: Sub-Class Code
-    CLASS_CODE = 0x0B          # 8-bit: Base Class Code
+    REVISION_ID = 0x08  # 8-bit: Revision ID
+    PROG_IF = 0x09  # 8-bit: Programming Interface
+    SUBCLASS = 0x0A  # 8-bit: Sub-Class Code
+    CLASS_CODE = 0x0B  # 8-bit: Base Class Code
 
     # Cache Line and Latency
-    CACHE_LINE_SIZE = 0x0C     # 8-bit: Cache Line Size
-    LATENCY_TIMER = 0x0D       # 8-bit: Latency Timer
-    HEADER_TYPE = 0x0E         # 8-bit: Header Type
-    BIST = 0x0F                # 8-bit: Built-in Self Test
+    CACHE_LINE_SIZE = 0x0C  # 8-bit: Cache Line Size
+    LATENCY_TIMER = 0x0D  # 8-bit: Latency Timer
+    HEADER_TYPE = 0x0E  # 8-bit: Header Type
+    BIST = 0x0F  # 8-bit: Built-in Self Test
 
     # Base Address Registers
-    BAR0 = 0x10                # 32-bit: Base Address Register 0
-    BAR1 = 0x14                # 32-bit: Base Address Register 1
+    BAR0 = 0x10  # 32-bit: Base Address Register 0
+    BAR1 = 0x14  # 32-bit: Base Address Register 1
 
     # Type 1 Header (Bridge) specific
-    PRIMARY_BUS = 0x18         # 8-bit: Primary Bus Number
-    SECONDARY_BUS = 0x19       # 8-bit: Secondary Bus Number
-    SUBORDINATE_BUS = 0x1A     # 8-bit: Subordinate Bus Number
-    SECONDARY_LATENCY = 0x1B   # 8-bit: Secondary Latency Timer
+    PRIMARY_BUS = 0x18  # 8-bit: Primary Bus Number
+    SECONDARY_BUS = 0x19  # 8-bit: Secondary Bus Number
+    SUBORDINATE_BUS = 0x1A  # 8-bit: Subordinate Bus Number
+    SECONDARY_LATENCY = 0x1B  # 8-bit: Secondary Latency Timer
 
     # Capabilities Pointer
-    CAPABILITIES_PTR = 0x34    # 8-bit: Pointer to first capability
+    CAPABILITIES_PTR = 0x34  # 8-bit: Pointer to first capability
 
     # Interrupt
-    INTERRUPT_LINE = 0x3C      # 8-bit: Interrupt Line
-    INTERRUPT_PIN = 0x3D       # 8-bit: Interrupt Pin
+    INTERRUPT_LINE = 0x3C  # 8-bit: Interrupt Line
+    INTERRUPT_PIN = 0x3D  # 8-bit: Interrupt Pin
 
 
 class PCIeCommand(IntFlag):
@@ -78,16 +80,17 @@ class PCIeCommand(IntFlag):
 
     Reference: PCI Local Bus Specification 3.0, Section 6.2.2
     """
-    IO_SPACE = 1 << 0              # I/O Space Enable
-    MEMORY_SPACE = 1 << 1          # Memory Space Enable
-    BUS_MASTER = 1 << 2            # Bus Master Enable
-    SPECIAL_CYCLES = 1 << 3        # Special Cycle Enable
-    MWI_ENABLE = 1 << 4            # Memory Write and Invalidate
-    VGA_SNOOP = 1 << 5             # VGA Palette Snoop
-    PARITY_ERROR_RESP = 1 << 6     # Parity Error Response
-    SERR_ENABLE = 1 << 8           # SERR# Enable
-    FAST_B2B_ENABLE = 1 << 9       # Fast Back-to-Back Enable
-    INTX_DISABLE = 1 << 10         # INTx Emulation Disable
+
+    IO_SPACE = 1 << 0  # I/O Space Enable
+    MEMORY_SPACE = 1 << 1  # Memory Space Enable
+    BUS_MASTER = 1 << 2  # Bus Master Enable
+    SPECIAL_CYCLES = 1 << 3  # Special Cycle Enable
+    MWI_ENABLE = 1 << 4  # Memory Write and Invalidate
+    VGA_SNOOP = 1 << 5  # VGA Palette Snoop
+    PARITY_ERROR_RESP = 1 << 6  # Parity Error Response
+    SERR_ENABLE = 1 << 8  # SERR# Enable
+    FAST_B2B_ENABLE = 1 << 9  # Fast Back-to-Back Enable
+    INTX_DISABLE = 1 << 10  # INTx Emulation Disable
 
 
 class PCIeStatus(IntFlag):
@@ -96,18 +99,19 @@ class PCIeStatus(IntFlag):
 
     Reference: PCI Local Bus Specification 3.0, Section 6.2.3
     """
-    IMM_READINESS = 1 << 0         # Immediate Readiness (PCIe 6.0+)
-    INTERRUPT_STATUS = 1 << 3      # Interrupt Status
-    CAPABILITIES_LIST = 1 << 4     # Capabilities List Present
-    MHZ_66_CAPABLE = 1 << 5        # 66 MHz Capable
-    FAST_B2B_CAPABLE = 1 << 7      # Fast Back-to-Back Capable
-    MASTER_PARITY_ERR = 1 << 8     # Master Data Parity Error
-    DEVSEL_TIMING = 0x3 << 9       # DEVSEL Timing (2 bits)
+
+    IMM_READINESS = 1 << 0  # Immediate Readiness (PCIe 6.0+)
+    INTERRUPT_STATUS = 1 << 3  # Interrupt Status
+    CAPABILITIES_LIST = 1 << 4  # Capabilities List Present
+    MHZ_66_CAPABLE = 1 << 5  # 66 MHz Capable
+    FAST_B2B_CAPABLE = 1 << 7  # Fast Back-to-Back Capable
+    MASTER_PARITY_ERR = 1 << 8  # Master Data Parity Error
+    DEVSEL_TIMING = 0x3 << 9  # DEVSEL Timing (2 bits)
     SIGNALED_TARGET_ABORT = 1 << 11  # Signaled Target Abort
     RECEIVED_TARGET_ABORT = 1 << 12  # Received Target Abort
     RECEIVED_MASTER_ABORT = 1 << 13  # Received Master Abort
-    SIGNALED_SYSTEM_ERR = 1 << 14    # Signaled System Error
-    DETECTED_PARITY_ERR = 1 << 15    # Detected Parity Error
+    SIGNALED_SYSTEM_ERR = 1 << 14  # Signaled System Error
+    DETECTED_PARITY_ERR = 1 << 15  # Detected Parity Error
 
 
 # =============================================================================
@@ -115,8 +119,10 @@ class PCIeStatus(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3
 # =============================================================================
 
+
 class PCIeCapabilityID(IntEnum):
     """Standard PCI Capability IDs."""
+
     NULL = 0x00
     POWER_MANAGEMENT = 0x01
     AGP = 0x02
@@ -133,12 +139,12 @@ class PCIeCapabilityID(IntEnum):
     BRIDGE_SUBSYS_VENDOR = 0x0D
     AGP_8X = 0x0E
     SECURE_DEVICE = 0x0F
-    PCIE = 0x10                    # PCI Express Capability
+    PCIE = 0x10  # PCI Express Capability
     MSIX = 0x11
     SATA = 0x12
-    AF = 0x13                      # Advanced Features
-    EA = 0x14                      # Enhanced Allocation
-    FPB = 0x15                     # Flattening Portal Bridge
+    AF = 0x13  # Advanced Features
+    EA = 0x14  # Enhanced Allocation
+    FPB = 0x15  # Flattening Portal Bridge
 
 
 class PCIeCapability(IntEnum):
@@ -151,53 +157,55 @@ class PCIeCapability(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3
     """
+
     # Capability Header
-    CAP_ID = 0x00              # 8-bit: Capability ID (0x10 for PCIe)
-    NEXT_CAP = 0x01            # 8-bit: Next Capability Pointer
+    CAP_ID = 0x00  # 8-bit: Capability ID (0x10 for PCIe)
+    NEXT_CAP = 0x01  # 8-bit: Next Capability Pointer
 
     # PCI Express Capabilities Register
-    PCIE_CAP = 0x02            # 16-bit: PCIe Capabilities
+    PCIE_CAP = 0x02  # 16-bit: PCIe Capabilities
 
     # Device Registers
-    DEV_CAP = 0x04             # 32-bit: Device Capabilities
-    DEV_CTL = 0x08             # 16-bit: Device Control
-    DEV_STS = 0x0A             # 16-bit: Device Status
+    DEV_CAP = 0x04  # 32-bit: Device Capabilities
+    DEV_CTL = 0x08  # 16-bit: Device Control
+    DEV_STS = 0x0A  # 16-bit: Device Status
 
     # Link Registers
-    LINK_CAP = 0x0C            # 32-bit: Link Capabilities
-    LINK_CTL = 0x10            # 16-bit: Link Control
-    LINK_STS = 0x12            # 16-bit: Link Status
+    LINK_CAP = 0x0C  # 32-bit: Link Capabilities
+    LINK_CTL = 0x10  # 16-bit: Link Control
+    LINK_STS = 0x12  # 16-bit: Link Status
 
     # Slot Registers (Root Ports and Switch Downstream Ports only)
-    SLOT_CAP = 0x14            # 32-bit: Slot Capabilities
-    SLOT_CTL = 0x18            # 16-bit: Slot Control
-    SLOT_STS = 0x1A            # 16-bit: Slot Status
+    SLOT_CAP = 0x14  # 32-bit: Slot Capabilities
+    SLOT_CTL = 0x18  # 16-bit: Slot Control
+    SLOT_STS = 0x1A  # 16-bit: Slot Status
 
     # Root Registers (Root Ports only)
-    ROOT_CTL = 0x1C            # 16-bit: Root Control
-    ROOT_CAP = 0x1E            # 16-bit: Root Capabilities
-    ROOT_STS = 0x20            # 32-bit: Root Status
+    ROOT_CTL = 0x1C  # 16-bit: Root Control
+    ROOT_CAP = 0x1E  # 16-bit: Root Capabilities
+    ROOT_STS = 0x20  # 32-bit: Root Status
 
     # Device Capabilities/Control/Status 2
-    DEV_CAP2 = 0x24            # 32-bit: Device Capabilities 2
-    DEV_CTL2 = 0x28            # 16-bit: Device Control 2
-    DEV_STS2 = 0x2A            # 16-bit: Device Status 2
+    DEV_CAP2 = 0x24  # 32-bit: Device Capabilities 2
+    DEV_CTL2 = 0x28  # 16-bit: Device Control 2
+    DEV_STS2 = 0x2A  # 16-bit: Device Status 2
 
     # Link Capabilities/Control/Status 2
-    LINK_CAP2 = 0x2C           # 32-bit: Link Capabilities 2
-    LINK_CTL2 = 0x30           # 16-bit: Link Control 2
-    LINK_STS2 = 0x32           # 16-bit: Link Status 2
+    LINK_CAP2 = 0x2C  # 32-bit: Link Capabilities 2
+    LINK_CTL2 = 0x30  # 16-bit: Link Control 2
+    LINK_STS2 = 0x32  # 16-bit: Link Status 2
 
     # Slot Capabilities/Control/Status 2
-    SLOT_CAP2 = 0x34           # 32-bit: Slot Capabilities 2
-    SLOT_CTL2 = 0x38           # 16-bit: Slot Control 2
-    SLOT_STS2 = 0x3A           # 16-bit: Slot Status 2
+    SLOT_CAP2 = 0x34  # 32-bit: Slot Capabilities 2
+    SLOT_CTL2 = 0x38  # 16-bit: Slot Control 2
+    SLOT_STS2 = 0x3A  # 16-bit: Slot Status 2
 
 
 # =============================================================================
 # Link Speed and Width Encodings
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.6
 # =============================================================================
+
 
 class PCIeLinkSpeed(IntEnum):
     """
@@ -208,12 +216,13 @@ class PCIeLinkSpeed(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Table 7-15
     """
-    GEN1 = 0x1     # 2.5 GT/s
-    GEN2 = 0x2     # 5.0 GT/s
-    GEN3 = 0x3     # 8.0 GT/s
-    GEN4 = 0x4     # 16.0 GT/s
-    GEN5 = 0x5     # 32.0 GT/s
-    GEN6 = 0x6     # 64.0 GT/s
+
+    GEN1 = 0x1  # 2.5 GT/s
+    GEN2 = 0x2  # 5.0 GT/s
+    GEN3 = 0x3  # 8.0 GT/s
+    GEN4 = 0x4  # 16.0 GT/s
+    GEN5 = 0x5  # 32.0 GT/s
+    GEN6 = 0x6  # 64.0 GT/s
 
     @property
     def gigatransfers(self) -> float:
@@ -237,6 +246,7 @@ class PCIeLinkWidth(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Table 7-14
     """
+
     X1 = 0x01
     X2 = 0x02
     X4 = 0x04
@@ -251,12 +261,14 @@ class PCIeLinkWidth(IntEnum):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.5
 # =============================================================================
 
+
 class LinkCapBits(IntFlag):
     """
     Link Capabilities Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.5
     """
+
     # Max Link Speed (bits 3:0) - use PCIeLinkSpeed enum
     MAX_LINK_SPEED_MASK = 0xF
 
@@ -297,12 +309,14 @@ class LinkCapBits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.6
 # =============================================================================
 
+
 class LinkCtlBits(IntFlag):
     """
     Link Control Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.6
     """
+
     # ASPM Control (bits 1:0)
     ASPM_DISABLED = 0x0
     ASPM_L0S_ENTRY = 0x1
@@ -347,12 +361,14 @@ class LinkCtlBits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.7
 # =============================================================================
 
+
 class LinkStsBits(IntFlag):
     """
     Link Status Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.7
     """
+
     # Current Link Speed (bits 3:0) - use PCIeLinkSpeed enum
     CURRENT_LINK_SPEED_MASK = 0xF
 
@@ -380,12 +396,14 @@ class LinkStsBits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.18
 # =============================================================================
 
+
 class LinkCtl2Bits(IntFlag):
     """
     Link Control 2 Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.18
     """
+
     # Target Link Speed (bits 3:0) - use PCIeLinkSpeed enum
     TARGET_LINK_SPEED_MASK = 0xF
 
@@ -416,12 +434,14 @@ class LinkCtl2Bits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.19
 # =============================================================================
 
+
 class LinkSts2Bits(IntFlag):
     """
     Link Status 2 Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.19
     """
+
     # Current De-emphasis Level (bit 0)
     CURRENT_DEEMPHASIS = 1 << 0
 
@@ -464,12 +484,14 @@ class LinkSts2Bits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.3
 # =============================================================================
 
+
 class DevCapBits(IntFlag):
     """
     Device Capabilities Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.3
     """
+
     # Max Payload Size Supported (bits 2:0)
     MAX_PAYLOAD_128 = 0x0
     MAX_PAYLOAD_256 = 0x1
@@ -509,12 +531,14 @@ class DevCapBits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.15
 # =============================================================================
 
+
 class DevCap2Bits(IntFlag):
     """
     Device Capabilities 2 Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.15
     """
+
     # Completion Timeout Ranges Supported (bits 3:0)
     COMPLETION_TIMEOUT_RANGES_MASK = 0xF
 
@@ -581,19 +605,21 @@ class DevCap2Bits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.5.3.17
 # =============================================================================
 
+
 class LinkCap2Bits(IntFlag):
     """
     Link Capabilities 2 Register bitfield definitions.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.5.3.17
     """
+
     # Supported Link Speeds Vector (bits 7:1)
-    SPEED_2_5GT = 1 << 1   # 2.5 GT/s supported
-    SPEED_5GT = 1 << 2     # 5.0 GT/s supported
-    SPEED_8GT = 1 << 3     # 8.0 GT/s supported
-    SPEED_16GT = 1 << 4    # 16.0 GT/s supported
-    SPEED_32GT = 1 << 5    # 32.0 GT/s supported
-    SPEED_64GT = 1 << 6    # 64.0 GT/s supported
+    SPEED_2_5GT = 1 << 1  # 2.5 GT/s supported
+    SPEED_5GT = 1 << 2  # 5.0 GT/s supported
+    SPEED_8GT = 1 << 3  # 8.0 GT/s supported
+    SPEED_16GT = 1 << 4  # 16.0 GT/s supported
+    SPEED_32GT = 1 << 5  # 32.0 GT/s supported
+    SPEED_64GT = 1 << 6  # 64.0 GT/s supported
     SUPPORTED_SPEEDS_MASK = 0x7F << 1
 
     # Crosslink Supported (bit 8)
@@ -620,6 +646,7 @@ class LinkCap2Bits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.6
 # =============================================================================
 
+
 class ExtCapabilityID(IntEnum):
     """
     PCIe Extended Capability IDs.
@@ -628,42 +655,43 @@ class ExtCapabilityID(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.6.1
     """
+
     NULL = 0x0000
-    AER = 0x0001                  # Advanced Error Reporting
-    VC = 0x0002                   # Virtual Channel (no MFVC)
-    SERIAL_NUMBER = 0x0003        # Device Serial Number
+    AER = 0x0001  # Advanced Error Reporting
+    VC = 0x0002  # Virtual Channel (no MFVC)
+    SERIAL_NUMBER = 0x0003  # Device Serial Number
     POWER_BUDGETING = 0x0004
     ROOT_COMPLEX_LINK_DECL = 0x0005
     ROOT_COMPLEX_INTERNAL_LINK = 0x0006
     ROOT_COMPLEX_EVENT_COLLECTOR = 0x0007
-    MFVC = 0x0008                 # Multi-Function Virtual Channel
+    MFVC = 0x0008  # Multi-Function Virtual Channel
     VC_WITH_MFVC = 0x0009
-    RCRB = 0x000A                 # Root Complex Register Block
+    RCRB = 0x000A  # Root Complex Register Block
     VENDOR_SPECIFIC = 0x000B
-    CAC = 0x000C                  # Configuration Access Correlation
-    ACS = 0x000D                  # Access Control Services
-    ARI = 0x000E                  # Alternative Routing-ID Interpretation
-    ATS = 0x000F                  # Address Translation Services
-    SR_IOV = 0x0010               # Single Root I/O Virtualization
-    MR_IOV = 0x0011               # Multi-Root I/O Virtualization
+    CAC = 0x000C  # Configuration Access Correlation
+    ACS = 0x000D  # Access Control Services
+    ARI = 0x000E  # Alternative Routing-ID Interpretation
+    ATS = 0x000F  # Address Translation Services
+    SR_IOV = 0x0010  # Single Root I/O Virtualization
+    MR_IOV = 0x0011  # Multi-Root I/O Virtualization
     MULTICAST = 0x0012
-    PRI = 0x0013                  # Page Request Interface
-    REBAR = 0x0015                # Resizable BAR
-    DPA = 0x0016                  # Dynamic Power Allocation
-    TPH = 0x0017                  # TPH Requester
-    LTR = 0x0018                  # Latency Tolerance Reporting
+    PRI = 0x0013  # Page Request Interface
+    REBAR = 0x0015  # Resizable BAR
+    DPA = 0x0016  # Dynamic Power Allocation
+    TPH = 0x0017  # TPH Requester
+    LTR = 0x0018  # Latency Tolerance Reporting
     SECONDARY_PCIE = 0x0019
-    PMUX = 0x001A                 # Protocol Multiplexing
-    PASID = 0x001B                # Process Address Space ID
-    LNR = 0x001C                  # LN Requester
-    DPC = 0x001D                  # Downstream Port Containment
+    PMUX = 0x001A  # Protocol Multiplexing
+    PASID = 0x001B  # Process Address Space ID
+    LNR = 0x001C  # LN Requester
+    DPC = 0x001D  # Downstream Port Containment
     L1_PM_SUBSTATES = 0x001E
-    PTM = 0x001F                  # Precision Time Measurement
-    MPCIE = 0x0020                # M-PCIe
+    PTM = 0x001F  # Precision Time Measurement
+    MPCIE = 0x0020  # M-PCIe
     FRS_QUEUEING = 0x0021
-    RTR = 0x0022                  # Readiness Time Reporting
-    DVSEC = 0x0023                # Designated Vendor-Specific
-    VF_REBAR = 0x0024             # VF Resizable BAR
+    RTR = 0x0022  # Readiness Time Reporting
+    DVSEC = 0x0023  # Designated Vendor-Specific
+    VF_REBAR = 0x0024  # VF Resizable BAR
     DATA_LINK_FEATURE = 0x0025
     PHYSICAL_LAYER_16GT = 0x0026
     RECEIVER_LANE_MARGINING = 0x0027
@@ -671,21 +699,22 @@ class ExtCapabilityID(IntEnum):
     NATIVE_PCIE_ENCLOSURE = 0x0029
     PHYSICAL_LAYER_32GT = 0x002A
     ALTERNATE_PROTOCOL = 0x002B
-    SFI = 0x002C                  # System Firmware Intermediary
+    SFI = 0x002C  # System Firmware Intermediary
     SHADOW_FUNCTIONS = 0x002D
-    DOE = 0x002E                  # Data Object Exchange
+    DOE = 0x002E  # Data Object Exchange
     DEVICE_3 = 0x002F
-    IDE = 0x0030                  # Integrity and Data Encryption
+    IDE = 0x0030  # Integrity and Data Encryption
     PHYSICAL_LAYER_64GT = 0x0031  # PCIe 6.0 Physical Layer
-    FLIT_LOGGING = 0x0032         # PCIe 6.0 FLIT Logging
+    FLIT_LOGGING = 0x0032  # PCIe 6.0 FLIT Logging
     FLIT_PERF_MEASUREMENT = 0x0033  # PCIe 6.0 FLIT Performance
-    FLIT_ERROR_INJECTION = 0x0034   # PCIe 6.0 FLIT Error Injection
+    FLIT_ERROR_INJECTION = 0x0034  # PCIe 6.0 FLIT Error Injection
 
 
 # =============================================================================
 # Advanced Error Reporting (AER) Extended Capability
 # Reference: PCIe Base Spec 6.0.1, Section 7.8.4
 # =============================================================================
+
 
 class AERCapability(IntEnum):
     """
@@ -696,37 +725,38 @@ class AERCapability(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.8.4
     """
+
     # Extended Capability Header
-    CAP_HEADER = 0x00             # 32-bit: Cap ID + Version + Next Ptr
+    CAP_HEADER = 0x00  # 32-bit: Cap ID + Version + Next Ptr
 
     # Uncorrectable Error Registers
-    UNCORR_ERR_STATUS = 0x04      # 32-bit: Uncorrectable Error Status
-    UNCORR_ERR_MASK = 0x08        # 32-bit: Uncorrectable Error Mask
-    UNCORR_ERR_SEVERITY = 0x0C    # 32-bit: Uncorrectable Error Severity
+    UNCORR_ERR_STATUS = 0x04  # 32-bit: Uncorrectable Error Status
+    UNCORR_ERR_MASK = 0x08  # 32-bit: Uncorrectable Error Mask
+    UNCORR_ERR_SEVERITY = 0x0C  # 32-bit: Uncorrectable Error Severity
 
     # Correctable Error Registers
-    CORR_ERR_STATUS = 0x10        # 32-bit: Correctable Error Status
-    CORR_ERR_MASK = 0x14          # 32-bit: Correctable Error Mask
+    CORR_ERR_STATUS = 0x10  # 32-bit: Correctable Error Status
+    CORR_ERR_MASK = 0x14  # 32-bit: Correctable Error Mask
 
     # Advanced Error Capabilities and Control
-    ADV_ERR_CAP_CTL = 0x18        # 32-bit: Advanced Error Cap & Control
+    ADV_ERR_CAP_CTL = 0x18  # 32-bit: Advanced Error Cap & Control
 
     # Header Log
-    HEADER_LOG_0 = 0x1C           # 32-bit: Header Log DW0
-    HEADER_LOG_1 = 0x20           # 32-bit: Header Log DW1
-    HEADER_LOG_2 = 0x24           # 32-bit: Header Log DW2
-    HEADER_LOG_3 = 0x28           # 32-bit: Header Log DW3
+    HEADER_LOG_0 = 0x1C  # 32-bit: Header Log DW0
+    HEADER_LOG_1 = 0x20  # 32-bit: Header Log DW1
+    HEADER_LOG_2 = 0x24  # 32-bit: Header Log DW2
+    HEADER_LOG_3 = 0x28  # 32-bit: Header Log DW3
 
     # Root Error Registers (Root Ports only)
-    ROOT_ERR_CMD = 0x2C           # 32-bit: Root Error Command
-    ROOT_ERR_STATUS = 0x30        # 32-bit: Root Error Status
-    ERR_SRC_ID = 0x34             # 32-bit: Error Source Identification
+    ROOT_ERR_CMD = 0x2C  # 32-bit: Root Error Command
+    ROOT_ERR_STATUS = 0x30  # 32-bit: Root Error Status
+    ERR_SRC_ID = 0x34  # 32-bit: Error Source Identification
 
     # TLP Prefix Log
-    TLP_PREFIX_LOG_0 = 0x38       # 32-bit: TLP Prefix Log DW0
-    TLP_PREFIX_LOG_1 = 0x3C       # 32-bit: TLP Prefix Log DW1
-    TLP_PREFIX_LOG_2 = 0x40       # 32-bit: TLP Prefix Log DW2
-    TLP_PREFIX_LOG_3 = 0x44       # 32-bit: TLP Prefix Log DW3
+    TLP_PREFIX_LOG_0 = 0x38  # 32-bit: TLP Prefix Log DW0
+    TLP_PREFIX_LOG_1 = 0x3C  # 32-bit: TLP Prefix Log DW1
+    TLP_PREFIX_LOG_2 = 0x40  # 32-bit: TLP Prefix Log DW2
+    TLP_PREFIX_LOG_3 = 0x44  # 32-bit: TLP Prefix Log DW3
 
 
 class UncorrErrBits(IntFlag):
@@ -735,6 +765,7 @@ class UncorrErrBits(IntFlag):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.8.4.3
     """
+
     # Data Link Protocol Error (bit 4)
     DL_PROTOCOL_ERR = 1 << 4
 
@@ -808,6 +839,7 @@ class CorrErrBits(IntFlag):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.8.4.6
     """
+
     # Receiver Error (bit 0)
     RECEIVER_ERR = 1 << 0
 
@@ -838,20 +870,22 @@ class CorrErrBits(IntFlag):
 # Reference: PCIe Base Spec 6.0.1, Section 7.7.7
 # =============================================================================
 
+
 class PhysLayer64GT(IntEnum):
     """
     PCIe 6.0 Physical Layer 64 GT/s Extended Capability register offsets.
 
     Reference: PCIe Base Spec 6.0.1, Section 7.7.7
     """
-    CAP_HEADER = 0x00             # 32-bit: Extended Capability Header
-    CAP = 0x04                    # 32-bit: 64 GT/s Capabilities
-    CTL = 0x08                    # 32-bit: 64 GT/s Control
-    STATUS = 0x0C                 # 32-bit: 64 GT/s Status
+
+    CAP_HEADER = 0x00  # 32-bit: Extended Capability Header
+    CAP = 0x04  # 32-bit: 64 GT/s Capabilities
+    CTL = 0x08  # 32-bit: 64 GT/s Control
+    STATUS = 0x0C  # 32-bit: 64 GT/s Status
     LOCAL_DATA_PARITY_STATUS = 0x10  # 32-bit: Local Data Parity Mismatch Status
     FIRST_RETIMER_DATA_PARITY = 0x14  # 32-bit: First Retimer Data Parity Status
     SECOND_RETIMER_DATA_PARITY = 0x18  # 32-bit: Second Retimer Data Parity Status
-    LANE_EQ_CTL = 0x20            # Variable: 64 GT/s Lane Equalization Control
+    LANE_EQ_CTL = 0x20  # Variable: 64 GT/s Lane Equalization Control
 
 
 class PhysLayer64GTCapBits(IntFlag):
@@ -860,6 +894,7 @@ class PhysLayer64GTCapBits(IntFlag):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.7.7.3
     """
+
     # Flit Mode Supported (bit 0)
     FLIT_MODE_SUPPORTED = 1 << 0
 
@@ -873,6 +908,7 @@ class PhysLayer64GTCtlBits(IntFlag):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.7.7.4
     """
+
     # No Equalization Needed (bit 0)
     NO_EQ_NEEDED = 1 << 0
 
@@ -886,6 +922,7 @@ class PhysLayer64GTStsBits(IntFlag):
 
     Reference: PCIe Base Spec 6.0.1, Section 7.7.7.5
     """
+
     # Equalization 64 GT/s Complete (bit 0)
     EQ_64GT_COMPLETE = 1 << 0
 
@@ -903,9 +940,266 @@ class PhysLayer64GTStsBits(IntFlag):
 
 
 # =============================================================================
+# PCIe 6.0 Flit Logging Extended Capability (0x0032)
+# Reference: PCIe Base Spec 6.0.1, Section 7.7.8
+# =============================================================================
+
+
+class FlitLogging(IntEnum):
+    """
+    Flit Logging Extended Capability register offsets.
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.7.8
+    """
+
+    CAP_HEADER = 0x00  # 32-bit: Extended Capability Header
+    ERROR_LOG_1 = 0x04  # 32-bit: Flit Error Log 1
+    ERROR_LOG_2 = 0x08  # 32-bit: Flit Error Log 2
+    ERROR_COUNTER_CTL_STS = 0x0C  # 32-bit: Error Counter Control (lo) + Status (hi)
+    FBER_CONTROL = 0x10  # 32-bit: FBER Control
+    FBER_STATUS_1 = 0x14  # 32-bit: FBER Flit Counter (lo)
+    FBER_STATUS_2 = 0x18  # 32-bit: FBER Flit Counter (hi)
+    FBER_STATUS_3 = 0x1C  # 32-bit: FBER Lanes 0-1 correctable errors
+    FBER_STATUS_4 = 0x20  # 32-bit: FBER Lanes 2-3
+    FBER_STATUS_5 = 0x24  # 32-bit: FBER Lanes 4-5
+    FBER_STATUS_6 = 0x28  # 32-bit: FBER Lanes 6-7
+    FBER_STATUS_7 = 0x2C  # 32-bit: FBER Lanes 8-9
+    FBER_STATUS_8 = 0x30  # 32-bit: FBER Lanes 10-11
+    FBER_STATUS_9 = 0x34  # 32-bit: FBER Lanes 12-13
+    FBER_STATUS_10 = 0x38  # 32-bit: FBER Lanes 14-15
+
+
+class FlitErrorLog1Bits(IntFlag):
+    """
+    Flit Error Log 1 register bits (+0x04).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.7.8.3
+    """
+
+    VALID = 1 << 0  # bit 0: W1C
+    LINK_WIDTH_MASK = 0x7 << 1  # bits 3:1
+    FLIT_OFFSET_MASK = 0xF << 4  # bits 7:4
+    CONSECUTIVE_ERRORS_MASK = 0x1F << 8  # bits 12:8
+    MORE_ENTRIES = 1 << 13  # bit 13
+    UNRECOGNIZED_FLIT = 1 << 14  # bit 14
+    FEC_UNCORRECTABLE = 1 << 15  # bit 15
+    SYNDROME_BYTE_0_MASK = 0xF << 16  # bits 19:16
+    SYNDROME_BYTE_1_MASK = 0xF << 20  # bits 23:20
+    SYNDROME_BYTE_2_MASK = 0xF << 24  # bits 27:24
+    SYNDROME_BYTE_3_MASK = 0xF << 28  # bits 31:28
+
+
+class FlitErrorCounterCtlBits(IntFlag):
+    """
+    Flit Error Counter Control bits (lower 16 bits of +0x0C).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.7.8.5
+    """
+
+    ENABLE = 1 << 0
+    INTERRUPT_ENABLE = 1 << 1
+    EVENTS_TO_COUNT_MASK = 0x3 << 2  # bits 3:2
+    TRIGGER_EVENT_COUNT_MASK = 0xFF << 4  # bits 11:4
+
+
+class FlitErrorCounterStsBits(IntFlag):
+    """
+    Flit Error Counter Status bits (upper 16 bits of +0x0C).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.7.8.6
+    """
+
+    LINK_WIDTH_MASK = 0x7  # bits 2:0 (of upper half)
+    INTERRUPT_GENERATED = 1 << 3  # bit 3
+    COUNTER_MASK = 0xFF << 8  # bits 15:8
+
+
+class FberControlBits(IntFlag):
+    """
+    FBER Control register bits (+0x10).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.7.8.7
+    """
+
+    ENABLE = 1 << 0
+    CLEAR = 1 << 1  # W1C
+    GRANULARITY_MASK = 0x3 << 2  # bits 3:2
+
+
+# =============================================================================
+# PCIe 6.0 Flit Performance Measurement Extended Capability (0x0033)
+# Reference: PCIe Base Spec 6.0.1, Section 7.8.12
+# =============================================================================
+
+
+class FlitPerfMeasurement(IntEnum):
+    """
+    Flit Performance Measurement Extended Capability register offsets.
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.12
+    """
+
+    CAP_HEADER = 0x00  # 32-bit: Extended Capability Header
+    CAPABILITY = 0x04  # 32-bit: Flit Perf Measurement Capability
+    CONTROL = 0x08  # 32-bit: Flit Perf Measurement Control
+    STATUS = 0x0C  # 32-bit: Flit Perf Measurement Status
+    LTSSM_STATUS_1 = 0x10  # 32-bit: LTSSM Transition Status 1
+    LTSSM_STATUS_2 = 0x14  # 32-bit: LTSSM Transition Status 2
+    LTSSM_STATUS_3 = 0x18  # 32-bit: LTSSM Transition Status 3
+    LTSSM_STATUS_4 = 0x1C  # 32-bit: LTSSM Transition Status 4
+    LTSSM_STATUS_5 = 0x20  # 32-bit: LTSSM Transition Status 5
+
+
+class FlitPerfCapBits(IntFlag):
+    """
+    Flit Perf Measurement Capability register bits (+0x04).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.12.3
+    """
+
+    INTERRUPT_VECTOR_MASK = 0x3FF  # bits 9:0
+    LTSSM_TRACKING_COUNT_MASK = 0x7 << 10  # bits 12:10
+
+
+class FlitPerfCtlBits(IntFlag):
+    """
+    Flit Perf Measurement Control register bits (+0x08).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.12.4
+    """
+
+    ENABLE = 1 << 0
+    RESPONSE_TYPE_MASK = 0x7 << 1  # bits 3:1
+    FLIT_TYPE_MASK = 0x3 << 4  # bits 5:4
+    NUM_INSTANCES_MASK = 0x1F << 6  # bits 10:6
+    INTERRUPT_THRESHOLD_MASK = 0x7 << 11  # bits 13:11
+    LTSSM_TRACKER_MASK = 0x1F << 14  # bits 18:14
+    LTSSM_NUM_INSTANCES_MASK = 0x1F << 19  # bits 23:19
+    LTSSM_INTERRUPT_MASK = 0x7 << 24  # bits 26:24
+    LTSSM_L12_INTERRUPT_MASK = 0x7 << 27  # bits 29:27
+
+
+class FlitPerfStsBits(IntFlag):
+    """
+    Flit Perf Measurement Status register bits (+0x0C).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.12.5
+    """
+
+    TRACKING_STATUS_MASK = 0x3  # bits 1:0
+    FLITS_TRACKED_MASK = 0x1F << 2  # bits 6:2
+    INTERRUPT_GENERATED = 1 << 7  # bit 7
+    LTSSM_COUNTER_MASK = 0xFFFF << 8  # bits 23:8
+
+
+# =============================================================================
+# PCIe 6.0 Flit Error Injection Extended Capability (0x0034)
+# Reference: PCIe Base Spec 6.0.1, Section 7.8.13
+# =============================================================================
+
+
+class FlitErrorInjection(IntEnum):
+    """
+    Flit Error Injection Extended Capability register offsets.
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13
+    """
+
+    CAP_HEADER = 0x00  # 32-bit: Extended Capability Header
+    FLIT_CTL_1 = 0x04  # 32-bit: Flit Error Injection Control 1
+    FLIT_CTL_2 = 0x08  # 32-bit: Flit Error Injection Control 2
+    FLIT_STATUS = 0x0C  # 32-bit: Flit Error Injection Status
+    OS_CTL_1 = 0x10  # 32-bit: OS Error Injection Control 1
+    OS_CTL_2 = 0x14  # 32-bit: OS Error Injection Control 2
+    OS_TX_STATUS = 0x18  # 32-bit: OS Error Injection TX Status
+    OS_RX_STATUS = 0x1C  # 32-bit: OS Error Injection RX Status
+    RESERVED = 0x20  # 32-bit: Reserved
+
+
+class FlitErrInjCtl1Bits(IntFlag):
+    """
+    Flit Error Injection Control 1 register bits (+0x04).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13.3
+    """
+
+    ENABLE = 1 << 0
+    INJECT_TX = 1 << 1
+    INJECT_RX = 1 << 2
+    DATA_RATE_MASK = 0x1FFF << 3  # bits 15:3
+    NUM_ERRORS_MASK = 0x1F << 16  # bits 20:16
+    SPACING_MASK = 0xFF << 21  # bits 28:21
+    FLIT_TYPE_MASK = 0x7 << 29  # bits 31:29
+
+
+class FlitErrInjCtl2Bits(IntFlag):
+    """
+    Flit Error Injection Control 2 register bits (+0x08).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13.4
+    """
+
+    CONSECUTIVE_MASK = 0x7  # bits 2:0
+    ERROR_TYPE_MASK = 0x3 << 3  # bits 4:3
+    ERROR_OFFSET_MASK = 0x7F << 5  # bits 11:5
+    ERROR_MAGNITUDE_MASK = 0xFF << 12  # bits 19:12
+
+
+class FlitErrInjStsBits(IntFlag):
+    """
+    Flit Error Injection Status register bits (+0x0C).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13.5
+    """
+
+    TX_STATUS_MASK = 0x3  # bits 1:0
+    RX_STATUS_MASK = 0x3 << 2  # bits 3:2
+
+
+class OsErrInjCtl1Bits(IntFlag):
+    """
+    OS Error Injection Control 1 register bits (+0x10).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13.6
+    """
+
+    ENABLE = 1 << 0
+    INJECT_TX = 1 << 1
+    INJECT_RX = 1 << 2
+    NUM_ERRORS_MASK = 0x1F << 3  # bits 7:3
+    SPACING_MASK = 0xFF << 8  # bits 15:8
+    OS_TYPE_SKP = 1 << 16
+    OS_TYPE_EIEOS = 1 << 17
+    OS_TYPE_TS1 = 1 << 18
+    OS_TYPE_TS2 = 1 << 19
+    OS_TYPE_EIOS = 1 << 20
+    OS_TYPE_SDS = 1 << 21
+    OS_TYPE_EIDEOS = 1 << 22
+    LTSSM_DETECT = 1 << 23
+    LTSSM_POLLING = 1 << 24
+    LTSSM_CONFIG = 1 << 25
+    LTSSM_L0 = 1 << 26
+    LTSSM_RECOVERY = 1 << 27
+    LTSSM_LOOPBACK = 1 << 28
+    LTSSM_HOT_RESET = 1 << 29
+
+
+class OsErrInjCtl2Bits(IntFlag):
+    """
+    OS Error Injection Control 2 register bits (+0x14).
+
+    Reference: PCIe Base Spec 6.0.1, Section 7.8.13.7
+    """
+
+    ERROR_BYTES_MASK = 0xFFFF  # bits 15:0
+    LANE_MASK = 0xFFFF << 16  # bits 31:16
+
+
+# =============================================================================
 # PCIe 6.0 FLIT Mode Registers
 # Reference: PCIe Base Spec 6.0.1, Section 3.6 (FLIT Format)
 # =============================================================================
+
 
 class FlitMode(IntEnum):
     """
@@ -916,8 +1210,9 @@ class FlitMode(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Section 3.6
     """
-    DISABLED = 0       # Traditional TLP/DLLP mode
-    ENABLED = 1        # 256B FLIT mode (Gen6)
+
+    DISABLED = 0  # Traditional TLP/DLLP mode
+    ENABLED = 1  # 256B FLIT mode (Gen6)
 
 
 class FlitType(IntEnum):
@@ -926,10 +1221,11 @@ class FlitType(IntEnum):
 
     Reference: PCIe Base Spec 6.0.1, Table 3-4
     """
-    NOP = 0x0           # No operation
+
+    NOP = 0x0  # No operation
     STANDARD_TLP = 0x1  # Standard TLP FLIT
-    CONTROL = 0x2       # Control FLIT
-    VENDOR = 0x3        # Vendor-defined
+    CONTROL = 0x2  # Control FLIT
+    VENDOR = 0x3  # Vendor-defined
 
 
 # =============================================================================
@@ -937,22 +1233,26 @@ class FlitType(IntEnum):
 # Reference: PCIe Base Spec 6.0.1, Section 3.4
 # =============================================================================
 
+
 class FCUSize(IntEnum):
     """
     Flow Control Unit sizes by PCIe generation.
 
     Reference: PCIe Base Spec 6.0.1, Section 3.4
     """
-    LEGACY = 16         # 16-byte FCU for Gen1-Gen5 (TLP mode)
-    GEN6_FLIT = 256     # 256-byte FCU for Gen6 FLIT mode
+
+    LEGACY = 16  # 16-byte FCU for Gen1-Gen5 (TLP mode)
+    GEN6_FLIT = 256  # 256-byte FCU for Gen6 FLIT mode
 
 
 # =============================================================================
 # Data Structures for Parsed Register Values
 # =============================================================================
 
+
 class LinkInfo(NamedTuple):
     """Parsed link status information."""
+
     speed: PCIeLinkSpeed
     width: PCIeLinkWidth
     training: bool
@@ -962,6 +1262,7 @@ class LinkInfo(NamedTuple):
 
 class PCIeDeviceInfo(NamedTuple):
     """Parsed device identification."""
+
     vendor_id: int
     device_id: int
     revision: int
@@ -971,6 +1272,7 @@ class PCIeDeviceInfo(NamedTuple):
 
 class ErrorCounters(NamedTuple):
     """Parsed error counter values."""
+
     receiver_errors: int
     bad_tlp: int
     bad_dllp: int
@@ -981,6 +1283,7 @@ class ErrorCounters(NamedTuple):
 # =============================================================================
 # Utility Functions
 # =============================================================================
+
 
 def parse_link_status(value: int) -> LinkInfo:
     """
@@ -1057,7 +1360,7 @@ def find_capability(config_space: bytes, cap_id: PCIeCapabilityID) -> int | None
         return None
 
     # Check if capabilities list is present
-    status = int.from_bytes(config_space[0x06:0x08], 'little')
+    status = int.from_bytes(config_space[0x06:0x08], "little")
     if not (status & int(PCIeStatus.CAPABILITIES_LIST)):
         return None
 
@@ -1092,7 +1395,7 @@ def find_ext_capability(config_space: bytes, cap_id: ExtCapabilityID) -> int | N
     ptr = 0x100
 
     while ptr and ptr < 4096:
-        header = int.from_bytes(config_space[ptr:ptr+4], 'little')
+        header = int.from_bytes(config_space[ptr : ptr + 4], "little")
         current_id = header & 0xFFFF
         next_ptr = (header >> 20) & 0xFFC
 
