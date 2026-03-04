@@ -138,6 +138,7 @@ src/calypso/
 ├── models/         # Pydantic data models
 ├── core/           # Domain logic (switch, ports, topology, perf, PCIe config, PHY, EEPROM)
 ├── compliance/     # PCIe compliance testing (6 suites, HTML reports)
+├── workflows/      # Recipes & Workflows for structured hardware validation
 ├── workloads/      # Optional NVMe workload generation (SPDK perf, pynvme)
 ├── mcu/            # MCU serial client (health, ports, errors, BIST, config, I2C/I3C bus)
 ├── mctp/           # MCTP over I2C/I3C transport, framing, and endpoint discovery
@@ -255,6 +256,18 @@ calypso workloads run --backend spdk --bdf 0000:01:00.0 \
 
 Neither backend is required. The module probes for SPDK and pynvme at runtime and degrades gracefully. When no backend is available, `calypso workloads backends` reports an empty list and all other commands return helpful errors.
 
+### Recipes & Workflows
+
+```bash
+calypso recipe list                              # List all available recipes
+calypso recipe params <recipe_id>                # Show configurable parameters for a recipe
+calypso recipe run <recipe_id> <device_index>    # Run a recipe on a device
+calypso recipe list-workflows                    # List saved workflow definitions
+calypso recipe run-workflow <workflow_id> <device_index>  # Run a saved workflow
+```
+
+16 recipes across 6 categories: link_health, signal_integrity, performance, configuration, debug, error_testing. Recipes are individual validation test sequences; workflows chain multiple recipes with conditions, loops, and inter-step parameter bindings.
+
 ### Driver Management
 
 ```bash
@@ -288,6 +301,9 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
 | Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
 | Compliance | `POST /{id}/compliance/start`, `GET /{id}/compliance/progress`, `GET /{id}/compliance/result`, `POST /{id}/compliance/cancel`, `GET /{id}/compliance/report` | PCIe compliance testing + HTML reports |
+| Recipes | `GET /{id}/recipes`, `POST /{id}/recipes/run`, `GET /{id}/recipes/progress`, `GET /{id}/recipes/result`, `POST /{id}/recipes/cancel` | Recipe execution + progress |
+| Workflows | `POST /{id}/workflows/run`, `GET /{id}/workflows/progress/{run_id}`, `GET /{id}/workflows/result/{run_id}`, `POST /{id}/workflows/cancel/{run_id}`, `GET /{id}/workflows/report/{run_id}` | Multi-recipe workflow execution + HTML reports |
+| Saved Workflows | `GET /workflows`, `GET /workflows/{id}`, `POST /workflows`, `DELETE /workflows/{id}` | Workflow definition CRUD |
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear`, `POST /{id}/config-write` | PCIe config space (port-targeted) |
 | EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
 | PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer (port-aware) |
@@ -326,6 +342,8 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Protocol Trace | `/switch/{id}/ptrace` | Embedded protocol analyzer with capture config, hardware trigger/filter, Flit mode condition matching, 28-bit error triggers, event counters, 600-bit trace buffer with CSV/hex export, auto-poll status |
 | Packet Exerciser | `/switch/{id}/pktexer` | PCIe TLP generation (15 types), 4 hardware threads, DW FIFO + RAM loading, PTrace+Exerciser composite capture, Datapath BIST |
 | Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
+| Recipes | `/switch/{id}/workflows` | Category tabs (6 categories), recipe cards with parameters, inline recipe runner with live step progress |
+| Workflow Builder | `/switch/{id}/workflow-builder` | Visual workflow composer, step editor with conditions/loops/bindings, save/load workflows, execution monitor, HTML report download |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 
 ### MCU Pages (Serial)

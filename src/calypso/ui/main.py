@@ -97,6 +97,16 @@ def setup_ui(fastapi_app: FastAPI) -> None:
         from calypso.ui.pages.compliance import compliance_page
         compliance_page(device_id)
 
+    @ui.page("/switch/{device_id}/workflows")
+    def workflows_ui(device_id: str):
+        from calypso.ui.pages.workflows import workflows_page
+        workflows_page(device_id)
+
+    @ui.page("/switch/{device_id}/workflow-builder")
+    def workflow_builder_ui(device_id: str):
+        from calypso.ui.pages.workflow_builder import workflow_builder_page
+        workflow_builder_page(device_id)
+
     @ui.page("/switch/{device_id}/workloads")
     def workloads_ui(device_id: str):
         from calypso.ui.pages.workloads import workloads_page

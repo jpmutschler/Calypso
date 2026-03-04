@@ -73,7 +73,7 @@ def create_app(enable_ui: bool = True) -> FastAPI:
     # Register API routes
     from calypso.api.routes import (
         compliance, configuration, devices, eeprom, errors, ltssm, mcu, packet_exerciser,
-        performance, phy, ports, ptrace, registers, topology,
+        performance, phy, ports, ptrace, recipes, registers, topology,
     )
     app.include_router(devices.router, prefix="/api")
     app.include_router(ports.router, prefix="/api")
@@ -88,6 +88,7 @@ def create_app(enable_ui: bool = True) -> FastAPI:
     app.include_router(packet_exerciser.router, prefix="/api")
     app.include_router(errors.router, prefix="/api")
     app.include_router(compliance.router, prefix="/api")
+    app.include_router(recipes.router, prefix="/api")
     app.include_router(mcu.router)
 
     from calypso.api.routes import nvme_mi

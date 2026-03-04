@@ -32,6 +32,8 @@ Version 0.1.0
    - 5.17 [NVMe Drives](#517-nvme-drives)
    - 5.18 [Protocol Trace](#518-protocol-trace)
    - 5.19 [Packet Exerciser](#519-packet-exerciser)
+   - 5.20 [Recipes](#520-recipes)
+   - 5.21 [Workflow Builder](#521-workflow-builder)
 6. [Hardware Reference](#6-hardware-reference)
 7. [Appendix A: REST API Reference](#appendix-a-rest-api-reference)
 8. [Appendix B: CLI Reference](#appendix-b-cli-reference)
@@ -1363,6 +1365,100 @@ Datapath Built-In Self Test -- factory-level TLP generation for datapath verific
 
 <!-- Screenshot: Packet Exerciser page showing TLP configuration, PTrace+Exerciser workflow, and DP BIST -->
 
+### 5.20 Recipes
+
+**Route:** `/switch/{device_id}/workflows`
+
+The Recipes page provides a library of 16 pre-built hardware validation test sequences organized into 6 categories:
+
+| Category | Icon | Description | Example Recipes |
+|----------|------|-------------|-----------------|
+| Link Health | Heart | PCIe link state and diagnostics | All Port Sweep, Link Health Check, Link Training Debug, LTSSM Monitor |
+| Signal Integrity | Waves | SerDes and signal quality | Eye Quick Scan, BER Soak, SerDes Diagnostics |
+| Performance | Speed | Bandwidth and throughput testing | Bandwidth Baseline, Datapath BIST |
+| Configuration | Settings | Device config validation | EEPROM Validation, Config Dump, Topology Snapshot |
+| Debug | Bug | Protocol trace and packet generation | PTrace Capture, Packet Exerciser Test |
+| Error Testing | Error | Error injection and recovery | Error Recovery Test, Multi-Speed BER |
+
+#### Running a Recipe
+
+1. Select a category tab to browse available recipes
+2. Click **Run** on a recipe card
+3. If the recipe has configurable parameters (duration, port number, thresholds, etc.), a parameter dialog appears — configure and click **Run**
+4. The **Recipe Stepper** panel opens showing live step-by-step progress with status icons (pass/fail/warn/skip)
+5. Results include per-step details, pass/fail/warn counts, and duration
+
+#### Recipe Parameters
+
+Each recipe defines its own set of configurable parameters. Common parameters include:
+
+- **port_number** — Target port (default: auto-detect or all ports)
+- **duration_s** — Test duration in seconds
+- **threshold** — Pass/fail threshold values
+- **num_lanes** — Number of lanes to test
+
+Parameters are displayed with appropriate input widgets (number fields, dropdowns, toggles) based on their type.
+
+#### Cancel
+
+Click the **Cancel Recipe** button to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint and return partial results.
+
+### 5.21 Workflow Builder
+
+**Route:** `/switch/{device_id}/workflow-builder`
+
+The Workflow Builder allows you to compose multi-recipe validation sequences with advanced control flow.
+
+#### Creating a Workflow
+
+1. Enter a **Workflow Name** and optional **Description** and **Tags**
+2. Click **Add Step** to add recipe steps to the workflow
+3. For each step, configure:
+   - **Recipe** — Select from the recipe library
+   - **Parameters** — Override default parameter values
+   - **On Fail** — Action when the step fails: Stop (halt workflow), Continue (proceed to next step), or Skip Remaining (skip rest of current step's loops)
+   - **Loop** — Repeat the step N times with optional delay between iterations
+   - **Condition** — Expression that must be true for the step to execute (e.g., `step_1.status == "pass"`, `step_1.pass_rate > 90.0`)
+   - **Bindings** — Pass values from previous steps (e.g., bind `port_number` to `step_0.measured_values.port_number`)
+4. Click **Save Workflow** to persist the definition
+
+#### Condition Expressions
+
+Conditions reference previous step results using dot notation:
+
+| Expression | Description |
+|------------|-------------|
+| `step_0.status == "pass"` | Previous step passed |
+| `step_0.total_fail == 0` | No failures in previous step |
+| `step_0.pass_rate > 90.0` | Pass rate above 90% |
+| `step_0.status == "pass" and step_1.status == "pass"` | Both steps passed |
+
+Supported operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`, `not`.
+
+#### Running a Workflow
+
+1. Build your workflow steps or load a saved workflow from the sidebar
+2. Click **Run Workflow**
+3. The **Workflow Monitor** displays:
+   - Overall progress bar with percentage
+   - Current step name and iteration count
+   - Elapsed time
+   - Per-recipe result summaries as they complete
+
+#### Saved Workflows
+
+The right sidebar panel lists all saved workflows. Click a workflow to load it into the editor. Workflows are stored as JSON files in `~/.calypso/workflows/`.
+
+#### HTML Reports
+
+After a workflow completes, download a self-contained HTML report with:
+- Aggregate pass/fail/warn metrics
+- Per-recipe summary table with status badges
+- Detailed step-by-step results for each recipe
+- Specialized visualizations (port sweep tables, BER lane charts, eye scan grids)
+
+Reports use the Calypso dark theme and work offline — no external dependencies.
+
 ---
 
 ## 6. Hardware Reference
@@ -1659,6 +1755,35 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `POST` | `/api/devices/{id}/compliance/cancel` | Request cancellation of running test |
 | `GET` | `/api/devices/{id}/compliance/report` | Download HTML compliance report (attachment) |
 
+### Recipes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/devices/{id}/recipes` | List all available recipes with metadata |
+| `POST` | `/api/devices/{id}/recipes/run` | Start recipe execution. Body: `{recipe_id, parameters}` |
+| `GET` | `/api/devices/{id}/recipes/progress` | Poll recipe execution progress |
+| `GET` | `/api/devices/{id}/recipes/result` | Get completed recipe result |
+| `POST` | `/api/devices/{id}/recipes/cancel` | Cancel running recipe |
+
+### Workflows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/devices/{id}/workflows/run` | Start workflow execution. Body: WorkflowDefinition JSON. Returns `{run_id}` |
+| `GET` | `/api/devices/{id}/workflows/progress/{run_id}` | Poll workflow execution progress |
+| `GET` | `/api/devices/{id}/workflows/result/{run_id}` | Get completed workflow results |
+| `POST` | `/api/devices/{id}/workflows/cancel/{run_id}` | Cancel running workflow |
+| `GET` | `/api/devices/{id}/workflows/report/{run_id}` | Download HTML workflow report |
+
+### Saved Workflows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/workflows` | List all saved workflow definitions |
+| `GET` | `/api/workflows/{workflow_id}` | Load a saved workflow by ID |
+| `POST` | `/api/workflows` | Save a workflow definition. Body: WorkflowDefinition JSON |
+| `DELETE` | `/api/workflows/{workflow_id}` | Delete a saved workflow |
+
 ### MCU
 
 | Method | Endpoint | Description |
@@ -1911,6 +2036,32 @@ calypso workloads run --backend {spdk|pynvme} --bdf BDF \
     [--read-pct PCT] [--workers N] [--core-mask MASK] \
     [--with-switch-perf] [--device-index IDX]
 ```
+
+### Recipes & Workflows
+
+```bash
+# List all available recipes
+calypso recipe list
+
+# Show configurable parameters for a recipe
+calypso recipe params <recipe_id>
+
+# Run a recipe on a specific device
+calypso recipe run <recipe_id> <device_index> [--param KEY=VALUE ...]
+
+# List saved workflow definitions
+calypso recipe list-workflows
+
+# Run a saved workflow
+calypso recipe run-workflow <workflow_id> <device_index>
+```
+
+| Argument | Description |
+|----------|-------------|
+| `recipe_id` | Recipe identifier (e.g., `all_port_sweep`, `ber_soak`, `eye_quick_scan`) |
+| `device_index` | Device index from `calypso scan` |
+| `workflow_id` | Saved workflow ID |
+| `--param KEY=VALUE` | Override recipe parameter (can be repeated) |
 
 ### Driver Management
 

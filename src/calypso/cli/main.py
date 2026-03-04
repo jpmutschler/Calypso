@@ -230,6 +230,7 @@ from calypso.cli.eeprom import eeprom  # noqa: E402
 from calypso.cli.mcu import mcu  # noqa: E402
 from calypso.cli.nvme_mi import nvme  # noqa: E402
 from calypso.cli.phy import phy  # noqa: E402
+from calypso.cli.recipe import recipe  # noqa: E402
 from calypso.cli.registers import pcie  # noqa: E402
 
 cli.add_command(driver)
@@ -237,6 +238,7 @@ cli.add_command(eeprom)
 cli.add_command(mcu)
 cli.add_command(phy)
 cli.add_command(pcie)
+cli.add_command(recipe)
 
 # Register NVMe-MI as a subgroup of MCU
 mcu.add_command(nvme)

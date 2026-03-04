@@ -62,6 +62,11 @@ def sidebar_nav(
                        active=(current_path == f"{base}/errors"), indent=True)
             _nav_item("Compliance", "verified", f"{base}/compliance",
                        active=(current_path == f"{base}/compliance"), indent=True)
+            _nav_item("Recipes", "science", f"{base}/workflows",
+                       active=(current_path == f"{base}/workflows"), indent=True)
+            _nav_item("Workflow Builder", "build", f"{base}/workflow-builder",
+                       active=(current_path == f"{base}/workflow-builder"),
+                       indent=True)
 
             try:
                 from calypso.workloads import is_any_backend_available
