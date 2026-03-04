@@ -1408,16 +1408,34 @@ Datapath Built-In Self Test -- factory-level TLP generation for datapath verific
 
 **Route:** `/switch/{device_id}/workflows`
 
-The Recipes page provides a library of 16 pre-built hardware validation test sequences organized into 6 categories:
+The Recipes page provides a library of 25 pre-built hardware validation test sequences organized into 6 categories:
 
 | Category | Icon | Description | Example Recipes |
 |----------|------|-------------|-----------------|
-| Link Health | Heart | PCIe link state and diagnostics | All Port Sweep, Link Health Check, Link Training Debug, LTSSM Monitor |
-| Signal Integrity | Waves | SerDes and signal quality | Eye Quick Scan, BER Soak, SerDes Diagnostics |
-| Performance | Speed | Bandwidth and throughput testing | Bandwidth Baseline, Datapath BIST |
+| Link Health | Heart | PCIe link state and diagnostics | All Port Sweep, Link Health Check, Link Training Debug, LTSSM Monitor, EQ Phase Audit, Speed Downshift Test |
+| Signal Integrity | Waves | SerDes and signal quality | Eye Quick Scan, BER Soak, SerDes Diagnostics, PHY 64GT Audit, PAM4 Eye Sweep, FBER Measurement |
+| Performance | Speed | Bandwidth and throughput testing | Bandwidth Baseline, Datapath BIST, Flit Performance Measurement |
 | Configuration | Settings | Device config validation | EEPROM Validation, Config Dump, Topology Snapshot |
 | Debug | Bug | Protocol trace and packet generation | PTrace Capture, Packet Exerciser Test |
-| Error Testing | Error | Error injection and recovery | Error Recovery Test, Multi-Speed BER |
+| Error Testing | Error | Error injection and recovery | Error Recovery Test, Multi-Speed BER, Flit Error Log Drain, Flit Error Injection, Error Aggregation Sweep |
+
+#### Gen6 Flit Mode Recipes
+
+Nine recipes specifically target PCIe Gen6 64GT/s Flit mode capabilities:
+
+| Recipe | Category | Description |
+|--------|----------|-------------|
+| FBER Measurement | Signal Integrity | Flit Bit Error Rate measurement with per-lane counters at 64GT/s |
+| Flit Error Log Drain | Error Testing | Drain and analyze the Flit Error Log FIFO for FEC errors |
+| Flit Error Injection | Error Testing | Inject flit errors (TX/RX) and verify detection via error log |
+| Flit Performance Measurement | Performance | Track flit throughput and LTSSM state dwell times |
+| PHY 64GT Audit | Signal Integrity | Verify 64GT/s capability, operating speed, and EQ completion |
+| PAM4 Eye Sweep | Signal Integrity | Sweep 3 PAM4 sub-eyes per lane for signal quality at 64GT/s |
+| EQ Phase Audit | Link Health | Read and analyze equalization status across 16GT/32GT/64GT speeds |
+| Speed Downshift Test | Link Health | Downshift through Gen5/Gen4/Gen3 and verify clean transitions |
+| Error Aggregation Sweep | Error Testing | Aggregate AER, LTSSM, and MCU errors across all active ports |
+
+Several existing recipes (BER Soak, Multi-Speed BER, Link Health Check, SerDes Diagnostics) have been enhanced with Gen6-specific paths that automatically activate when the link is operating at 64GT/s. For example, BER Soak uses Flit BER (FBER) counters instead of SerDes-level UTP patterns when running at 64GT/s.
 
 #### Running a Recipe
 
@@ -1435,12 +1453,15 @@ Each recipe defines its own set of configurable parameters. Common parameters in
 - **duration_s** — Test duration in seconds
 - **threshold** — Pass/fail threshold values
 - **num_lanes** — Number of lanes to test
+- **granularity** — FBER measurement granularity (Gen6 recipes)
+- **settle_time_s** — Time to wait after link retrain for stabilization
+- **check_aer** — Check AER error registers after hardware operations
 
 Parameters are displayed with appropriate input widgets (number fields, dropdowns, toggles) based on their type.
 
 #### Cancel
 
-Click the **Cancel Recipe** button to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint and return partial results.
+Click the **Cancel Recipe** button to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint, clean up hardware state (stop measurements, disable injection, restore link speed), and return partial results.
 
 ### 5.21 Workflow Builder
 

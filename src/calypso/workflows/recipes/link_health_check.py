@@ -85,7 +85,7 @@ class LinkHealthCheck(Recipe):
         port_number: int = int(kwargs.get("port_number", 0))
         device_id: str = str(kwargs.get("device_id", ""))
 
-        # Step 1: Check link status
+        # Step 1: Check link status (also captures capabilities)
         result = yield from _step_link_status(self, dev, dev_key, cancel, steps)
         if result is not None and result.status == StepStatus.ERROR:
             return self._make_summary(steps, start_time, kwargs, device_id)
@@ -111,8 +111,14 @@ class LinkHealthCheck(Recipe):
         if self._is_cancelled(cancel):
             return self._make_summary(steps, start_time, kwargs, device_id)
 
-        # Step 5: Check equalization
+        # Step 5: Check equalization (including 64GT)
         yield from _step_equalization(self, dev, dev_key, port_number, cancel, steps)
+
+        if self._is_cancelled(cancel):
+            return self._make_summary(steps, start_time, kwargs, device_id)
+
+        # Step 6: Check Flit errors (Gen6 only)
+        yield from _step_flit_errors(self, dev, dev_key, port_number, cancel, steps)
 
         return self._make_summary(steps, start_time, kwargs, device_id)
 
@@ -136,6 +142,7 @@ def _step_link_status(
     try:
         reader = PcieConfigReader(dev, dev_key)
         link_status = reader.get_link_status()
+        link_caps = reader.get_link_capabilities()
     except Exception as exc:
         logger.error("link_health_link_status_failed", error=str(exc))
         result = recipe._make_result(
@@ -158,9 +165,29 @@ def _step_link_status(
         "link_training": link_status.link_training,
     }
 
+    # Add capabilities info
+    if link_caps is not None:
+        measured["max_link_speed"] = link_caps.max_link_speed
+        measured["max_link_width"] = link_caps.max_link_width
+
     if is_active:
         status = StepStatus.PASS
         message = f"Link active: x{link_status.current_width} @ {link_status.current_speed}"
+
+        # Warn if operating below max capability
+        if link_caps is not None:
+            cap_speed = link_caps.max_link_speed or ""
+            cur_speed = link_status.current_speed or ""
+            cap_width = link_caps.max_link_width or 0
+            cur_width = link_status.current_width or 0
+            if cur_width < cap_width:
+                status = StepStatus.WARN
+                message += f" (width degraded from x{cap_width})"
+                measured["width_degraded"] = True
+            if _speed_rank(cur_speed) < _speed_rank(cap_speed):
+                status = StepStatus.WARN
+                message += f" (speed degraded from {cap_speed})"
+                measured["speed_degraded"] = True
     else:
         status = StepStatus.FAIL
         message = "DLL link not active"
@@ -391,6 +418,7 @@ def _step_equalization(
         phy = PhyMonitor(dev, dev_key, port_number)
         eq_16 = phy.get_eq_status_16gt()
         eq_32 = phy.get_eq_status_32gt()
+        eq_64 = phy.get_eq_status_64gt()
     except Exception as exc:
         logger.error("link_health_eq_failed", error=str(exc))
         result = recipe._make_result(
@@ -409,41 +437,60 @@ def _step_equalization(
     details_parts: list[str] = []
 
     if eq_16 is not None:
-        measured["eq_16gt_complete"] = eq_16.eq_complete
-        measured["eq_16gt_phase1_ok"] = eq_16.eq_phase1_successful
-        measured["eq_16gt_phase2_ok"] = eq_16.eq_phase2_successful
-        measured["eq_16gt_phase3_ok"] = eq_16.eq_phase3_successful
+        measured["eq_16gt_complete"] = eq_16.complete
+        measured["eq_16gt_phase1_ok"] = eq_16.phase1_success
+        measured["eq_16gt_phase2_ok"] = eq_16.phase2_success
+        measured["eq_16gt_phase3_ok"] = eq_16.phase3_success
         details_parts.append(
-            f"16GT: complete={eq_16.eq_complete}, "
-            f"ph1={eq_16.eq_phase1_successful}, "
-            f"ph2={eq_16.eq_phase2_successful}, "
-            f"ph3={eq_16.eq_phase3_successful}"
+            f"16GT: complete={eq_16.complete}, "
+            f"ph1={eq_16.phase1_success}, "
+            f"ph2={eq_16.phase2_success}, "
+            f"ph3={eq_16.phase3_success}"
         )
     else:
         details_parts.append("16GT: capability not present")
 
     if eq_32 is not None:
-        measured["eq_32gt_complete"] = eq_32.eq_complete
-        measured["eq_32gt_phase1_ok"] = eq_32.eq_phase1_successful
-        measured["eq_32gt_phase2_ok"] = eq_32.eq_phase2_successful
-        measured["eq_32gt_phase3_ok"] = eq_32.eq_phase3_successful
+        measured["eq_32gt_complete"] = eq_32.complete
+        measured["eq_32gt_phase1_ok"] = eq_32.phase1_success
+        measured["eq_32gt_phase2_ok"] = eq_32.phase2_success
+        measured["eq_32gt_phase3_ok"] = eq_32.phase3_success
         details_parts.append(
-            f"32GT: complete={eq_32.eq_complete}, "
-            f"ph1={eq_32.eq_phase1_successful}, "
-            f"ph2={eq_32.eq_phase2_successful}, "
-            f"ph3={eq_32.eq_phase3_successful}"
+            f"32GT: complete={eq_32.complete}, "
+            f"ph1={eq_32.phase1_success}, "
+            f"ph2={eq_32.phase2_success}, "
+            f"ph3={eq_32.phase3_success}"
         )
     else:
         details_parts.append("32GT: capability not present")
 
+    if eq_64 is not None:
+        measured["eq_64gt_complete"] = eq_64.complete
+        measured["eq_64gt_phase1_ok"] = eq_64.phase1_success
+        measured["eq_64gt_phase2_ok"] = eq_64.phase2_success
+        measured["eq_64gt_phase3_ok"] = eq_64.phase3_success
+        measured["eq_64gt_flit_mode_supported"] = getattr(eq_64, "flit_mode_supported", None)
+        details_parts.append(
+            f"64GT: complete={eq_64.complete}, "
+            f"ph1={eq_64.phase1_success}, "
+            f"ph2={eq_64.phase2_success}, "
+            f"ph3={eq_64.phase3_success}"
+        )
+    else:
+        details_parts.append("64GT: capability not present")
+
     # Determine status from equalization results
     eq_failed = False
-    if eq_16 is not None and not eq_16.eq_complete:
+    if eq_16 is not None and not eq_16.complete:
         eq_failed = True
-    if eq_32 is not None and not eq_32.eq_complete:
+    if eq_32 is not None and not eq_32.complete:
+        eq_failed = True
+    if eq_64 is not None and not eq_64.complete:
         eq_failed = True
 
-    if eq_16 is None and eq_32 is None:
+    has_any_eq = eq_16 is not None or eq_32 is not None or eq_64 is not None
+
+    if not has_any_eq:
         status = StepStatus.SKIP
         message = "No equalization capabilities present"
         criticality = StepCriticality.LOW
@@ -470,6 +517,101 @@ def _step_equalization(
     yield result
 
 
+def _step_flit_errors(
+    recipe: LinkHealthCheck,
+    dev: PLX_DEVICE_OBJECT,
+    dev_key: PLX_DEVICE_KEY,
+    port_number: int,
+    cancel: dict[str, bool],
+    steps: list[RecipeResult],
+) -> Generator[RecipeResult, None, None]:
+    """Check Flit Error Log and FBER status (Gen6 only)."""
+    # Only run if link is at 64GT/s
+    if not recipe._is_gen6_flit(dev, dev_key):
+        return
+
+    step_name = "Check Flit errors (Gen6)"
+    yield recipe._make_running(step_name)
+    t0 = time.monotonic()
+
+    try:
+        reader = PcieConfigReader(dev, dev_key)
+
+        # Read Flit Error Log entries
+        flit_entries = reader.read_all_flit_error_log_entries()
+
+        # Read FBER status
+        fber = reader.get_fber_status()
+
+        dur = _elapsed_ms(t0)
+
+        fec_uncorrectable_count = sum(1 for e in flit_entries if e.fec_uncorrectable)
+        fec_correctable_count = len(flit_entries) - fec_uncorrectable_count
+
+        measured: dict[str, object] = {
+            "flit_error_log_entries": len(flit_entries),
+            "fec_uncorrectable_count": fec_uncorrectable_count,
+            "fec_correctable_count": fec_correctable_count,
+        }
+
+        if fber is not None:
+            fber_total = sum(fber.lane_counters)
+            measured["fber_total_errors"] = fber_total
+            measured["fber_flit_counter"] = fber.flit_counter
+            measured["fber_lane_counters"] = fber.lane_counters
+        else:
+            fber_total = 0
+
+        if fec_uncorrectable_count > 0:
+            status = StepStatus.FAIL
+            message = f"FEC uncorrectable errors: {fec_uncorrectable_count}"
+        elif len(flit_entries) > 0 or fber_total > 0:
+            status = StepStatus.WARN
+            message = f"Flit errors: {len(flit_entries)} log entries, {fber_total} FBER lane errors"
+        else:
+            status = StepStatus.PASS
+            message = "No Flit errors detected"
+
+        result = recipe._make_result(
+            step_name,
+            status,
+            message=message,
+            criticality=StepCriticality.CRITICAL,
+            measured_values=measured,
+            duration_ms=dur,
+            port_number=port_number,
+        )
+    except Exception as exc:
+        logger.error("link_health_flit_errors_failed", error=str(exc))
+        result = recipe._make_result(
+            step_name,
+            StepStatus.ERROR,
+            message=f"Failed to read Flit errors: {exc}",
+            criticality=StepCriticality.HIGH,
+            duration_ms=_elapsed_ms(t0),
+            port_number=port_number,
+        )
+    steps.append(result)
+    yield result
+
+
 def _elapsed_ms(t0: float) -> float:
     """Compute elapsed milliseconds since *t0*."""
     return round((time.monotonic() - t0) * 1000, 2)
+
+
+def _speed_rank(speed_str: str) -> int:
+    """Return a numeric rank for speed comparison. Higher is faster."""
+    if "64" in speed_str:
+        return 6
+    if "32" in speed_str:
+        return 5
+    if "16" in speed_str:
+        return 4
+    if "8.0" in speed_str:
+        return 3
+    if "5.0" in speed_str:
+        return 2
+    if "2.5" in speed_str:
+        return 1
+    return 0

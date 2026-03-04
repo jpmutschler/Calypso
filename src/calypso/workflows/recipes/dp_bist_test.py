@@ -8,6 +8,7 @@ from typing import Any
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.packet_exerciser import PacketExerciserEngine
+from calypso.core.pcie_config import PcieConfigReader
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
 from calypso.workflows.models import (
@@ -69,6 +70,24 @@ class DpBistTestRecipe(Recipe):
                 max_value=60.0,
                 unit="s",
             ),
+            RecipeParameter(
+                name="loop_count",
+                label="Loop Count",
+                description="Outer loop count for BIST",
+                param_type="int",
+                default=1,
+                min_value=1,
+                max_value=1000,
+            ),
+            RecipeParameter(
+                name="inner_loop_count",
+                label="Inner Loop Count",
+                description="Inner loop count for BIST",
+                param_type="int",
+                default=1,
+                min_value=1,
+                max_value=1000,
+            ),
         ]
 
     def run(
@@ -83,20 +102,73 @@ class DpBistTestRecipe(Recipe):
 
         port_number: int = int(kwargs.get("port_number", 0))
         duration_s: float = float(kwargs.get("duration_s", 5.0))
-        params = {"port_number": port_number, "duration_s": duration_s}
+        loop_count: int = int(kwargs.get("loop_count", 1))
+        inner_loop_count: int = int(kwargs.get("inner_loop_count", 1))
+        device_id: str = str(kwargs.get("device_id", ""))
+        params = {
+            "port_number": port_number,
+            "duration_s": duration_s,
+            "loop_count": loop_count,
+            "inner_loop_count": inner_loop_count,
+        }
 
-        # --- Step 1: Start DP BIST ---
+        config = PcieConfigReader(dev, dev_key)
+
+        # --- Step 1: Pre-BIST link status ---
+        step = "Pre-BIST link status"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        pre_link_speed = ""
+        pre_link_width = 0
+        try:
+            link = config.get_link_status()
+            pre_link_speed = link.current_speed or ""
+            pre_link_width = link.current_width or 0
+            config.clear_aer_errors()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.PASS,
+                message=f"Link: x{pre_link_width} @ {pre_link_speed}, AER cleared",
+                criticality=StepCriticality.MEDIUM,
+                measured_values={
+                    "link_speed": pre_link_speed,
+                    "link_width": pre_link_width,
+                },
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Pre-BIST status read failed: {exc}",
+                criticality=StepCriticality.LOW,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        if self._is_cancelled(cancel):
+            skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
+            yield skip
+            steps.append(skip)
+            return self._make_summary(steps, start_time, params, device_id)
+
+        # --- Step 2: Start DP BIST ---
         step = "Start DP BIST"
         yield self._make_running(step)
         t0 = time.monotonic()
         try:
             engine = PacketExerciserEngine(dev, dev_key, port_number)
-            engine.start_dp_bist(loop_count=1, inner_loop_count=1)
+            engine.start_dp_bist(loop_count=loop_count, inner_loop_count=inner_loop_count)
             dur = round((time.monotonic() - t0) * 1000, 2)
             result = self._make_result(
                 step,
                 StepStatus.PASS,
-                message="DP BIST started",
+                message=(f"DP BIST started (loops={loop_count}, inner={inner_loop_count})"),
                 criticality=StepCriticality.MEDIUM,
                 duration_ms=dur,
                 port_number=port_number,
@@ -115,15 +187,15 @@ class DpBistTestRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 2: Wait for completion ---
+        # --- Step 3: Wait for completion ---
         step = "Wait for completion"
         yield self._make_running(step)
         t0 = time.monotonic()
@@ -179,15 +251,15 @@ class DpBistTestRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 3: Read results ---
+        # --- Step 4: Read results ---
         step = "Read results"
         yield self._make_running(step)
         t0 = time.monotonic()
@@ -234,4 +306,57 @@ class DpBistTestRecipe(Recipe):
         except Exception:
             logger.warning("dp_bist_stop_failed", port=port_number)
 
-        return self._make_summary(steps, start_time, params)
+        # --- Step 5: Post-BIST AER check ---
+        step = "Post-BIST AER check"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            aer = config.get_aer_status()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            if aer is None:
+                result = self._make_result(
+                    step,
+                    StepStatus.SKIP,
+                    message="AER not present",
+                    criticality=StepCriticality.LOW,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                has_uncorr = aer.uncorrectable.raw_value != 0
+                has_corr = aer.correctable.raw_value != 0
+                if has_uncorr:
+                    aer_status = StepStatus.FAIL
+                    aer_msg = "Uncorrectable AER errors detected during BIST"
+                elif has_corr:
+                    aer_status = StepStatus.WARN
+                    aer_msg = "Correctable AER errors detected during BIST"
+                else:
+                    aer_status = StepStatus.PASS
+                    aer_msg = "No AER errors during BIST"
+                result = self._make_result(
+                    step,
+                    aer_status,
+                    message=aer_msg,
+                    criticality=StepCriticality.HIGH,
+                    measured_values={
+                        "uncorrectable_raw": aer.uncorrectable.raw_value,
+                        "correctable_raw": aer.correctable.raw_value,
+                    },
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Post-BIST AER check failed: {exc}",
+                criticality=StepCriticality.LOW,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        return self._make_summary(steps, start_time, params, device_id)

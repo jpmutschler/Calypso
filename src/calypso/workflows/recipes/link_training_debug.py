@@ -9,6 +9,7 @@ from typing import Any
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.ltssm_trace import LtssmTracer
 from calypso.core.pcie_config import PcieConfigReader
+from calypso.core.phy_monitor import PhyMonitor
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
 from calypso.workflows.models import (
@@ -84,6 +85,7 @@ class LinkTrainingDebugRecipe(Recipe):
 
         port_number: int = int(kwargs.get("port_number", 0))
         timeout_s: float = float(kwargs.get("timeout_s", 10.0))
+        device_id: str = str(kwargs.get("device_id", ""))
 
         # --- Step 1: Read initial LTSSM ---
         step = "Read initial LTSSM"
@@ -120,7 +122,10 @@ class LinkTrainingDebugRecipe(Recipe):
 
         if result.status == StepStatus.ERROR:
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         if self._is_cancelled(cancel):
@@ -128,7 +133,10 @@ class LinkTrainingDebugRecipe(Recipe):
             yield skip
             steps.append(skip)
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         # --- Step 2: Clear AER errors ---
@@ -165,7 +173,10 @@ class LinkTrainingDebugRecipe(Recipe):
             yield skip
             steps.append(skip)
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         # --- Step 3: Retrain link ---
@@ -198,7 +209,10 @@ class LinkTrainingDebugRecipe(Recipe):
 
         if result.status == StepStatus.ERROR:
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         if self._is_cancelled(cancel):
@@ -206,7 +220,10 @@ class LinkTrainingDebugRecipe(Recipe):
             yield skip
             steps.append(skip)
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         # --- Step 4: Monitor LTSSM transitions ---
@@ -266,7 +283,10 @@ class LinkTrainingDebugRecipe(Recipe):
             yield skip
             steps.append(skip)
             return self._make_summary(
-                steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
             )
 
         # --- Step 5: Check post-retrain AER ---
@@ -324,6 +344,262 @@ class LinkTrainingDebugRecipe(Recipe):
         yield result
         steps.append(result)
 
+        if self._is_cancelled(cancel):
+            skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
+            yield skip
+            steps.append(skip)
+            return self._make_summary(
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
+            )
+
+        # --- Step 6: Check post-retrain equalization ---
+        step = "Check post-retrain equalization"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            phy = PhyMonitor(dev, dev_key, port_number)
+            eq_16gt = phy.get_eq_status_16gt()
+            eq_32gt = phy.get_eq_status_32gt()
+            eq_64gt = phy.get_eq_status_64gt()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+
+            eq_values: dict[str, object] = {}
+            eq_messages: list[str] = []
+
+            if eq_16gt is not None:
+                eq_values["eq_16gt_complete"] = eq_16gt.complete
+                eq_values["eq_16gt_phase1"] = eq_16gt.phase1_success
+                eq_values["eq_16gt_phase2"] = eq_16gt.phase2_success
+                eq_values["eq_16gt_phase3"] = eq_16gt.phase3_success
+                eq_values["eq_16gt_raw"] = eq_16gt.raw_value
+                eq_messages.append(
+                    f"16GT: complete={eq_16gt.complete}, "
+                    f"phases={eq_16gt.phase1_success}/{eq_16gt.phase2_success}/{eq_16gt.phase3_success}"
+                )
+
+            if eq_32gt is not None:
+                eq_values["eq_32gt_complete"] = eq_32gt.complete
+                eq_values["eq_32gt_phase1"] = eq_32gt.phase1_success
+                eq_values["eq_32gt_phase2"] = eq_32gt.phase2_success
+                eq_values["eq_32gt_phase3"] = eq_32gt.phase3_success
+                eq_values["eq_32gt_no_eq_needed"] = eq_32gt.no_eq_needed
+                eq_values["eq_32gt_raw_status"] = eq_32gt.raw_status
+                eq_messages.append(
+                    f"32GT: complete={eq_32gt.complete}, "
+                    f"phases={eq_32gt.phase1_success}/{eq_32gt.phase2_success}/{eq_32gt.phase3_success}"
+                )
+
+            if eq_64gt is not None:
+                eq_values["eq_64gt_complete"] = eq_64gt.complete
+                eq_values["eq_64gt_phase1"] = eq_64gt.phase1_success
+                eq_values["eq_64gt_phase2"] = eq_64gt.phase2_success
+                eq_values["eq_64gt_phase3"] = eq_64gt.phase3_success
+                eq_values["eq_64gt_flit_mode_supported"] = eq_64gt.flit_mode_supported
+                eq_values["eq_64gt_no_eq_needed"] = eq_64gt.no_eq_needed
+                eq_values["eq_64gt_raw_status"] = eq_64gt.raw_status
+                eq_messages.append(
+                    f"64GT: complete={eq_64gt.complete}, "
+                    f"phases={eq_64gt.phase1_success}/{eq_64gt.phase2_success}/{eq_64gt.phase3_success}, "
+                    f"flit={eq_64gt.flit_mode_supported}"
+                )
+
+            if not eq_messages:
+                msg = "No EQ capabilities found"
+                status = StepStatus.WARN
+            else:
+                msg = "; ".join(eq_messages)
+                status = StepStatus.PASS
+
+            result = self._make_result(
+                step,
+                status,
+                message=msg,
+                criticality=StepCriticality.MEDIUM,
+                measured_values=eq_values,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.ERROR,
+                message=f"EQ status check failed: {exc}",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        if self._is_cancelled(cancel):
+            skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
+            yield skip
+            steps.append(skip)
+            return self._make_summary(
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
+            )
+
+        # --- Step 7: Check post-retrain link status ---
+        step = "Check post-retrain link status"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            link_status = config.get_link_status()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+
+            # Compare to pre-retrain snapshot if available
+            pre_state = (
+                steps[0].measured_values.get("ltssm_state", "unknown")
+                if steps[0].measured_values
+                else "unknown"
+            )
+
+            msg = (
+                f"Speed: {link_status.current_speed}, "
+                f"Width: x{link_status.current_width}, "
+                f"Training: {link_status.link_training}, "
+                f"DLL Active: {link_status.dll_link_active}, "
+                f"Pre-retrain LTSSM: {pre_state}"
+            )
+
+            if link_status.link_training:
+                status = StepStatus.WARN
+            elif not link_status.dll_link_active:
+                status = StepStatus.FAIL
+            else:
+                status = StepStatus.PASS
+
+            result = self._make_result(
+                step,
+                status,
+                message=msg,
+                criticality=StepCriticality.HIGH,
+                measured_values={
+                    "current_speed": link_status.current_speed,
+                    "current_width": link_status.current_width,
+                    "target_speed": link_status.target_speed,
+                    "link_training": link_status.link_training,
+                    "dll_link_active": link_status.dll_link_active,
+                    "pre_retrain_ltssm": pre_state,
+                },
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.ERROR,
+                message=f"Link status check failed: {exc}",
+                criticality=StepCriticality.HIGH,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        if self._is_cancelled(cancel):
+            skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
+            yield skip
+            steps.append(skip)
+            return self._make_summary(
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
+            )
+
+        # --- Step 8 (Gen6 only): Check Flit Error Log post-retrain ---
+        step = "Check Flit Error Log post-retrain"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            flit_status = config.get_flit_logging_status()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+
+            if flit_status is None:
+                result = self._make_result(
+                    step,
+                    StepStatus.SKIP,
+                    message="Flit Logging capability not present (non-Gen6 link)",
+                    criticality=StepCriticality.INFO,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                entries = flit_status.error_log_entries
+                valid_entries = [e for e in entries if e.valid]
+                uncorrectable_count = sum(1 for e in valid_entries if e.fec_uncorrectable)
+
+                flit_values: dict[str, object] = {
+                    "cap_offset": flit_status.cap_offset,
+                    "total_entries": len(entries),
+                    "valid_entries": len(valid_entries),
+                    "uncorrectable_count": uncorrectable_count,
+                    "error_counter_enabled": flit_status.error_counter.enable,
+                    "flit_counter": flit_status.error_counter.counter,
+                }
+
+                if valid_entries:
+                    flit_values["entries"] = [
+                        {
+                            "link_width": e.link_width,
+                            "flit_offset": e.flit_offset,
+                            "consecutive_errors": e.consecutive_errors,
+                            "unrecognized_flit": e.unrecognized_flit,
+                            "fec_uncorrectable": e.fec_uncorrectable,
+                            "syndrome_0": e.syndrome_0,
+                            "syndrome_1": e.syndrome_1,
+                            "syndrome_2": e.syndrome_2,
+                        }
+                        for e in valid_entries
+                    ]
+
+                if uncorrectable_count > 0:
+                    status = StepStatus.FAIL
+                    msg = (
+                        f"{uncorrectable_count} FEC uncorrectable flit error(s) "
+                        f"in {len(valid_entries)} log entries"
+                    )
+                elif valid_entries:
+                    status = StepStatus.WARN
+                    msg = f"{len(valid_entries)} flit error log entries (all correctable)"
+                else:
+                    status = StepStatus.PASS
+                    msg = "No flit error log entries after retrain"
+
+                result = self._make_result(
+                    step,
+                    status,
+                    message=msg,
+                    criticality=StepCriticality.HIGH,
+                    measured_values=flit_values,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.ERROR,
+                message=f"Flit error log check failed: {exc}",
+                criticality=StepCriticality.HIGH,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
         return self._make_summary(
-            steps, start_time, {"port_number": port_number, "timeout_s": timeout_s}
+            steps,
+            start_time,
+            {"port_number": port_number, "timeout_s": timeout_s},
+            device_id,
         )

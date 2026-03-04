@@ -85,6 +85,7 @@ class EyeQuickScanRecipe(Recipe):
         port_number: int = int(kwargs.get("port_number", 0))
         num_lanes: int = int(kwargs.get("num_lanes", 4))
 
+        device_id: str = str(kwargs.get("device_id", ""))
         params = {"port_number": port_number, "num_lanes": num_lanes}
 
         try:
@@ -101,7 +102,7 @@ class EyeQuickScanRecipe(Recipe):
             yield self._make_running(step)
             yield result
             steps.append(result)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         try:
             for lane_idx in range(num_lanes):
@@ -169,4 +170,4 @@ class EyeQuickScanRecipe(Recipe):
             except Exception:
                 logger.warning("margining_engine_close_failed", port=port_number)
 
-        return self._make_summary(steps, start_time, params)
+        return self._make_summary(steps, start_time, params, device_id)

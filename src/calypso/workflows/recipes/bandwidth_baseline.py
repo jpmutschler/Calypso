@@ -7,6 +7,7 @@ from collections.abc import Generator
 from typing import Any
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
+from calypso.core.pcie_config import PcieConfigReader
 from calypso.core.perf_monitor import PerfMonitor
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
@@ -186,12 +187,27 @@ class BandwidthBaseline(Recipe):
             except Exception as exc:
                 logger.warning("bw_baseline_stop_failed", error=str(exc))
 
+        # Read link speed for utilization calculation
+        link_speed_gbps = 0.0
+        link_width_val = 0
+        try:
+            reader = PcieConfigReader(dev, dev_key)
+            link = reader.get_link_status()
+            link_width_val = link.current_width or 0
+            speed_str = link.current_speed or ""
+            for token in ("64", "32", "16", "8.0", "5.0", "2.5"):
+                if token in speed_str:
+                    link_speed_gbps = float(token)
+                    break
+        except Exception:
+            logger.warning("bw_baseline_link_speed_read_failed")
+
         # Compute baseline summary
         step_name = "Compute baseline"
         yield self._make_running(step_name)
         t0 = time.monotonic()
 
-        baseline = _compute_baseline(port_samples)
+        baseline = _compute_baseline(port_samples, link_speed_gbps, link_width_val)
         high_util_ports = baseline.get("high_utilization_ports", [])
 
         if high_util_ports:
@@ -222,10 +238,20 @@ class BandwidthBaseline(Recipe):
 
 def _compute_baseline(
     port_samples: dict[int, list[tuple[float, float]]],
+    link_speed_gbps: float = 0.0,
+    link_width: int = 0,
 ) -> dict[str, object]:
     """Aggregate per-port samples into min/max/avg bandwidth stats."""
     per_port: dict[str, object] = {}
     high_util_ports: list[int] = []
+
+    # Theoretical max in bytes/sec: speed_gbps * width * encoding_efficiency / 8
+    # PCIe Gen3+: 128b/130b encoding ≈ 0.9846; Gen1/2: 8b/10b = 0.8
+    # Use approximate effective byte rate per lane per GT/s
+    theoretical_max_bps = 0.0
+    if link_speed_gbps > 0 and link_width > 0:
+        effective_rate_per_lane = link_speed_gbps * 1e9 / 8 * 0.9846
+        theoretical_max_bps = effective_rate_per_lane * link_width
 
     for port_num, samples in sorted(port_samples.items()):
         if not samples:
@@ -237,7 +263,7 @@ def _compute_baseline(
         ingress_avg = sum(ingress_rates) / len(ingress_rates)
         egress_avg = sum(egress_rates) / len(egress_rates)
 
-        per_port[f"port_{port_num}"] = {
+        port_entry: dict[str, object] = {
             "ingress_min_bps": min(ingress_rates),
             "ingress_max_bps": max(ingress_rates),
             "ingress_avg_bps": round(ingress_avg, 2),
@@ -247,19 +273,20 @@ def _compute_baseline(
             "sample_count": len(samples),
         }
 
-        # Note: byte_rate values are not directly utilization, but flag
-        # if any rate suggests high throughput relative to the threshold.
-        # A more precise check would require knowing the max link bandwidth.
         max_rate = max(max(ingress_rates), max(egress_rates))
-        if max_rate > 0:
-            # Use a heuristic: if we see sustained rates, flag the port.
-            # Actual utilization check would come from link_utilization fields.
-            pass
+        if theoretical_max_bps > 0 and max_rate > 0:
+            utilization = max_rate / theoretical_max_bps
+            port_entry["utilization"] = round(utilization, 4)
+            if utilization >= _UTILIZATION_WARN_THRESHOLD:
+                high_util_ports.append(port_num)
+
+        per_port[f"port_{port_num}"] = port_entry
 
     return {
         "port_baselines": per_port,
         "total_ports": len(port_samples),
         "high_utilization_ports": high_util_ports,
+        "theoretical_max_bps": theoretical_max_bps,
     }
 
 

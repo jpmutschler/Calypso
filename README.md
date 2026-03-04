@@ -266,7 +266,7 @@ calypso recipe list-workflows                    # List saved workflow definitio
 calypso recipe run-workflow <workflow_id> <device_index>  # Run a saved workflow
 ```
 
-16 recipes across 6 categories: link_health, signal_integrity, performance, configuration, debug, error_testing. Recipes are individual validation test sequences; workflows chain multiple recipes with conditions, loops, and inter-step parameter bindings.
+25 recipes across 6 categories: link_health, signal_integrity, performance, configuration, debug, error_testing. Includes Gen6-specific recipes for Flit BER measurement, Flit error injection, PAM4 eye sweep, and Flit performance tracking. Recipes are individual validation test sequences; workflows chain multiple recipes with conditions, loops, and inter-step parameter bindings.
 
 ### Driver Management
 

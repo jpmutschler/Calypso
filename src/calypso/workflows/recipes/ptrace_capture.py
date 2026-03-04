@@ -27,6 +27,11 @@ from calypso.workflows.models import (
 
 logger = get_logger(__name__)
 
+_DIRECTION_MAP = {
+    "ingress": PTraceDirection.INGRESS,
+    "egress": PTraceDirection.EGRESS,
+}
+
 
 class PTraceCaptureRecipe(Recipe):
     """Capture PTrace traffic on a port and report buffer statistics."""
@@ -73,6 +78,14 @@ class PTraceCaptureRecipe(Recipe):
                 max_value=30.0,
                 unit="s",
             ),
+            RecipeParameter(
+                name="direction",
+                label="Direction",
+                description="Capture direction",
+                param_type="choice",
+                default="ingress",
+                choices=["ingress", "egress"],
+            ),
         ]
 
     def run(
@@ -87,9 +100,19 @@ class PTraceCaptureRecipe(Recipe):
 
         port_number: int = int(kwargs.get("port_number", 0))
         capture_duration_s: float = float(kwargs.get("capture_duration_s", 2.0))
-        params = {"port_number": port_number, "capture_duration_s": capture_duration_s}
+        direction_str: str = str(kwargs.get("direction", "ingress")).lower()
+        device_id: str = str(kwargs.get("device_id", ""))
+        params = {
+            "port_number": port_number,
+            "capture_duration_s": capture_duration_s,
+            "direction": direction_str,
+        }
 
-        direction = PTraceDirection.INGRESS
+        direction = _DIRECTION_MAP.get(direction_str, PTraceDirection.INGRESS)
+
+        # Detect capture mode
+        is_gen6 = self._is_gen6_flit(dev, dev_key)
+        capture_mode = "flit" if is_gen6 else "legacy"
 
         # --- Step 1: Configure PTrace ---
         step = "Configure PTrace"
@@ -114,8 +137,9 @@ class PTraceCaptureRecipe(Recipe):
             result = self._make_result(
                 step,
                 StepStatus.PASS,
-                message="PTrace configured for ingress capture",
+                message=f"PTrace configured for {direction_str} capture ({capture_mode} mode)",
                 criticality=StepCriticality.MEDIUM,
+                measured_values={"capture_mode": capture_mode},
                 duration_ms=dur,
                 port_number=port_number,
             )
@@ -133,13 +157,13 @@ class PTraceCaptureRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         # --- Step 2: Capture traffic ---
         step = "Capture traffic"
@@ -181,13 +205,13 @@ class PTraceCaptureRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         # --- Step 3: Read buffer ---
         step = "Read buffer"
@@ -223,7 +247,7 @@ class PTraceCaptureRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         # --- Step 4: Analyze entries ---
         step = "Analyze entries"
@@ -231,22 +255,43 @@ class PTraceCaptureRecipe(Recipe):
         t0 = time.monotonic()
 
         entry_count = buffer_result.total_rows_read
+        entries = buffer_result.entries if hasattr(buffer_result, "entries") else []
+
+        # DW occupancy distribution
+        dw_counts: dict[int, int] = {}
+        for entry in entries:
+            dw = getattr(entry, "dw_occupancy", 0)
+            dw_counts[dw] = dw_counts.get(dw, 0) + 1
+
+        # Anomalous rows (rows with non-standard DW occupancy)
+        anomalous_count = sum(count for dw, count in dw_counts.items() if dw not in (0, 4, 8, 16))
+
+        measured: dict[str, object] = {
+            "entry_count": entry_count,
+            "triggered": buffer_result.triggered,
+            "wrapped": buffer_result.tbuf_wrapped,
+            "trigger_row_addr": buffer_result.trigger_row_addr,
+            "capture_mode": capture_mode,
+            "direction": direction_str,
+        }
+
+        if dw_counts:
+            measured["dw_occupancy_distribution"] = dw_counts
+            measured["anomalous_rows"] = anomalous_count
+
         dur = round((time.monotonic() - t0) * 1000, 2)
         result = self._make_result(
             step,
             StepStatus.PASS,
-            message=f"Captured {entry_count} trace entries",
+            message=(
+                f"Captured {entry_count} trace entries ({capture_mode} mode, {direction_str})"
+            ),
             criticality=StepCriticality.INFO,
-            measured_values={
-                "entry_count": entry_count,
-                "triggered": buffer_result.triggered,
-                "wrapped": buffer_result.tbuf_wrapped,
-                "trigger_row_addr": buffer_result.trigger_row_addr,
-            },
+            measured_values=measured,
             duration_ms=dur,
             port_number=port_number,
         )
         yield result
         steps.append(result)
 
-        return self._make_summary(steps, start_time, params)
+        return self._make_summary(steps, start_time, params, device_id)

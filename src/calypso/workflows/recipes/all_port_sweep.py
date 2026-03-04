@@ -22,6 +22,13 @@ from calypso.workflows.models import (
 
 logger = get_logger(__name__)
 
+_EXPECTED_SPEED_MAP: dict[str, str] = {
+    "gen3": "8.0",
+    "gen4": "16.0",
+    "gen5": "32.0",
+    "gen6": "64",
+}
+
 
 class AllPortSweep(Recipe):
     """Sweep all switch ports and report link state for each one."""
@@ -59,6 +66,14 @@ class AllPortSweep(Recipe):
                 max_value=16,
                 unit="lanes",
             ),
+            RecipeParameter(
+                name="expected_link_speed",
+                label="Expected Link Speed",
+                description="Minimum expected link speed for UP ports",
+                param_type="choice",
+                default="any",
+                choices=["any", "gen3", "gen4", "gen5", "gen6"],
+            ),
         ]
 
     def run(
@@ -71,7 +86,10 @@ class AllPortSweep(Recipe):
         start_time = time.monotonic()
         steps: list[RecipeResult] = []
         min_link_width: int = int(kwargs.get("min_link_width", 1))
+        expected_link_speed: str = str(kwargs.get("expected_link_speed", "any"))
         device_id: str = str(kwargs.get("device_id", ""))
+
+        expected_substr = _EXPECTED_SPEED_MAP.get(expected_link_speed, "")
 
         # Step 1: Enumerate ports
         step_name = "Enumerate ports"
@@ -105,6 +123,11 @@ class AllPortSweep(Recipe):
         steps.append(result)
         yield result
 
+        # Aggregates
+        ports_up = 0
+        ports_down = 0
+        ports_degraded = 0
+
         # Step per port
         for port in port_statuses:
             if self._is_cancelled(cancel):
@@ -122,10 +145,12 @@ class AllPortSweep(Recipe):
             yield self._make_running(port_step)
             t1 = time.monotonic()
 
+            speed_str = str(port.link_speed) if port.link_speed else ""
+
             measured: dict[str, object] = {
                 "is_link_up": port.is_link_up,
                 "link_width": port.link_width,
-                "link_speed": str(port.link_speed),
+                "link_speed": speed_str,
                 "role": str(port.role),
             }
 
@@ -133,16 +158,32 @@ class AllPortSweep(Recipe):
                 status = StepStatus.PASS
                 criticality = StepCriticality.INFO
                 message = f"Management port (width={port.link_width})"
+                ports_up += 1
             elif port.is_link_up:
-                if port.link_width >= min_link_width:
-                    status = StepStatus.PASS
-                    criticality = StepCriticality.MEDIUM
-                    message = f"UP x{port.link_width} @ {port.link_speed}"
-                else:
+                ports_up += 1
+                width_ok = port.link_width >= min_link_width
+                speed_ok = True
+
+                if expected_substr and expected_substr not in speed_str:
+                    speed_ok = False
+
+                if not width_ok or not speed_ok:
                     status = StepStatus.WARN
                     criticality = StepCriticality.HIGH
-                    message = f"UP but width {port.link_width} < min {min_link_width}"
+                    parts = []
+                    if not width_ok:
+                        parts.append(f"width {port.link_width} < min {min_link_width}")
+                    if not speed_ok:
+                        parts.append(f"speed {speed_str} < expected {expected_link_speed}")
+                    message = f"UP x{port.link_width} @ {speed_str} -- " + ", ".join(parts)
+                    ports_degraded += 1
+                    measured["degraded"] = True
+                else:
+                    status = StepStatus.PASS
+                    criticality = StepCriticality.MEDIUM
+                    message = f"UP x{port.link_width} @ {speed_str}"
             else:
+                ports_down += 1
                 status = StepStatus.WARN
                 criticality = StepCriticality.LOW
                 message = f"DOWN (role={port.role})"
@@ -159,9 +200,40 @@ class AllPortSweep(Recipe):
             steps.append(port_result)
             yield port_result
 
+        # Summary step
+        step_name = "Summary"
+        yield self._make_running(step_name)
+        t0 = time.monotonic()
+
+        total = len(port_statuses)
+        if ports_degraded > 0:
+            summary_status = StepStatus.WARN
+            msg = f"{ports_up} up, {ports_down} down, {ports_degraded} degraded out of {total}"
+        elif ports_down > total // 2:
+            summary_status = StepStatus.WARN
+            msg = f"{ports_up} up, {ports_down} down out of {total}"
+        else:
+            summary_status = StepStatus.PASS
+            msg = f"{ports_up} up, {ports_down} down out of {total}"
+
+        summary_result = self._make_result(
+            step_name,
+            summary_status,
+            message=msg,
+            criticality=StepCriticality.HIGH,
+            measured_values={
+                "total_ports": total,
+                "ports_up": ports_up,
+                "ports_down": ports_down,
+                "ports_degraded": ports_degraded,
+            },
+            duration_ms=_elapsed_ms(t0),
+        )
+        steps.append(summary_result)
+        yield summary_result
+
         return self._make_summary(steps, start_time, kwargs, device_id)
 
 
 def _elapsed_ms(t0: float) -> float:
-    """Compute elapsed milliseconds since *t0*."""
     return round((time.monotonic() - t0) * 1000, 2)

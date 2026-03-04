@@ -8,6 +8,7 @@ from typing import Any
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.packet_exerciser import PacketExerciserEngine
+from calypso.core.pcie_config import PcieConfigReader
 from calypso.hardware.pktexer_regs import TlpType
 from calypso.models.packet_exerciser import TlpConfig
 from calypso.utils.logging import get_logger
@@ -25,6 +26,13 @@ logger = get_logger(__name__)
 
 _POLL_INTERVAL_S = 0.5
 _COMPLETION_TIMEOUT_S = 10.0
+
+_TLP_TYPE_MAP: dict[str, TlpType] = {
+    "MR32": TlpType.MR32,
+    "MR64": TlpType.MR64,
+    "MW32": TlpType.MW32,
+    "MW64": TlpType.MW64,
+}
 
 
 class PacketExerciserTestRecipe(Recipe):
@@ -71,6 +79,32 @@ class PacketExerciserTestRecipe(Recipe):
                 min_value=1,
                 max_value=10000,
             ),
+            RecipeParameter(
+                name="tlp_type",
+                label="TLP Type",
+                description="Type of TLP to send",
+                param_type="choice",
+                default="MR32",
+                choices=["MR32", "MR64", "MW32", "MW64"],
+            ),
+            RecipeParameter(
+                name="address",
+                label="Address",
+                description="Target address for TLPs",
+                param_type="int",
+                default=0,
+                min_value=0,
+                max_value=0xFFFFFFFF,
+            ),
+            RecipeParameter(
+                name="length_dw",
+                label="Length (DW)",
+                description="TLP payload length in DWORDs",
+                param_type="int",
+                default=1,
+                min_value=1,
+                max_value=256,
+            ),
         ]
 
     def run(
@@ -85,9 +119,50 @@ class PacketExerciserTestRecipe(Recipe):
 
         port_number: int = int(kwargs.get("port_number", 0))
         packet_count: int = int(kwargs.get("packet_count", 100))
-        params = {"port_number": port_number, "packet_count": packet_count}
+        tlp_type_str: str = str(kwargs.get("tlp_type", "MR32"))
+        address: int = int(kwargs.get("address", 0))
+        length_dw: int = int(kwargs.get("length_dw", 1))
+        device_id: str = str(kwargs.get("device_id", ""))
+        params = {
+            "port_number": port_number,
+            "packet_count": packet_count,
+            "tlp_type": tlp_type_str,
+            "address": address,
+            "length_dw": length_dw,
+        }
 
-        # --- Step 1: Configure exerciser ---
+        tlp_type = _TLP_TYPE_MAP.get(tlp_type_str, TlpType.MR32)
+        config = PcieConfigReader(dev, dev_key)
+
+        # --- Step 1: Pre-test AER clear ---
+        step = "Clear AER errors"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            config.clear_aer_errors()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.PASS,
+                message="AER errors cleared before test",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"AER clear failed: {exc}",
+                criticality=StepCriticality.LOW,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        # --- Step 2: Configure exerciser ---
         step = "Configure exerciser"
         yield self._make_running(step)
         t0 = time.monotonic()
@@ -116,36 +191,40 @@ class PacketExerciserTestRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 2: Send TLPs ---
+        # --- Step 3: Send TLPs ---
         step = "Send TLPs"
         yield self._make_running(step)
         t0 = time.monotonic()
         try:
-            # Build a list of simple MRd TLP configs
             tlp_configs = [
                 TlpConfig(
-                    tlp_type=TlpType.MR32,
-                    address=0x0,
-                    length_dw=1,
+                    tlp_type=tlp_type,
+                    address=address,
+                    length_dw=length_dw,
                 )
-                for _ in range(min(packet_count, 256))  # HW RAM limit per thread
+                for _ in range(min(packet_count, 256))
             ]
             engine.send_tlps(tlp_configs)
             dur = round((time.monotonic() - t0) * 1000, 2)
             result = self._make_result(
                 step,
                 StepStatus.PASS,
-                message=f"Sent {len(tlp_configs)} TLP(s)",
+                message=f"Sent {len(tlp_configs)} {tlp_type_str} TLP(s)",
                 criticality=StepCriticality.MEDIUM,
-                measured_values={"tlps_sent": len(tlp_configs)},
+                measured_values={
+                    "tlps_sent": len(tlp_configs),
+                    "tlp_type": tlp_type_str,
+                    "address": address,
+                    "length_dw": length_dw,
+                },
                 duration_ms=dur,
                 port_number=port_number,
             )
@@ -163,22 +242,21 @@ class PacketExerciserTestRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 3: Read status ---
+        # --- Step 4: Read status ---
         step = "Read status"
         yield self._make_running(step)
         t0 = time.monotonic()
+        final_status = None
         try:
-            # Wait for threads to finish
             deadline = time.monotonic() + _COMPLETION_TIMEOUT_S
-            final_status = None
             while time.monotonic() < deadline:
                 if self._is_cancelled(cancel):
                     break
@@ -217,9 +295,9 @@ class PacketExerciserTestRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 4: Verify completion ---
+        # --- Step 5: Verify completion ---
         step = "Verify completion"
         yield self._make_running(step)
         t0 = time.monotonic()
@@ -260,4 +338,57 @@ class PacketExerciserTestRecipe(Recipe):
         except Exception:
             logger.warning("exerciser_stop_failed", port=port_number)
 
-        return self._make_summary(steps, start_time, params)
+        # --- Step 6: Post-test AER check ---
+        step = "Post-test AER check"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            aer = config.get_aer_status()
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            if aer is None:
+                result = self._make_result(
+                    step,
+                    StepStatus.SKIP,
+                    message="AER not present",
+                    criticality=StepCriticality.LOW,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                has_uncorr = aer.uncorrectable.raw_value != 0
+                has_corr = aer.correctable.raw_value != 0
+                if has_uncorr:
+                    aer_status = StepStatus.FAIL
+                    aer_msg = "Uncorrectable AER errors after exerciser test"
+                elif has_corr:
+                    aer_status = StepStatus.WARN
+                    aer_msg = "Correctable AER errors after exerciser test"
+                else:
+                    aer_status = StepStatus.PASS
+                    aer_msg = "No AER errors after exerciser test"
+                result = self._make_result(
+                    step,
+                    aer_status,
+                    message=aer_msg,
+                    criticality=StepCriticality.HIGH,
+                    measured_values={
+                        "uncorrectable_raw": aer.uncorrectable.raw_value,
+                        "correctable_raw": aer.correctable.raw_value,
+                    },
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Post-test AER check failed: {exc}",
+                criticality=StepCriticality.LOW,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        return self._make_summary(steps, start_time, params, device_id)
