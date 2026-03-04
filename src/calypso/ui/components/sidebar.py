@@ -2,14 +2,69 @@
 Navigation sidebar with device tree.
 
 Matches the Serial Cables Phoenix design system with section titles,
-active-state highlighting, and consistent nav item styling.
+active-state highlighting, collapsible category groups, and consistent
+nav item styling.
 """
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from nicegui import ui
 
 from calypso.ui.theme import COLORS
+
+
+# ---------------------------------------------------------------------------
+# Switch page categories — data-driven nav structure
+# ---------------------------------------------------------------------------
+
+
+class NavPage(NamedTuple):
+    label: str
+    icon: str
+    suffix: str
+
+
+class NavCategory(NamedTuple):
+    label: str
+    icon: str
+    pages: list[NavPage]
+
+
+_SWITCH_CATEGORIES: list[NavCategory] = [
+    NavCategory("Overview", "dashboard", [
+        NavPage("Dashboard", "dashboard", ""),
+        NavPage("Ports", "device_hub", "/ports"),
+        NavPage("Topology", "account_tree", "/topology"),
+    ]),
+    NavCategory("Configuration", "settings", [
+        NavPage("Configuration", "settings", "/config"),
+        NavPage("Registers", "memory", "/registers"),
+        NavPage("EEPROM", "storage", "/eeprom"),
+    ]),
+    NavCategory("Diagnostics", "troubleshoot", [
+        NavPage("PHY Monitor", "cable", "/phy"),
+        NavPage("Eye Diagram", "visibility", "/eye"),
+        NavPage("LTSSM Trace", "timeline", "/ltssm"),
+        NavPage("Protocol Trace", "analytics", "/ptrace"),
+        NavPage("Packet Exerciser", "send", "/pktexer"),
+    ]),
+    NavCategory("Monitoring", "monitoring", [
+        NavPage("Performance", "speed", "/perf"),
+        NavPage("Error Overview", "error_outline", "/errors"),
+    ]),
+    NavCategory("Validation", "verified", [
+        NavPage("Compliance", "verified", "/compliance"),
+        NavPage("Recipes", "science", "/workflows"),
+        NavPage("Workflow Builder", "build", "/workflow-builder"),
+    ]),
+]
+
+
+def _normalize_path(path: str | None) -> str:
+    """Strip trailing slashes for consistent path comparison."""
+    return path.rstrip("/") if path else ""
 
 
 def sidebar_nav(
@@ -24,9 +79,11 @@ def sidebar_nav(
         mcu_port: Connected MCU serial port for MCU nav links.
         current_path: Current page path for active link highlighting.
     """
+    norm_path = _normalize_path(current_path)
+
     with ui.column().classes("w-full q-pa-sm q-gutter-sm"):
         _nav_item("Device Discovery", "search", "/discovery",
-                  active=(current_path == "/discovery"))
+                  active=(norm_path == "/discovery"))
 
         ui.separator().style(f"background-color: {COLORS.border};")
 
@@ -34,48 +91,10 @@ def sidebar_nav(
             ui.label("SWITCH (SDK)").classes("section-title q-px-sm q-pt-sm")
 
             base = f"/switch/{device_id}"
-            _nav_item("Dashboard", "dashboard", base,
-                       active=(current_path == base))
-            _nav_item("Ports", "device_hub", f"{base}/ports",
-                       active=(current_path == f"{base}/ports"), indent=True)
-            _nav_item("Performance", "speed", f"{base}/perf",
-                       active=(current_path == f"{base}/perf"), indent=True)
-            _nav_item("Configuration", "settings", f"{base}/config",
-                       active=(current_path == f"{base}/config"), indent=True)
-            _nav_item("Topology", "account_tree", f"{base}/topology",
-                       active=(current_path == f"{base}/topology"), indent=True)
-            _nav_item("Registers", "memory", f"{base}/registers",
-                       active=(current_path == f"{base}/registers"), indent=True)
-            _nav_item("EEPROM", "storage", f"{base}/eeprom",
-                       active=(current_path == f"{base}/eeprom"), indent=True)
-            _nav_item("PHY Monitor", "cable", f"{base}/phy",
-                       active=(current_path == f"{base}/phy"), indent=True)
-            _nav_item("Eye Diagram", "visibility", f"{base}/eye",
-                       active=(current_path == f"{base}/eye"), indent=True)
-            _nav_item("LTSSM Trace", "timeline", f"{base}/ltssm",
-                       active=(current_path == f"{base}/ltssm"), indent=True)
-            _nav_item("Protocol Trace", "analytics", f"{base}/ptrace",
-                       active=(current_path == f"{base}/ptrace"), indent=True)
-            _nav_item("Packet Exerciser", "send", f"{base}/pktexer",
-                       active=(current_path == f"{base}/pktexer"), indent=True)
-            _nav_item("Error Overview", "error_outline", f"{base}/errors",
-                       active=(current_path == f"{base}/errors"), indent=True)
-            _nav_item("Compliance", "verified", f"{base}/compliance",
-                       active=(current_path == f"{base}/compliance"), indent=True)
-            _nav_item("Recipes", "science", f"{base}/workflows",
-                       active=(current_path == f"{base}/workflows"), indent=True)
-            _nav_item("Workflow Builder", "build", f"{base}/workflow-builder",
-                       active=(current_path == f"{base}/workflow-builder"),
-                       indent=True)
+            categories = _resolve_categories(base)
 
-            try:
-                from calypso.workloads import is_any_backend_available
-                if is_any_backend_available():
-                    _nav_item("Workloads", "rocket_launch", f"{base}/workloads",
-                               active=(current_path == f"{base}/workloads"),
-                               indent=True)
-            except ImportError:
-                pass
+            for category in categories:
+                _render_category(category, base, norm_path)
         else:
             ui.label("SWITCH (SDK)").classes("section-title q-px-sm q-pt-sm")
             ui.label("No switch connected").classes(
@@ -87,19 +106,66 @@ def sidebar_nav(
             ui.label("MCU").classes("section-title q-px-sm q-pt-sm")
 
             _nav_item("Health", "thermostat", "/mcu/health",
-                       active=(current_path == "/mcu/health"))
+                       active=(norm_path == "/mcu/health"))
             _nav_item("Port Status", "device_hub", "/mcu/ports",
-                       active=(current_path == "/mcu/ports"), indent=True)
+                       active=(norm_path == "/mcu/ports"), indent=True)
             _nav_item("Error Counters", "error_outline", "/mcu/errors",
-                       active=(current_path == "/mcu/errors"), indent=True)
+                       active=(norm_path == "/mcu/errors"), indent=True)
             _nav_item("Configuration", "tune", "/mcu/config",
-                       active=(current_path == "/mcu/config"), indent=True)
+                       active=(norm_path == "/mcu/config"), indent=True)
             _nav_item("Diagnostics", "bug_report", "/mcu/diagnostics",
-                       active=(current_path == "/mcu/diagnostics"), indent=True)
+                       active=(norm_path == "/mcu/diagnostics"), indent=True)
             _nav_item("I2C / I3C Bus", "cable", "/mcu/bus",
-                       active=(current_path == "/mcu/bus"), indent=True)
+                       active=(norm_path == "/mcu/bus"), indent=True)
             _nav_item("NVMe Drives", "storage", "/mcu/nvme",
-                       active=(current_path == "/mcu/nvme"), indent=True)
+                       active=(norm_path == "/mcu/nvme"), indent=True)
+
+
+def _resolve_categories(base: str) -> list[NavCategory]:
+    """Return categories with Workloads appended to Validation if available."""
+    categories = list(_SWITCH_CATEGORIES)
+
+    try:
+        from calypso.workloads import is_any_backend_available
+        if is_any_backend_available():
+            # Append Workloads page to the Validation category
+            validation = categories[-1]
+            categories[-1] = NavCategory(
+                validation.label,
+                validation.icon,
+                [*validation.pages, NavPage("Workloads", "rocket_launch", "/workloads")],
+            )
+    except ImportError:
+        pass
+
+    return categories
+
+
+def _render_category(
+    category: NavCategory,
+    base: str,
+    norm_path: str,
+) -> None:
+    """Render a collapsible category with its child nav items."""
+    has_active = any(
+        norm_path == _normalize_path(f"{base}{page.suffix}")
+        for page in category.pages
+    )
+
+    with ui.expansion(
+        text=category.label,
+        icon=category.icon,
+        value=has_active,
+    ).classes("w-full sidebar-category").style(
+        f"color: {COLORS.text_secondary}; font-size: 0.8rem;"
+    ):
+        for page in category.pages:
+            href = f"{base}{page.suffix}" if page.suffix else base
+            _nav_item(
+                page.label, page.icon, href,
+                active=(norm_path == _normalize_path(href)),
+                indent=True,
+            )
 
 
 def _nav_item(

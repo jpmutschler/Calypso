@@ -155,6 +155,47 @@ body {{
 .mono {{
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }}
+
+/* Sidebar collapsible category panels */
+.sidebar-category .q-expansion-item__container {{
+    background-color: transparent !important;
+}}
+
+.sidebar-category .q-item {{
+    min-height: 32px !important;
+    padding: 4px 8px !important;
+}}
+
+.sidebar-category .q-item__section--avatar {{
+    min-width: 24px !important;
+    padding-right: 8px !important;
+}}
+
+.sidebar-category .q-item__section--avatar .q-icon {{
+    font-size: 1rem !important;
+    color: {COLORS.text_secondary} !important;
+}}
+
+.sidebar-category .q-expansion-item__toggle-icon {{
+    color: {COLORS.text_muted} !important;
+    font-size: 1rem !important;
+}}
+
+/* Override global .q-card styles (lines 84-87) for flat sidebar panels */
+.sidebar-category .q-card {{
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}}
+
+.sidebar-category .q-card__section {{
+    padding: 0 !important;
+}}
+
+.sidebar-category > .q-expansion-item__container > .q-item:hover {{
+    background-color: {COLORS.bg_elevated} !important;
+    border-radius: 4px;
+}}
 """
 
 

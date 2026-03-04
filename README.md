@@ -321,7 +321,7 @@ All device endpoints prefixed with `/api/devices`. Workloads endpoints prefixed 
 
 The NiceGUI dashboard runs alongside the API server on the same port. Navigate to `http://localhost:8000/` in a browser.
 
-The dashboard uses a dark theme with consistent header, sidebar navigation, and Serial Cables branding across all pages. The discovery page auto-scans the PCIe bus on load (Windows and Linux) and displays any detected PLX devices immediately.
+The dashboard uses a dark theme with consistent header, sidebar navigation, and Serial Cables branding across all pages. The sidebar organizes switch pages into collapsible categories (Overview, Configuration, Diagnostics, Monitoring, Validation) that auto-expand to reveal the active page. The discovery page auto-scans the PCIe bus on load (Windows and Linux) and displays any detected PLX devices immediately.
 
 ### Switch Pages (SDK)
 

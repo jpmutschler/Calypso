@@ -220,10 +220,22 @@ calypso mcu --port COM3 errors
 
 The Calypso web dashboard provides a dark-themed interface with a persistent sidebar for navigation. All pages follow a consistent layout with a header bar displaying the page title and connection status.
 
-The sidebar organizes pages into two sections:
+The sidebar organizes pages into two top-level sections:
 
 - **SWITCH (SDK)** -- Pages that communicate with the switch via the PLX SDK over PCIe. Requires a connected device.
 - **MCU** -- Pages that communicate with the Atlas3 MCU over a serial connection. Requires an MCU serial port.
+
+Within the Switch section, pages are grouped into collapsible categories for easier navigation:
+
+| Category | Pages | Description |
+|----------|-------|-------------|
+| **Overview** | Dashboard, Ports, Topology | Device summary, port status grid, fabric topology |
+| **Configuration** | Configuration, Registers, EEPROM | Switch config, PCIe config space browser, EEPROM viewer |
+| **Diagnostics** | PHY Monitor, Eye Diagram, LTSSM Trace, Protocol Trace, Packet Exerciser | PHY-level diagnostics and protocol analysis |
+| **Monitoring** | Performance, Error Overview | Live bandwidth/utilization, combined error view |
+| **Validation** | Compliance, Recipes, Workflow Builder, Workloads | Test suites, recipe runner, workflow composer |
+
+Each category auto-expands when navigating to a page within it. Click the category header to collapse or expand its page links.
 
 <!-- Screenshot: Full dashboard layout showing sidebar, header, and content area -->
 
@@ -244,7 +256,7 @@ On page load, Calypso automatically scans the PCIe bus for Broadcom PLX devices.
 - PLX port number and family
 - Revision
 
-Click **Connect** on any device to open it for management. The sidebar populates with switch pages after connection.
+Click **Connect** on any device to open it for management. The sidebar populates with collapsible switch page categories after connection.
 
 #### UART (MCU/USB) Connection
 
