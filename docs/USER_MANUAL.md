@@ -1425,7 +1425,7 @@ Nine recipes specifically target PCIe Gen6 64GT/s Flit mode capabilities:
 
 | Recipe | Category | Description |
 |--------|----------|-------------|
-| FBER Measurement | Signal Integrity | Flit Bit Error Rate measurement with per-lane counters at 64GT/s |
+| FBER Measurement | Signal Integrity | Flit Bit Error Rate measurement with per-lane counters at 64GT/s. Uses BER rate thresholds: WARN at BER >= 1e-10, FAIL at BER >= 1e-8 |
 | Flit Error Log Drain | Error Testing | Drain and analyze the Flit Error Log FIFO for FEC errors |
 | Flit Error Injection | Error Testing | Inject flit errors (TX/RX) and verify detection via error log |
 | Flit Performance Measurement | Performance | Track flit throughput and LTSSM state dwell times |
@@ -1462,6 +1462,8 @@ While a recipe is running, the stepper panel provides real-time feedback:
   - Red for BER above 1e-6 (exceeds the raw BER budget -- indicates a serious link problem)
   - Yellow for BER above 1e-12 (non-zero errors detected, marginal link quality)
   - Default color for clean links with no detected errors
+- **BER confidence intervals** -- BER Soak and Multi-Speed BER results include 95% confidence intervals per lane per PCIe 6.1 Section 8.2. The confidence interval is computed from the error count and displayed alongside the estimated BER in both the live stepper and HTML reports.
+- **Link operating conditions** -- BER Soak and Eye Scan results display the active link speed and width alongside measurement data, providing context for interpreting signal integrity metrics.
 - **Color-coded anomalies** highlight other values that may need attention: non-zero error counts appear in red.
 - A **toast notification** appears when the recipe finishes, so you can navigate away and still know when results are ready.
 
@@ -1481,9 +1483,15 @@ If you need to bypass this check (for example, to test error handling behavior o
 
 #### Reports and Export
 
-After a recipe completes (or is cancelled with partial results), two download options appear:
+After a recipe completes (or is cancelled with partial results), three download options appear:
 
-- **Download Report** -- Generates a self-contained HTML report that works offline and can be printed. The report includes aggregate pass/fail/warn metrics, per-step results, and recipe-specific detail renderers such as port sweep summary tables, BER per-lane bar charts, and eye scan grids.
+- **Download Report** -- Generates a self-contained HTML report that works offline and can be printed. The report includes:
+  - Device identification header showing chip type, silicon revision, and BDF address
+  - Test parameters and wall-clock timestamps for each step
+  - Aggregate pass/fail/warn metrics and per-step results with pass/fail threshold criteria
+  - 10 specialized recipe renderers: port sweep summary tables, BER per-lane bar charts with 95% confidence intervals, eye scan grids, FBER measurement tables, bandwidth baselines, link training debug traces, PHY 64GT audit results, PAM4 eye sweep grids, and Flit performance measurements. Recipes without a specialized renderer use a generic fallback that displays all measured_values.
+  - Print-friendly layout with proper page breaks between recipe sections
+- **CSV** -- Exports step-level results as CSV. Each row includes a `measured_values_json` column containing the full serialized measurement dict, plus individual columns for each scalar value (e.g., `ber`, `bw_gbps`, `error_count`). A separate summary CSV (one row per recipe) includes `device_id`. All string values are sanitized against CSV formula injection (CWE-1236).
 - **JSON** -- Exports the raw results as a JSON file for programmatic analysis, scripting, or archival.
 
 #### Recipe Parameters
@@ -1561,11 +1569,13 @@ To delete a saved workflow, click its delete button in the sidebar. A confirmati
 After a workflow completes, two download options appear in the monitor panel:
 
 - **Download Report** -- Generates a self-contained HTML report with the Calypso dark theme. The report includes:
+  - Device identification header showing chip type, silicon revision, and BDF address
   - Aggregate pass/fail/warn metrics across all steps
   - Per-recipe summary table with status badges
-  - Detailed step-by-step results for each recipe in the workflow
-  - Recipe-specific visualizations such as port sweep summary tables, BER per-lane bar charts, and eye scan grids
-  - The report works entirely offline with no external dependencies, and is suitable for printing or sharing.
+  - Detailed step-by-step results with wall-clock timestamps and pass/fail threshold criteria
+  - 10 specialized recipe visualizations (port sweep tables, BER per-lane charts with 95% confidence intervals, eye scan grids, FBER measurements, and more). Unregistered recipes use a generic renderer that displays all measured_values.
+  - Print-friendly layout with page breaks between recipe sections; works entirely offline with no external dependencies
+- **CSV** -- Step-level CSV with `measured_values_json` and individual scalar columns, plus a summary CSV with `device_id`. Formula injection protection applied.
 - **JSON** -- Exports the complete workflow results as a JSON file for programmatic analysis or archival.
 
 ---

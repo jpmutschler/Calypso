@@ -391,6 +391,8 @@ class BerSoakRecipe(Recipe):
                         "mode": "fber",
                         "total_errors": total_errors,
                         "flit_counter": fber.flit_counter,
+                        "link_speed": link.current_speed,
+                        "link_width": link.current_width,
                         "lanes": lane_details,
                     },
                     duration_ms=dur,
@@ -529,14 +531,33 @@ class BerSoakRecipe(Recipe):
         yield self._make_running(step)
         t0 = time.monotonic()
 
+        # Read link operating conditions for traceability
+        try:
+            utp_reader = PcieConfigReader(dev, dev_key)
+            utp_link = utp_reader.get_link_status()
+            utp_link_speed = utp_link.current_speed
+            utp_link_width = utp_link.current_width
+        except Exception:
+            utp_link_speed = "Unknown"
+            utp_link_width = 0
+
+        # Compute lane bit rate for BER estimation
+        utp_speed_key = _SPEED_TO_RATE_KEY.get(
+            utp_link_speed if isinstance(utp_link_speed, str) else "", ""
+        )
+        utp_lane_rate = _LANE_RATE_BPS.get(utp_speed_key, 64.0e9)
+        utp_bits_tested = elapsed * utp_lane_rate
+
         worst_status = StepStatus.PASS
         lane_details: list[dict[str, object]] = []
 
         for utp in utp_results:
+            estimated_ber = utp.error_count / utp_bits_tested if utp_bits_tested > 0 else 0.0
             lane_info: dict[str, object] = {
                 "lane": utp.lane,
                 "synced": utp.synced,
                 "error_count": utp.error_count,
+                "estimated_ber": estimated_ber,
             }
 
             if not utp.synced:
@@ -572,6 +593,8 @@ class BerSoakRecipe(Recipe):
                 "mode": "utp",
                 "total_errors": total_errors,
                 "all_synced": all_synced,
+                "link_speed": utp_link_speed,
+                "link_width": utp_link_width,
                 "lanes": lane_details,
             },
             duration_ms=dur,

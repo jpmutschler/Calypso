@@ -85,6 +85,7 @@ class RecipeResult(BaseModel):
     details: str = ""
     port_number: int | None = None
     lane: int | None = None
+    timestamp: str = ""
 
 
 class RecipeSummary(BaseModel):

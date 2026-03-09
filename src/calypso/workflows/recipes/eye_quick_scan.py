@@ -8,6 +8,7 @@ from typing import Any
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.lane_margining import LaneMarginingEngine
+from calypso.core.pcie_config import PcieConfigReader
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
 from calypso.workflows.models import (
@@ -108,6 +109,16 @@ class EyeQuickScanRecipe(Recipe):
             steps.append(result)
             return self._make_summary(steps, start_time, params, device_id)
 
+        # Read link operating conditions before sweep
+        try:
+            eye_reader = PcieConfigReader(dev, dev_key)
+            eye_link = eye_reader.get_link_status()
+            eye_link_speed = eye_link.current_speed
+            eye_link_width = eye_link.current_width
+        except Exception:
+            eye_link_speed = "Unknown"
+            eye_link_width = 0
+
         try:
             for lane_idx in range(num_lanes):
                 if self._is_cancelled(cancel):
@@ -149,6 +160,8 @@ class EyeQuickScanRecipe(Recipe):
                             "margin_left_ui": sweep.margin_left_ui,
                             "margin_up_mv": sweep.margin_up_mv,
                             "margin_down_mv": sweep.margin_down_mv,
+                            "link_speed": eye_link_speed,
+                            "link_width": eye_link_width,
                         },
                         duration_ms=dur,
                         port_number=port_number,

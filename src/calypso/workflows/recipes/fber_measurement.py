@@ -21,9 +21,25 @@ from calypso.workflows.models import (
 
 logger = get_logger(__name__)
 
-# Per-lane FBER thresholds
-_FBER_WARN_THRESHOLD = 100
-_FBER_FAIL_THRESHOLD = 10000
+# Rate-based FBER thresholds (BER)
+# These approximate the old count-based thresholds at ~30s/64GT soak:
+#   _FBER_WARN_THRESHOLD = 100   (~5.2e-11 BER at 30s/64GT)
+#   _FBER_FAIL_THRESHOLD = 10000 (~5.2e-9 BER at 30s/64GT)
+_FBER_BER_WARN = 1e-10
+_FBER_BER_FAIL = 1e-8
+
+# Default lane bit rate for Gen6 64GT/s (used when link speed unavailable)
+_DEFAULT_LANE_RATE_BPS = 64.0e9
+
+# Map link speed strings to per-lane bit rates
+_SPEED_TO_RATE_BPS: dict[str, float] = {
+    "Gen1": 2.5e9,
+    "Gen2": 5.0e9,
+    "Gen3": 8.0e9,
+    "Gen4": 16.0e9,
+    "Gen5": 32.0e9,
+    "Gen6": 64.0e9,
+}
 
 
 class FberMeasurementRecipe(Recipe):
@@ -338,16 +354,35 @@ class FberMeasurementRecipe(Recipe):
         total_errors = sum(lane_counters)
         lanes_with_errors = [i for i, c in enumerate(lane_counters) if c > 0]
 
+        # Determine lane bit rate from actual link speed
+        try:
+            link = reader.get_link_status()
+            lane_rate = _SPEED_TO_RATE_BPS.get(link.current_speed, _DEFAULT_LANE_RATE_BPS)
+            link_speed = link.current_speed
+            link_width = link.current_width
+        except Exception:
+            lane_rate = _DEFAULT_LANE_RATE_BPS
+            link_speed = "Unknown"
+            link_width = 0
+
+        actual_soak_s = elapsed
+        bits_tested = actual_soak_s * lane_rate
+
         lane_details: list[dict[str, object]] = []
         worst_status = StepStatus.PASS
 
         for idx, count in enumerate(lane_counters):
-            lane_info: dict[str, object] = {"lane": idx, "error_count": count}
+            estimated_ber = count / bits_tested if bits_tested > 0 else 0.0
+            lane_info: dict[str, object] = {
+                "lane": idx,
+                "error_count": count,
+                "estimated_ber": estimated_ber,
+            }
 
-            if count >= _FBER_FAIL_THRESHOLD:
+            if estimated_ber >= _FBER_BER_FAIL:
                 lane_info["status"] = "fail"
                 worst_status = StepStatus.FAIL
-            elif count >= _FBER_WARN_THRESHOLD:
+            elif estimated_ber >= _FBER_BER_WARN:
                 lane_info["status"] = "warn"
                 if worst_status != StepStatus.FAIL:
                     worst_status = StepStatus.WARN
@@ -379,6 +414,10 @@ class FberMeasurementRecipe(Recipe):
                 "total_errors": total_errors,
                 "lanes_with_errors": len(lanes_with_errors),
                 "flit_counter": fber.flit_counter,
+                "soak_duration_s": round(actual_soak_s, 1),
+                "bits_tested": bits_tested,
+                "link_speed": link_speed,
+                "link_width": link_width,
                 "lanes": lane_details,
             },
             duration_ms=dur,

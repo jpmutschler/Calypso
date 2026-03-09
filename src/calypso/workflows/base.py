@@ -139,6 +139,7 @@ class Recipe(ABC):
             details=details,
             port_number=port_number,
             lane=lane,
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
 
     def _make_summary(

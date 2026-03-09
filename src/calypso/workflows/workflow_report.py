@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from calypso.workflows.models import RecipeSummary, StepStatus
 from calypso.workflows.report_charts import (
     divider,
+    key_value_table,
     metric_card,
     section_header,
     status_badge,
@@ -24,6 +25,7 @@ def generate_report(
     summaries: list[RecipeSummary],
     title: str = "Workflow Report",
     device_id: str = "",
+    device_info: dict[str, str] | None = None,
 ) -> str:
     """Generate a self-contained HTML report from recipe summaries.
 
@@ -31,6 +33,7 @@ def generate_report(
         summaries: List of recipe execution summaries.
         title: Report title.
         device_id: Device identifier for the report header.
+        device_info: Optional device identification (chip_type, revision, etc.).
 
     Returns:
         Complete HTML string.
@@ -118,14 +121,32 @@ def generate_report(
         f"</table>"
     )
 
+    # Device information section
+    device_info_html = ""
+    if device_info:
+        _key_labels = {
+            "chip_type": "Chip Type",
+            "chip_id": "Chip ID",
+            "revision": "Revision",
+            "firmware_version": "Firmware Version",
+            "bdf": "BDF Address",
+            "serial_number": "Serial Number",
+        }
+        display_data = {_key_labels.get(k, k): v for k, v in device_info.items() if v}
+        if display_data:
+            device_info_html = key_value_table(display_data, "Device Information")
+
     # Detailed recipe sections
     detail_sections: list[str] = []
     for s in summaries:
         detail_sections.append(divider())
+        params_html = _render_parameters(s.parameters)
+        detail_sections.append(params_html)
         detail_sections.append(render_recipe_section(s))
 
     body = (
         f"{header_html}"
+        f"{device_info_html}"
         f"{metrics_html}"
         f"{divider()}"
         f"{summary_header}"
@@ -136,13 +157,36 @@ def generate_report(
     return _wrap_html(title, body)
 
 
-def generate_single_report(summary: RecipeSummary, device_id: str = "") -> str:
+def generate_single_report(
+    summary: RecipeSummary,
+    device_id: str = "",
+    device_info: dict[str, str] | None = None,
+) -> str:
     """Generate a report for a single recipe run."""
     return generate_report(
         [summary],
         title=f"Recipe Report: {summary.recipe_name}",
         device_id=device_id,
+        device_info=device_info,
     )
+
+
+def _format_param_value(value: object) -> str:
+    """Format a parameter value for display."""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, float):
+        # Use reasonable precision: no trailing zeros
+        return f"{value:g}"
+    return str(value)
+
+
+def _render_parameters(parameters: dict[str, object]) -> str:
+    """Render recipe parameters as a key-value table."""
+    if not parameters:
+        return ""
+    display = {k: _format_param_value(v) for k, v in parameters.items()}
+    return key_value_table(display, "Test Parameters")
 
 
 def _wrap_html(title: str, body: str) -> str:
@@ -171,6 +215,10 @@ table {{ border-spacing: 0; }}
 @media print {{
     body {{ background: white; color: #1a1a1a; padding: 12px; }}
     table td, table th {{ color: #1a1a1a !important; }}
+    table, tr, .recipe-section {{ page-break-inside: avoid; }}
+    .recipe-section {{ page-break-before: auto; }}
+    h2, h3 {{ page-break-after: avoid; }}
+    @page {{ margin: 15mm; }}
 }}
 </style>
 </head>

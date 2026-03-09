@@ -159,6 +159,49 @@ def section_header(title: str, subtitle: str = "") -> str:
     )
 
 
+def key_value_table(data: dict[str, str], title: str = "") -> str:
+    """Render a 2-column key-value table with dark theme styling.
+
+    Args:
+        data: Key-value pairs to display.
+        title: Optional title shown above the table.
+
+    Returns:
+        Self-contained HTML fragment.
+    """
+    if not data:
+        return ""
+
+    title_html = (
+        f'<div style="font-size:14px; font-weight:600; color:{_TEXT_PRIMARY}; '
+        f'margin-bottom:8px;">{html.escape(title)}</div>'
+        if title
+        else ""
+    )
+
+    rows: list[str] = []
+    for key, value in data.items():
+        rows.append(
+            f"<tr>"
+            f'<td style="padding:6px 12px; border-bottom:1px solid {_BORDER}; '
+            f"color:{_TEXT_SECONDARY}; font-size:13px; white-space:nowrap; "
+            f'width:1%; font-weight:500;">{html.escape(key)}</td>'
+            f'<td style="padding:6px 12px; border-bottom:1px solid {_BORDER}; '
+            f'color:{_TEXT_PRIMARY}; font-size:13px;">{html.escape(value)}</td>'
+            f"</tr>"
+        )
+
+    table = (
+        f'<table style="width:100%; border-collapse:collapse; '
+        f"background:{_BG_CARD}; border:1px solid {_BORDER}; "
+        f'border-radius:8px; overflow:hidden;">'
+        f"<tbody>{''.join(rows)}</tbody>"
+        f"</table>"
+    )
+
+    return f'<div style="margin:12px 0;">{title_html}{table}</div>'
+
+
 def divider() -> str:
     """Render a horizontal divider."""
     return f'<hr style="border:none; border-top:1px solid {_BORDER}; margin:16px 0;">'
