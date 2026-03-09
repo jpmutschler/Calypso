@@ -500,17 +500,41 @@ class DriverManager:
                 error="Driver install timed out after 30 seconds.",
             )
 
-        success = result.returncode == 0 and self._is_module_loaded()
+        module_loaded = self._is_module_loaded()
+        success = result.returncode == 0 and module_loaded
         logger.info(
             "driver_install_complete",
             success=success,
             return_code=result.returncode,
         )
 
+        if not success:
+            error = result.stderr
+            if not error and result.returncode == 0 and not module_loaded:
+                # Plx_load script exits 0 even on insmod failure and
+                # suppresses insmod stderr.  Surface a useful diagnostic.
+                error = (
+                    "insmod succeeded (exit 0) but module not detected in "
+                    "/proc/modules. This usually means the kernel refused "
+                    "to load the module."
+                )
+                if self._is_secureboot_enabled():
+                    error += (
+                        " Secure Boot is enabled — the module may not be "
+                        "properly signed. Rebuild with 'calypso driver build' "
+                        "to re-sign, or check 'sudo dmesg | tail -20' for details."
+                    )
+                else:
+                    error += " Check 'sudo dmesg | tail -20' for details."
+            return BuildResult(
+                success=False,
+                output=result.stdout,
+                error=error,
+            )
+
         return BuildResult(
-            success=success,
+            success=True,
             output=result.stdout,
-            error=result.stderr if not success else "",
         )
 
     def _uninstall_driver_linux(self) -> BuildResult:
@@ -624,8 +648,11 @@ class DriverManager:
         for base in search_paths:
             priv_key = base / "MOK.priv"
             pub_cert = base / "MOK.der"
-            if priv_key.exists() and pub_cert.exists():
-                return (priv_key, pub_cert)
+            try:
+                if priv_key.exists() and pub_cert.exists():
+                    return (priv_key, pub_cert)
+            except PermissionError:
+                continue
 
         return (None, None)
 
@@ -675,6 +702,10 @@ class DriverManager:
                 success=False,
                 error="Module signing tools not found (sign-file or kmodsign required).",
             )
+
+        # sign-file needs to read the private key, which is typically
+        # owned by root (mode 600).  Elevate via sudo when necessary.
+        sign_cmd = self._sudo_wrap(sign_cmd)
 
         logger.info("module_sign_start", module=str(module_path))
 
