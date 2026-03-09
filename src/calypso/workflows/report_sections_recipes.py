@@ -21,6 +21,7 @@ from calypso.workflows.report_sections_helpers import (
     RED,
     TEXT_MUTED,
     TEXT_SECONDARY,
+    YELLOW,
     ber_confidence_interval,
     criteria_box,
     find_step_with_key,
@@ -37,39 +38,75 @@ from calypso.workflows.report_sections_helpers import (
 
 
 def render_port_sweep(summary: RecipeSummary) -> str:
-    """Specialized renderer for all_port_sweep results."""
-    header = section_header("All Port Sweep", f"Duration: {summary.duration_ms:.0f}ms")
+    """Specialized renderer for all_port_sweep results.
 
-    columns = ["Port", "Status", "Link", "Speed", "Width", "Role"]
-    up_rows: list[list[str]] = []
+    Reframed for endpoint validation: active downstream links to the DUT
+    are shown prominently; inactive switch ports are collapsed.
+    """
+    header = section_header(
+        "Endpoint Link Status",
+        f"Duration: {summary.duration_ms:.0f}ms | "
+        "Active links to your endpoint device are shown first",
+    )
+
+    columns = ["Port", "Status", "Link", "Speed", "Width", "Role", "Station"]
+    downstream_rows: list[list[str]] = []
+    upstream_rows: list[list[str]] = []
     down_rows: list[list[str]] = []
+
     for step in summary.steps:
         mv = step.measured_values
+        port_num = mv.get("port_number", step.port_number or "")
+        station = safe_int(port_num) // 16 if port_num != "" else ""
         row = [
-            str(mv.get("port_number", step.port_number or "")),
+            str(port_num),
             step.status.value.upper(),
             "UP" if mv.get("is_link_up") else "DOWN",
             str(mv.get("link_speed", "")),
             f"x{mv.get('link_width', '')}" if mv.get("link_width") else "",
             str(mv.get("role", "")),
+            str(station),
         ]
-        if mv.get("is_link_up"):
-            up_rows.append(row)
-        else:
+        if not mv.get("is_link_up"):
             down_rows.append(row)
+        elif str(mv.get("role", "")).lower() in ("downstream", "ds"):
+            downstream_rows.append(row)
+        else:
+            upstream_rows.append(row)
 
-    up_count = len(up_rows)
     total = len(summary.steps)
     metrics = (
         f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
-        f"{metric_card('Links Up', str(up_count), GREEN)}"
-        f"{metric_card('Links Down', str(total - up_count), RED if total - up_count > 0 else TEXT_MUTED)}"
+        f"{metric_card('Downstream Links', str(len(downstream_rows)), GREEN if downstream_rows else TEXT_MUTED)}"
+        f"{metric_card('Upstream Links', str(len(upstream_rows)), CYAN if upstream_rows else TEXT_MUTED)}"
+        f"{metric_card('Inactive Ports', str(len(down_rows)), TEXT_MUTED)}"
         f"{metric_card('Total Ports', str(total), CYAN)}"
         f"</div>"
     )
 
-    # Active links table
-    up_table = results_table(columns, up_rows, status_column=1) if up_rows else ""
+    # Single-device prominent display: if exactly 1 downstream link, highlight it
+    single_device_highlight = ""
+    if len(downstream_rows) == 1:
+        r = downstream_rows[0]
+        single_device_highlight = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('DUT Port', r[0], GREEN)}"
+            f"{metric_card('Speed', r[3], GREEN)}"
+            f"{metric_card('Width', r[4], GREEN)}"
+            f"</div>"
+        )
+
+    # Active downstream links table (DUT connections)
+    ds_section = ""
+    if downstream_rows:
+        ds_header = section_header("Active Downstream Links (DUT)", "")
+        ds_section = ds_header + results_table(columns, downstream_rows, status_column=1)
+
+    # Active upstream links table
+    us_section = ""
+    if upstream_rows:
+        us_header = section_header("Active Upstream Links", "")
+        us_section = us_header + results_table(columns, upstream_rows, status_column=1)
 
     # Down ports in collapsible section
     down_section = ""
@@ -78,7 +115,7 @@ def render_port_sweep(summary: RecipeSummary) -> str:
         down_section = (
             f'<details style="margin:12px 0;">'
             f'<summary style="color:{TEXT_SECONDARY}; cursor:pointer; '
-            f'font-size:13px; font-weight:600;">Down Ports ({len(down_rows)})</summary>'
+            f'font-size:13px; font-weight:600;">Inactive Ports ({len(down_rows)})</summary>'
             f"{down_table}</details>"
         )
 
@@ -97,7 +134,9 @@ def render_port_sweep(summary: RecipeSummary) -> str:
         }
     )
     extras = render_extra_measured_values(summary, _rendered)
-    return f"{header}{metrics}{up_table}{down_section}{extras}"
+    return (
+        f"{header}{metrics}{single_device_highlight}{ds_section}{us_section}{down_section}{extras}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,3 +498,131 @@ def render_fber_measurement(summary: RecipeSummary) -> str:
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
     return f"{header}{criteria}{metrics}{extra_metrics}{context_cards}{lane_table}{extras}"
+
+
+# ---------------------------------------------------------------------------
+# Error Recovery Test
+# ---------------------------------------------------------------------------
+
+
+def render_error_recovery(summary: RecipeSummary) -> str:
+    """Specialized renderer for error_recovery_test results.
+
+    Framed for endpoint validation: tests whether the endpoint recovers
+    cleanly after forced link retraining.
+    """
+    header = section_header(
+        "Endpoint Error Recovery Test",
+        f"Duration: {summary.duration_ms:.0f}ms | "
+        "Verifies your endpoint recovers cleanly after forced link retraining",
+    )
+
+    criteria = criteria_box(
+        [
+            "PASS: All retrain cycles recover to baseline speed/width with no AER errors",
+            "WARN: Correctable errors detected after retrain (transient)",
+            "FAIL: Link degradation or uncorrectable errors after retrain",
+        ]
+    )
+
+    # Baseline info
+    baseline_step = find_step_with_key(summary.steps, "baseline_speed")
+    baseline_section = ""
+    if baseline_step is not None:
+        mv = baseline_step.measured_values
+        base_speed = str(mv.get("baseline_speed", "N/A"))
+        base_width = str(mv.get("baseline_width", "N/A"))
+        base_recovery = str(mv.get("baseline_recovery_count", 0))
+        baseline_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Baseline Speed', base_speed, CYAN)}"
+            f"{metric_card('Baseline Width', 'x' + base_width, CYAN)}"
+            f"{metric_card('Initial Recoveries', base_recovery, TEXT_SECONDARY)}"
+            f"</div>"
+        )
+
+    # Final assessment cards
+    assessment_step = find_step_with_key(summary.steps, "total_attempts")
+    assessment_section = ""
+    if assessment_step is not None:
+        mv = assessment_step.measured_values
+        total = safe_int(mv.get("total_attempts", 0))
+        clean = safe_int(mv.get("clean_count", 0))
+        transient = safe_int(mv.get("transient_error_count", 0))
+        degraded = safe_int(mv.get("degraded_count", 0))
+
+        clean_color = GREEN if clean == total else YELLOW if clean > 0 else RED
+        assessment_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Clean', f'{clean}/{total}', clean_color)}"
+            f"{metric_card('Transient Errors', str(transient), YELLOW if transient > 0 else GREEN)}"
+            f"{metric_card('Degraded', str(degraded), RED if degraded > 0 else GREEN)}"
+            f"</div>"
+        )
+
+    # Per-attempt results table
+    attempt_columns = [
+        "Attempt",
+        "Status",
+        "Post Speed",
+        "Post Width",
+        "Recovery \u0394",
+        "Uncorrectable",
+        "Correctable",
+    ]
+    attempt_rows: list[list[str]] = []
+    for step in summary.steps:
+        mv = step.measured_values
+        if "attempt" not in mv:
+            continue
+        attempt_rows.append(
+            [
+                str(mv.get("attempt", "")),
+                step.status.value.upper(),
+                str(mv.get("post_speed", "")),
+                f"x{mv.get('post_width', '')}" if mv.get("post_width") else "",
+                str(mv.get("recovery_delta", "")),
+                "YES"
+                if mv.get("has_uncorrectable")
+                else "NO"
+                if mv.get("has_uncorrectable") is not None
+                else "",
+                "YES"
+                if mv.get("has_correctable")
+                else "NO"
+                if mv.get("has_correctable") is not None
+                else "",
+            ]
+        )
+
+    attempt_table = ""
+    if attempt_rows:
+        attempt_header = section_header("Per-Attempt Results", "")
+        attempt_table = attempt_header + results_table(
+            attempt_columns, attempt_rows, status_column=1
+        )
+
+    _rendered = frozenset(
+        {
+            "baseline_speed",
+            "baseline_width",
+            "baseline_recovery_count",
+            "attempt",
+            "post_speed",
+            "post_width",
+            "recovery_delta",
+            "speed_degraded",
+            "width_degraded",
+            "has_uncorrectable",
+            "has_correctable",
+            "total_attempts",
+            "clean_count",
+            "transient_error_count",
+            "degraded_count",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
+    metrics = summary_metrics(summary)
+    return (
+        f"{header}{criteria}{metrics}{baseline_section}{assessment_section}{attempt_table}{extras}"
+    )

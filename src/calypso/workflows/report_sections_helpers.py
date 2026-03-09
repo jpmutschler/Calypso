@@ -252,3 +252,32 @@ def render_extra_measured_values(
         f'font-weight:600; margin-bottom:8px;">Additional Measurements</summary>'
         f"{''.join(parts)}</details>"
     )
+
+
+def render_step_details(steps: list[RecipeResult]) -> str:
+    """Render steps that have non-empty ``details`` fields as collapsible preformatted text.
+
+    Useful for register dumps, stack traces, or raw diagnostic output.
+    """
+    parts: list[str] = []
+    for step in steps:
+        if not step.details:
+            continue
+        step_label = html.escape(step.step_name)
+        parts.append(
+            f'<details style="margin:8px 0;">'
+            f'<summary style="color:{TEXT_SECONDARY}; cursor:pointer; '
+            f'font-size:13px;">{step_label} - Details</summary>'
+            f'<pre style="background:{BG_CARD}; border:1px solid {BORDER}; '
+            f"border-radius:4px; padding:12px; font-size:12px; "
+            f'color:{TEXT_PRIMARY}; overflow-x:auto; white-space:pre-wrap;">'
+            f"{html.escape(step.details)}</pre></details>"
+        )
+    if not parts:
+        return ""
+    return (
+        f'<div style="margin:16px 0;">'
+        f'<div style="font-size:14px; font-weight:600; color:{TEXT_PRIMARY}; '
+        f'margin-bottom:8px;">Diagnostic Details</div>'
+        f"{''.join(parts)}</div>"
+    )

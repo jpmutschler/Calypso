@@ -37,37 +37,98 @@ _METRIC_KEYS = [
     ("bits_tested", "Bits Tested", False),
     ("utilization", "Utilization", False),
     ("flits_tracked", "Flits Tracked", False),
+    # Eye scan metrics
+    ("eye_width_ui", "Eye Width (UI)", False),
+    ("eye_height_mv", "Eye Height (mV)", False),
+    # Error recovery metrics
+    ("clean_count", "Clean Recoveries", False),
+    ("degraded_count", "Degraded Recoveries", True),
+    ("transient_error_count", "Transient Errors", True),
+    # FBER metrics
+    ("fber_total", "FBER Total", True),
+    # SerDes metrics
+    ("lanes_with_errors", "Lanes with Errors", True),
 ]
 
 
 def _extract_key_metrics(summary: RecipeSummary) -> dict[str, float]:
-    """Extract key numeric metrics from the richest step's measured_values."""
-    best_mv: dict[str, object] = {}
+    """Extract key numeric metrics from ALL steps' measured_values.
+
+    Walks all steps (not just the richest one) to capture metrics
+    spread across different steps within a recipe.
+    """
+    metrics: dict[str, float] = {}
+
+    # Walk all steps to find scalar metrics
     for step in summary.steps:
         mv = step.measured_values or {}
-        if len(mv) > len(best_mv):
-            best_mv = mv
+        for key, _label, _lower in _METRIC_KEYS:
+            if key in metrics:
+                continue
+            val = mv.get(key)
+            if val is not None:
+                try:
+                    metrics[key] = float(val)
+                except (ValueError, TypeError):
+                    pass
 
-    metrics: dict[str, float] = {}
-    for key, _label, _lower in _METRIC_KEYS:
-        val = best_mv.get(key)
-        if val is not None:
+    # Aggregate worst-lane BER from any step with a lanes list
+    worst_ber = 0.0
+    for step in summary.steps:
+        mv = step.measured_values or {}
+        lanes = mv.get("lanes", [])
+        if isinstance(lanes, list):
+            for lane in lanes:
+                if isinstance(lane, dict):
+                    try:
+                        ber = float(lane.get("estimated_ber", 0))
+                    except (ValueError, TypeError):
+                        continue
+                    if ber > worst_ber:
+                        worst_ber = ber
+    if worst_ber > 0:
+        metrics["worst_lane_ber"] = worst_ber
+
+    # Aggregate worst eye width/height across per-lane steps
+    min_eye_width: float | None = None
+    min_eye_height: float | None = None
+    for step in summary.steps:
+        mv = step.measured_values or {}
+        ew = mv.get("eye_width_ui")
+        eh = mv.get("eye_height_mv")
+        if ew is not None:
             try:
-                metrics[key] = float(val)
+                ew_f = float(ew)
+                if min_eye_width is None or ew_f < min_eye_width:
+                    min_eye_width = ew_f
             except (ValueError, TypeError):
                 pass
+        if eh is not None:
+            try:
+                eh_f = float(eh)
+                if min_eye_height is None or eh_f < min_eye_height:
+                    min_eye_height = eh_f
+            except (ValueError, TypeError):
+                pass
+    if min_eye_width is not None:
+        metrics.setdefault("worst_eye_width", min_eye_width)
+    if min_eye_height is not None:
+        metrics.setdefault("worst_eye_height", min_eye_height)
 
-    # Also extract worst-lane BER from lanes list
-    lanes = best_mv.get("lanes", [])
-    if isinstance(lanes, list) and lanes:
-        worst_ber = 0.0
-        for lane in lanes:
-            if isinstance(lane, dict):
-                ber = float(lane.get("estimated_ber", 0))
-                if ber > worst_ber:
-                    worst_ber = ber
-        if worst_ber > 0:
-            metrics["worst_lane_ber"] = worst_ber
+    # Sum recovery_delta across attempt steps
+    total_recovery_delta = 0
+    has_recovery = False
+    for step in summary.steps:
+        mv = step.measured_values or {}
+        rd = mv.get("recovery_delta")
+        if rd is not None:
+            try:
+                total_recovery_delta += int(float(str(rd)))
+                has_recovery = True
+            except (ValueError, TypeError):
+                pass
+    if has_recovery:
+        metrics["total_recovery_delta"] = float(total_recovery_delta)
 
     return metrics
 
@@ -307,8 +368,14 @@ def _render_recipe_comparison(
 
     label_map = {k: label for k, label, _ in _METRIC_KEYS}
     label_map["worst_lane_ber"] = "Worst Lane BER"
+    label_map["worst_eye_width"] = "Worst Eye Width (UI)"
+    label_map["worst_eye_height"] = "Worst Eye Height (mV)"
+    label_map["total_recovery_delta"] = "Total Recovery Count"
     lower_map = {k: lower for k, _, lower in _METRIC_KEYS}
     lower_map["worst_lane_ber"] = True
+    lower_map["worst_eye_width"] = False  # wider is better
+    lower_map["worst_eye_height"] = False  # taller is better
+    lower_map["total_recovery_delta"] = True  # fewer recoveries is better
 
     rows: list[list[str]] = []
     for key in all_metric_keys:

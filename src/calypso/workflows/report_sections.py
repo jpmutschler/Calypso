@@ -18,6 +18,7 @@ from calypso.workflows.report_sections_helpers import (
     CYAN,
     TEXT_PRIMARY,
     render_measured_values_table,
+    render_step_details,
     summary_metrics,
 )
 from calypso.workflows.report_sections_gen6 import (
@@ -27,9 +28,15 @@ from calypso.workflows.report_sections_gen6 import (
     render_pam4_eye_sweep,
     render_phy_64gt_audit,
 )
+from calypso.workflows.report_sections_gen6_ext import (
+    render_eq_phase_audit,
+    render_flit_error_injection,
+    render_serdes_diagnostics,
+)
 from calypso.workflows.report_sections_recipes import (
     render_bandwidth,
     render_ber,
+    render_error_recovery,
     render_fber_measurement,
     render_port_sweep,
 )
@@ -39,10 +46,14 @@ def render_recipe_section(summary: RecipeSummary) -> str:
     """Render a full HTML section for a recipe result.
 
     Dispatches to a specialized renderer if available, otherwise
-    uses the generic table renderer.
+    uses the generic table renderer. Appends diagnostic details
+    (from ``RecipeResult.details``) if any steps have them.
     """
     renderer = _RENDERERS.get(summary.recipe_id, _render_generic)
-    return renderer(summary)
+    result = renderer(summary)
+    # Append diagnostic details for any step that has a non-empty details field
+    result += render_step_details(summary.steps)
+    return result
 
 
 def _format_timestamp(ts: str) -> str:
@@ -131,4 +142,9 @@ _RENDERERS: dict[str, Callable[[RecipeSummary], str]] = {
     "phy_64gt_audit": render_phy_64gt_audit,
     "flit_perf_measurement": render_flit_perf_measurement,
     "pam4_eye_sweep": render_pam4_eye_sweep,
+    # New specialized renderers
+    "eq_phase_audit": render_eq_phase_audit,
+    "error_recovery_test": render_error_recovery,
+    "flit_error_injection": render_flit_error_injection,
+    "serdes_diagnostics": render_serdes_diagnostics,
 }

@@ -10,6 +10,7 @@ import html
 
 from calypso.workflows.models import RecipeSummary
 from calypso.workflows.report_charts import (
+    bar_chart,
     metric_card,
     results_table,
     section_header,
@@ -85,6 +86,25 @@ def render_eye_scan(summary: RecipeSummary) -> str:
 
     table = results_table(columns, rows, status_column=1)
 
+    # Per-lane eye width/height bar charts for quick visual scanning
+    width_chart = ""
+    height_chart = ""
+    if rows:
+        width_data = [(f"Lane {r[0]}", float(r[2])) for r in rows]
+        height_data = [(f"Lane {r[0]}", float(r[3])) for r in rows]
+        if width_data:
+            width_chart = (
+                section_header("Eye Width per Lane (UI)", "")
+                + bar_chart(width_data, bar_color=CYAN, height_px=16)
+                + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
+                f'margin:4px 0 8px 0;">PASS \u2265 0.15 UI | '
+                f"WARN \u2265 0.08 UI | FAIL &lt; 0.08 UI</div>"
+            )
+        if height_data:
+            height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
+                height_data, bar_color=GREEN, height_px=16
+            )
+
     # Link info cards
     link_cards = ""
     if link_speed:
@@ -110,7 +130,7 @@ def render_eye_scan(summary: RecipeSummary) -> str:
     )
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{link_cards}{table}{extras}"
+    return f"{header}{criteria}{metrics}{link_cards}{width_chart}{height_chart}{table}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -374,23 +394,75 @@ def render_phy_64gt_audit(summary: RecipeSummary) -> str:
         else ""
     )
 
+    # TX EQ Coefficients per lane (endpoint's negotiated TX settings)
+    tx_eq_section = ""
+    tx_step = find_step_with_key(summary.steps, "tx_eq_lanes")
+    if tx_step is not None:
+        tx_lanes = tx_step.measured_values.get("tx_eq_lanes", [])
+        if isinstance(tx_lanes, list) and tx_lanes:
+            tx_header = section_header(
+                "Endpoint TX EQ Coefficients",
+                "Per-lane transmitter presets and coefficients negotiated with your endpoint",
+            )
+            tx_columns = [
+                "Lane",
+                "DS TX Preset",
+                "US TX Preset",
+                "DS Pre",
+                "DS Cursor",
+                "DS Post",
+                "US Pre",
+                "US Cursor",
+                "US Post",
+            ]
+            tx_rows: list[list[str]] = []
+            for lane_data in tx_lanes:
+                if not isinstance(lane_data, dict):
+                    continue
+                tx_rows.append(
+                    [
+                        str(lane_data.get("lane", "")),
+                        f"P{lane_data.get('downstream_tx_preset', '')}"
+                        if lane_data.get("downstream_tx_preset") is not None
+                        else "N/A",
+                        f"P{lane_data.get('upstream_tx_preset', '')}"
+                        if lane_data.get("upstream_tx_preset") is not None
+                        else "N/A",
+                        str(lane_data.get("downstream_pre_cursor", "N/A")),
+                        str(lane_data.get("downstream_cursor", "N/A")),
+                        str(lane_data.get("downstream_post_cursor", "N/A")),
+                        str(lane_data.get("upstream_pre_cursor", "N/A")),
+                        str(lane_data.get("upstream_cursor", "N/A")),
+                        str(lane_data.get("upstream_post_cursor", "N/A")),
+                    ]
+                )
+            if tx_rows:
+                tx_eq_section = tx_header + results_table(tx_columns, tx_rows)
+
     _rendered = frozenset(
         {
             "gen6_supported",
             "gen5_supported",
             "gen4_supported",
+            "gen3_supported",
             "is_at_64gt",
+            "current_speed",
+            "current_width",
+            "max_link_speed",
+            "max_link_width",
             "eq_complete",
             "phase1_ok",
             "phase2_ok",
             "phase3_ok",
             "flit_mode_supported",
             "tx_eq_lanes",
+            "eq_16gt_complete",
+            "eq_32gt_complete",
         }
     )
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{metrics}{checklist}{extras}"
+    return f"{header}{metrics}{checklist}{tx_eq_section}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +618,25 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
 
     eye_table = results_table(columns, rows, status_column=1) if rows else ""
 
+    # Per-lane eye width/height bar charts
+    width_chart = ""
+    height_chart = ""
+    if rows:
+        width_data = [(f"Lane {r[0]}", float(r[2])) for r in rows]
+        height_data = [(f"Lane {r[0]}", float(r[3])) for r in rows]
+        if width_data:
+            width_chart = (
+                section_header("Eye Width per Lane (UI)", "")
+                + bar_chart(width_data, bar_color=CYAN, height_px=16)
+                + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
+                f'margin:4px 0 8px 0;">PASS \u2265 0.10 UI | '
+                f"WARN \u2265 0.05 UI | FAIL &lt; 0.05 UI</div>"
+            )
+        if height_data:
+            height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
+                height_data, bar_color=GREEN, height_px=16
+            )
+
     # Worst margin summary from aggregate step
     agg_step = find_step_with_key(summary.steps, "worst_lane")
     margin_section = ""
@@ -576,4 +667,6 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
     )
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{margin_section}{eye_table}{extras}"
+    return (
+        f"{header}{criteria}{metrics}{margin_section}{width_chart}{height_chart}{eye_table}{extras}"
+    )

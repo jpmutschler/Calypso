@@ -36,6 +36,7 @@ def generate_report(
     title: str = "Workflow Report",
     device_id: str = "",
     device_info: dict[str, str] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> str:
     """Generate a self-contained HTML report from recipe summaries.
 
@@ -44,6 +45,7 @@ def generate_report(
         title: Report title.
         device_id: Device identifier for the report header.
         device_info: Optional device identification (chip_type, revision, etc.).
+        environment: Optional test environment metadata (OS, SDK version, driver, etc.).
 
     Returns:
         Complete HTML string.
@@ -150,6 +152,25 @@ def generate_report(
         if display_data:
             device_info_html = key_value_table(display_data, "Device Information")
 
+    # Test environment section
+    environment_html = ""
+    if environment:
+        _env_labels = {
+            "os": "Operating System",
+            "os_version": "OS Version",
+            "python_version": "Python Version",
+            "sdk_version": "PLX SDK Version",
+            "driver_version": "Driver Version",
+            "board_profile": "Board Profile",
+            "chip_type": "Chip Type",
+            "downstream_bdf": "Downstream BDF",
+            "downstream_vendor_id": "Downstream Vendor ID",
+            "downstream_device_id": "Downstream Device ID",
+        }
+        env_display = {_env_labels.get(k, k): v for k, v in environment.items() if v}
+        if env_display:
+            environment_html = key_value_table(env_display, "Test Environment")
+
     # Detailed recipe sections
     detail_sections: list[str] = []
     for s in summaries:
@@ -161,6 +182,7 @@ def generate_report(
     body = (
         f"{header_html}"
         f"{device_info_html}"
+        f"{environment_html}"
         f"{metrics_html}"
         f"{divider()}"
         f"{summary_header}"
@@ -175,6 +197,7 @@ def generate_single_report(
     summary: RecipeSummary,
     device_id: str = "",
     device_info: dict[str, str] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> str:
     """Generate a report for a single recipe run."""
     return generate_report(
@@ -182,6 +205,7 @@ def generate_single_report(
         title=f"Recipe Report: {summary.recipe_name}",
         device_id=device_id,
         device_info=device_info,
+        environment=environment,
     )
 
 
