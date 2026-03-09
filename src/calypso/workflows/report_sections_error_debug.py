@@ -1,7 +1,8 @@
-"""Error, health check, and speed test renderers for workflow reports.
+"""Error, health check, debug, and speed test renderers for workflow reports.
 
 Specialized renderers for error_aggregation_sweep, link_health_check,
-and speed_downshift_test recipes. Framed around endpoint (DUT) validation.
+speed_downshift_test, and ltssm_monitor recipes. Framed around endpoint
+(DUT) validation.
 """
 
 from __future__ import annotations
@@ -14,12 +15,16 @@ from calypso.workflows.report_charts import (
     results_table,
     section_header,
 )
+from calypso.workflows.recipes.ltssm_monitor import (
+    _RECOVERY_WARN_THRESHOLD,
+)
 from calypso.workflows.report_sections_helpers import (
     BG_CARD,
     BORDER,
     CYAN,
     GREEN,
     RED,
+    TEXT_PRIMARY,
     TEXT_SECONDARY,
     YELLOW,
     criteria_box,
@@ -465,3 +470,111 @@ def render_speed_downshift_test(summary: RecipeSummary) -> str:
     parts.append(render_extra_measured_values(summary, _rendered))
 
     return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# LTSSM Monitor
+# ---------------------------------------------------------------------------
+
+
+def render_ltssm_monitor(summary: RecipeSummary) -> str:
+    """Specialized renderer for ltssm_monitor results.
+
+    Shows LTSSM state timeline, transition table, and recovery count
+    with threshold from the recipe as single source of truth.
+    """
+    header = section_header(
+        "Endpoint LTSSM Monitor",
+        f"Category: {summary.category.value} | Duration: {summary.duration_ms:.0f}ms",
+    )
+    metrics = summary_metrics(summary)
+
+    # Extract key data from steps
+    init_step = find_step_with_key(summary.steps, "initial_state")
+    poll_step = find_step_with_key(summary.steps, "sample_count")
+    analysis_step = find_step_with_key(summary.steps, "transitions")
+
+    # Summary metric cards
+    cards: list[str] = []
+    initial_state = ""
+    if init_step:
+        mv = init_step.measured_values
+        initial_state = str(mv.get("initial_state", ""))
+        cards.append(metric_card("Initial State", initial_state, CYAN))
+
+    final_state = ""
+    recovery_count = 0
+    sample_count = 0
+    if poll_step:
+        mv = poll_step.measured_values
+        final_state = str(mv.get("final_state", ""))
+        recovery_count = safe_int(mv.get("recovery_count", 0))
+        sample_count = safe_int(mv.get("sample_count", 0))
+        cards.append(metric_card("Final State", final_state, CYAN))
+        cards.append(metric_card("Samples", str(sample_count), TEXT_PRIMARY))
+
+        recovery_color = RED if recovery_count >= _RECOVERY_WARN_THRESHOLD else GREEN
+        cards.append(metric_card("Recovery Count", str(recovery_count), recovery_color))
+
+    cards_html = ""
+    if cards:
+        cards_html = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{''.join(cards)}</div>"
+        )
+
+    # Criteria box
+    criteria = criteria_box([
+        "PASS: No transitions or expected transitions only",
+        f"WARN: Recovery count >= {_RECOVERY_WARN_THRESHOLD} during monitoring",
+        "Monitors endpoint LTSSM state/substate at configurable poll interval",
+    ])
+
+    # Transition timeline table
+    transition_table = ""
+    if analysis_step:
+        transitions = analysis_step.measured_values.get("transitions", [])
+        if isinstance(transitions, list) and transitions:
+            columns = ["Time (ms)", "From", "To", "Recovery Count"]
+            rows: list[list[str]] = []
+            for t in transitions:
+                if not isinstance(t, dict):
+                    continue
+                rows.append([
+                    f"{float(t.get('elapsed_ms', 0)):.1f}",
+                    str(t.get("from", "")),
+                    str(t.get("to", "")),
+                    str(safe_int(t.get("recovery_count", 0))),
+                ])
+            if rows:
+                table_header = (
+                    f'<div style="font-size:15px; font-weight:600; color:{TEXT_PRIMARY}; '
+                    f'margin:20px 0 8px 0;">State Transitions</div>'
+                )
+                transition_table = table_header + results_table(columns, rows)
+        elif isinstance(transitions, list) and not transitions:
+            transition_table = (
+                f'<div style="margin:16px 0; padding:12px; background:{BG_CARD}; '
+                f"border:1px solid {BORDER}; border-radius:6px; "
+                f'color:{GREEN}; font-size:13px; font-weight:500;">'
+                f"No state transitions detected — link remained stable in "
+                f"{html.escape(final_state or initial_state or 'unknown')}</div>"
+            )
+
+    # Guidance if recovery is high
+    guidance = ""
+    if recovery_count >= _RECOVERY_WARN_THRESHOLD:
+        guidance = failure_guidance_box("recovery_high")
+
+    # Catch-all extras
+    _rendered = frozenset({
+        "initial_state", "initial_recovery_count",
+        "sample_count", "transition_count", "final_state", "recovery_count",
+        "transitions",
+    })
+    extras = render_extra_measured_values(summary, _rendered)
+
+    return (
+        f"{header}{criteria}{metrics}{cards_html}"
+        f"{transition_table}{guidance}{extras}"
+    )

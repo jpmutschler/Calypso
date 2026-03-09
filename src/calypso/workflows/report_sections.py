@@ -37,6 +37,7 @@ from calypso.workflows.report_sections_gen6_ext import (
 from calypso.workflows.report_sections_error_debug import (
     render_error_aggregation_sweep,
     render_link_health_check,
+    render_ltssm_monitor,
     render_speed_downshift_test,
 )
 from calypso.workflows.report_sections_recipes import (
@@ -144,5 +145,6 @@ _RENDERERS: dict[str, Callable[[RecipeSummary], str]] = {
     "serdes_diagnostics": render_serdes_diagnostics,
     "error_aggregation_sweep": render_error_aggregation_sweep,
     "link_health_check": render_link_health_check,
+    "ltssm_monitor": render_ltssm_monitor,
     "speed_downshift_test": render_speed_downshift_test,
 }

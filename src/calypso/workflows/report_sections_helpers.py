@@ -6,20 +6,19 @@ import html
 import math
 
 from calypso.workflows.models import RecipeResult, RecipeSummary
-from calypso.workflows.report_charts import metric_card, status_color
-
-# ---------------------------------------------------------------------------
-# Theme constants (matching report_charts)
-# ---------------------------------------------------------------------------
-BG_CARD = "#1c2128"
-BORDER = "#30363d"
-TEXT_PRIMARY = "#e6edf3"
-TEXT_SECONDARY = "#8b949e"
-TEXT_MUTED = "#484f58"
-CYAN = "#00d4ff"
-GREEN = "#3fb950"
-YELLOW = "#d29922"
-RED = "#f85149"
+from calypso.workflows.report_charts import (
+    BG_CARD,
+    BORDER,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    YELLOW,
+    metric_card,
+    status_color,
+)
 
 
 # ---------------------------------------------------------------------------

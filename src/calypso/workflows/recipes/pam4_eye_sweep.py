@@ -201,7 +201,7 @@ class Pam4EyeSweepRecipe(Recipe):
             steps.append(result)
             return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Per-lane sweep ---
+        # --- Per-lane sweep (3 PAM4 sub-eyes per lane) ---
         worst_lane = -1
         worst_margin = float("inf")
         all_pass = True
@@ -219,11 +219,11 @@ class Pam4EyeSweepRecipe(Recipe):
                 t0 = time.monotonic()
 
                 try:
-                    sweep = engine.sweep_lane(lane_idx, device_id="")
+                    pam4 = engine.sweep_lane_pam4(lane_idx, device_id=device_id)
                     dur = _elapsed_ms(t0)
 
-                    eye_width = sweep.eye_width_ui
-                    eye_height = sweep.eye_height_mv
+                    eye_width = pam4.worst_eye_width_ui
+                    eye_height = pam4.worst_eye_height_mv
 
                     if eye_width < _PAM4_MIN_MARGIN_UI:
                         lane_status = StepStatus.FAIL
@@ -241,16 +241,26 @@ class Pam4EyeSweepRecipe(Recipe):
                         step,
                         lane_status,
                         message=(
-                            f"Lane {lane_idx}: width={eye_width:.4f} UI, height={eye_height:.2f} mV"
+                            f"Lane {lane_idx}: worst_width={eye_width:.4f} UI, "
+                            f"worst_height={eye_height:.2f} mV, "
+                            f"balanced={pam4.is_balanced}"
                         ),
                         criticality=StepCriticality.HIGH,
                         measured_values={
                             "eye_width_ui": eye_width,
                             "eye_height_mv": eye_height,
-                            "margin_right_ui": sweep.margin_right_ui,
-                            "margin_left_ui": sweep.margin_left_ui,
-                            "margin_up_mv": sweep.margin_up_mv,
-                            "margin_down_mv": sweep.margin_down_mv,
+                            "is_balanced": pam4.is_balanced,
+                            "upper_eye_width_ui": pam4.upper_eye.eye_width_ui,
+                            "upper_eye_height_mv": pam4.upper_eye.eye_height_mv,
+                            "middle_eye_width_ui": pam4.middle_eye.eye_width_ui,
+                            "middle_eye_height_mv": pam4.middle_eye.eye_height_mv,
+                            "lower_eye_width_ui": pam4.lower_eye.eye_width_ui,
+                            "lower_eye_height_mv": pam4.lower_eye.eye_height_mv,
+                            "margin_right_ui": pam4.upper_eye.margin_right_ui,
+                            "margin_left_ui": pam4.upper_eye.margin_left_ui,
+                            "margin_up_mv": pam4.upper_eye.margin_up_mv,
+                            "margin_down_mv": pam4.upper_eye.margin_down_mv,
+                            "sweep_time_ms": pam4.total_sweep_time_ms,
                         },
                         duration_ms=dur,
                         port_number=port_number,

@@ -583,67 +583,83 @@ def render_flit_perf_measurement(summary: RecipeSummary) -> str:
 
 
 def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
-    """Specialized renderer for pam4_eye_sweep results."""
-    header = section_header("PAM4 Eye Sweep", f"Duration: {summary.duration_ms:.0f}ms")
+    """Specialized renderer for pam4_eye_sweep results with per-eye breakdown."""
+    header = section_header(
+        "Endpoint PAM4 Eye Sweep", f"Duration: {summary.duration_ms:.0f}ms"
+    )
 
     criteria = criteria_box(
         [
-            f"PASS: Margin >= {_PAM4_PASS_UI} UI",
-            f"WARN: Margin >= {_PAM4_FAIL_UI} UI",
-            f"FAIL: Margin < {_PAM4_FAIL_UI} UI",
-            "Note: PAM4 sub-eye identity (upper/middle/lower) requires per-eye"
-            " sweep capability. Current results show aggregate margin per lane.",
+            f"PASS: Worst sub-eye margin >= {_PAM4_PASS_UI} UI",
+            f"WARN: Worst sub-eye margin >= {_PAM4_FAIL_UI} UI",
+            f"FAIL: Worst sub-eye margin < {_PAM4_FAIL_UI} UI",
+            "PAM4 signaling uses 3 sub-eyes (upper/middle/lower) per lane.",
         ]
     )
 
-    # Per-lane eye data
-    columns = [
-        "Lane",
-        "Status",
-        "Eye Width (UI)",
-        "Eye Height (mV)",
-        "Margin R (UI)",
-        "Margin L (UI)",
-        "Margin Up (mV)",
-        "Margin Down (mV)",
+    # Per-lane worst-of-3-eyes summary table
+    summary_columns = ["Lane", "Status", "Worst Width (UI)", "Worst Height (mV)", "Balanced"]
+    summary_rows: list[list[str]] = []
+
+    # Per-lane per-eye detail table
+    eye_columns = [
+        "Lane", "Eye", "Width (UI)", "Height (mV)",
     ]
-    rows: list[list[str]] = []
+    eye_rows: list[list[str]] = []
+
     for step in summary.steps:
         mv = step.measured_values
         if "eye_width_ui" not in mv:
             continue
         lane = step.lane if step.lane is not None else mv.get("lane", "")
-        rows.append(
-            [
-                str(lane),
-                step.status.value.upper(),
-                f"{float(mv.get('eye_width_ui', 0)):.4f}",
-                f"{float(mv.get('eye_height_mv', 0)):.2f}",
-                f"{float(mv.get('margin_right_ui', 0)):.4f}",
-                f"{float(mv.get('margin_left_ui', 0)):.4f}",
-                f"{float(mv.get('margin_up_mv', 0)):.2f}",
-                f"{float(mv.get('margin_down_mv', 0)):.2f}",
-            ]
+        lane_str = str(lane)
+
+        # Summary row (worst-of-3)
+        is_balanced = mv.get("is_balanced")
+        balanced_str = "Yes" if is_balanced else "No" if is_balanced is not None else ""
+        summary_rows.append([
+            lane_str,
+            step.status.value.upper(),
+            f"{float(mv.get('eye_width_ui', 0)):.4f}",
+            f"{float(mv.get('eye_height_mv', 0)):.2f}",
+            balanced_str,
+        ])
+
+        # Per-eye rows (if sub-eye data present)
+        has_sub_eyes = "upper_eye_width_ui" in mv
+        if has_sub_eyes:
+            for eye_name, prefix in [("Upper", "upper"), ("Middle", "middle"), ("Lower", "lower")]:
+                w = float(mv.get(f"{prefix}_eye_width_ui", 0))
+                h = float(mv.get(f"{prefix}_eye_height_mv", 0))
+                eye_rows.append([lane_str, eye_name, f"{w:.4f}", f"{h:.2f}"])
+
+    summary_table = results_table(summary_columns, summary_rows, status_column=1) if summary_rows else ""
+
+    # Per-eye detail table
+    eye_detail_section = ""
+    if eye_rows:
+        eye_header = (
+            f'<div style="font-size:15px; font-weight:600; color:{TEXT_PRIMARY}; '
+            f'margin:20px 0 8px 0;">Per-Eye Breakdown (Upper / Middle / Lower)</div>'
         )
+        eye_detail_section = eye_header + results_table(eye_columns, eye_rows)
 
-    eye_table = results_table(columns, rows, status_column=1) if rows else ""
-
-    # Per-lane eye width/height bar charts
+    # Per-lane eye width bar charts (worst-of-3)
     width_chart = ""
     height_chart = ""
-    if rows:
-        width_data = [(f"Lane {r[0]}", float(r[2])) for r in rows]
-        height_data = [(f"Lane {r[0]}", float(r[3])) for r in rows]
+    if summary_rows:
+        width_data = [(f"Lane {r[0]}", float(r[2])) for r in summary_rows]
+        height_data = [(f"Lane {r[0]}", float(r[3])) for r in summary_rows]
         if width_data:
             width_chart = (
-                section_header("Eye Width per Lane (UI)", "")
+                section_header("Worst Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
                 f'margin:4px 0 8px 0;">PASS \u2265 {_PAM4_PASS_UI} UI | '
                 f"WARN \u2265 {_PAM4_FAIL_UI} UI | FAIL &lt; {_PAM4_FAIL_UI} UI</div>"
             )
         if height_data:
-            height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
+            height_chart = section_header("Worst Eye Height per Lane (mV)", "") + bar_chart(
                 height_data, bar_color=GREEN, height_px=16
             )
 
@@ -662,21 +678,19 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             f"</div>"
         )
 
-    _rendered = frozenset(
-        {
-            "eye_width_ui",
-            "eye_height_mv",
-            "margin_right_ui",
-            "margin_left_ui",
-            "margin_up_mv",
-            "margin_down_mv",
-            "lane",
-            "worst_lane",
-            "worst_margin_ui",
-        }
-    )
+    _rendered = frozenset({
+        "eye_width_ui", "eye_height_mv", "is_balanced",
+        "upper_eye_width_ui", "upper_eye_height_mv",
+        "middle_eye_width_ui", "middle_eye_height_mv",
+        "lower_eye_width_ui", "lower_eye_height_mv",
+        "margin_right_ui", "margin_left_ui",
+        "margin_up_mv", "margin_down_mv",
+        "sweep_time_ms",
+        "lane", "worst_lane", "worst_margin_ui",
+    })
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
     return (
-        f"{header}{criteria}{metrics}{margin_section}{width_chart}{height_chart}{eye_table}{extras}"
+        f"{header}{criteria}{metrics}{margin_section}"
+        f"{width_chart}{height_chart}{summary_table}{eye_detail_section}{extras}"
     )
