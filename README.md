@@ -1,67 +1,18 @@
 # Calypso
 
-PCIe Gen6 Atlas3 Host Card configuration and monitoring tool. Supports A0 silicon (PEX90144/PEX90080) and B0 silicon (PEX90024 through PEX90096). Provides CLI, REST API, and web dashboard interfaces for switch management, PCIe link diagnostics, performance monitoring, compliance testing, and MCU communication.
+PCIe Gen6 Atlas3 Host Card switch manager built with Python. Manages Broadcom PLX PCIe switches on the Serial Cables Atlas3 Host Card through a web dashboard, REST API, and CLI.
 
-## Hardware
+Supports A0 silicon (PEX90144/PEX90080) and B0 silicon (PEX90024 through PEX90096).
 
-Targets **Broadcom Atlas3** PCIe Gen6 switches on the Serial Cables Atlas3 Host Card. Supports both A0 and B0 silicon revisions.
-
-### A0 Silicon
-
-A0 boards share 5 physical connectors (CN0-CN4) mapped to different stations per variant.
-
-#### PCI6-AD-X16HI-BG6-144 (PEX90144) -- 144 lanes, 6 stations
-
-| Station | Port Range | Connector | Purpose |
-|---------|-----------|-----------|---------|
-| STN0 | 0-15 | -- | Root Complex |
-| STN1 | 16-31 | -- | Reserved |
-| STN2 | 32-47 | Golden Finger | Host PCIe x16 upstream |
-| STN5 | 80-95 | CN4 (Straddle) | PCIe straddle connector |
-| STN7 | 112-127 | CN0/CN1 (Ext MCIO) | External MCIO |
-| STN8 | 128-143 | CN2/CN3 (Int MCIO) | Internal MCIO |
-
-#### PCI6-AD-X16HI-BG6-80 (PEX90080) -- 80 lanes, 4 stations
-
-| Station | Port Range | Connector | Purpose |
-|---------|-----------|-----------|---------|
-| STN0 | 0-15 | CN2/CN3 (Int MCIO) | Internal MCIO |
-| STN1 | 16-31 | Golden Finger | Host PCIe x16 upstream |
-| STN2 | 32-47 | CN0/CN1 (Ext MCIO) | External MCIO |
-| STN6 | 96-111 | CN4 (Straddle) | PCIe straddle connector |
-
-#### Connector Pinout (CN0-CN4)
-
-| Connector | PEX90144 Lanes (Station) | PEX90080 Lanes (Station) | Type |
-|-----------|-------------------------|-------------------------|------|
-| CN0 | 120-127 (STN7) | 40-47 (STN2) | Ext MCIO |
-| CN1 | 112-119 (STN7) | 32-39 (STN2) | Ext MCIO |
-| CN2 | 136-143 (STN8) | 8-15 (STN0) | Int MCIO |
-| CN3 | 128-135 (STN8) | 0-7 (STN0) | Int MCIO |
-| CN4 | 80-95 (STN5) | 96-111 (STN6) | Straddle |
-
-### B0 Silicon
-
-B0 variants are identified by ChipID (0xA024-0xA096). All use 16 ports per station. Connector maps are pending from Broadcom.
-
-| Variant | ChipID | Data Stations | Port Ranges |
-|---------|--------|---------------|-------------|
-| PEX90024 | 0xA024 | 0, 1 | 0-15, 24-31 |
-| PEX90032 | 0xA032 | 0, 1 | 0-15, 16-31 |
-| PEX90048 | 0xA048 | 0, 1, 2 | 0-47 |
-| PEX90064 | 0xA064 | 0, 1, 3, 4 | 0-31, 48-79 (skips stn 2) |
-| PEX90080-B0 | 0xA080 | 0-4 | 0-79 |
-| PEX90096 | 0xA096 | 0-5 | 0-95 |
+**For detailed usage instructions, hardware reference, and complete API/CLI documentation, see the [User Manual](docs/USER_MANUAL.md).**
 
 ## Requirements
 
 - Python 3.10+
-- Broadcom PLX SDK (PlxApi shared library)
-- **Linux**: PLX kernel driver (`PlxSvc` module) loaded -- use `calypso driver build && calypso driver install`
-- **Windows**: PlxSvc kernel service running -- use `calypso driver install` (requires administrator). `PlxApi.dll` loaded via `ctypes.WinDLL` (`__stdcall`). Both `PlxSvc.sys` and `PlxApi.dll` are vendored in `vendor/plxsdk/`.
-- Serial connection to MCU (optional, for MCU and NVMe-MI features -- requires `serialcables-atlas3` package)
-- SPDK `spdk_nvme_perf` on PATH (optional, for SPDK workload generation)
-- pynvme (optional, Linux only, for pynvme workload generation)
+- Broadcom PLX SDK (PlxApi shared library, vendored in `vendor/plxsdk/`)
+- **Linux**: PLX kernel driver (`PlxSvc` module) -- `calypso driver build && calypso driver install`
+- **Windows**: PlxSvc kernel service -- `calypso driver install` (requires administrator)
+- Serial connection to MCU (optional, for MCU and NVMe-MI features)
 
 ## Installation
 
@@ -69,47 +20,24 @@ B0 variants are identified by ChipID (0xA024-0xA096). All use 16 ports per stati
 pip install -e .
 ```
 
-Or with dev dependencies:
+With dev dependencies:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-With NVMe workload generation (pynvme backend, Linux only):
+With NVMe workload generation (Linux only):
 
 ```bash
 pip install -e ".[workloads]"
 ```
 
-For the SPDK backend, install `spdk_nvme_perf` as a system package and ensure it is on your PATH. See the [SPDK documentation](https://spdk.io/doc/getting_started.html) for build instructions.
-
-## PLX SDK Setup
-
-Calypso searches for the PLX SDK shared library in the following order:
-
-1. **Vendored SDK** -- `vendor/plxsdk/` in the project root (recommended for distribution)
-2. **`PLX_SDK_DIR` environment variable** -- explicit path to the SDK root
-3. **Legacy SDK directory** -- `Broadcom_PCIe_SDK_Linux_v23_2_44_0_Alpha_*/PlxSdk` in the project root
-4. **System paths** (Linux only) -- `/usr/local/lib`, `/usr/lib`, `/opt/plx/lib`
-5. **System PATH / LD_LIBRARY_PATH** -- fallback name-based load (`PlxApi.dll` or `libPlxApi.so`)
-
-On **Windows**, the library is loaded with `ctypes.WinDLL` (`__stdcall` calling convention). On **Linux**, `ctypes.CDLL` (`__cdecl`) is used.
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PLX_SDK_DIR` | Path to Broadcom PLX SDK root directory | Auto-detected (vendor/plxsdk) |
-| `CALYPSO_STORAGE_SECRET` | Secret key for NiceGUI browser session storage | Random 32-byte hex per launch |
-
 ## Quick Start
 
-The fastest way to get running is the one-click launcher script, which handles venv creation, package installation, driver setup, and server launch:
+The fastest way to get running is the one-click launcher:
 
 - **Windows**: Double-click `launch.bat` (right-click "Run as administrator" for driver install)
 - **Linux**: `chmod +x launch.sh && ./launch.sh` (run with `sudo` for driver install)
-
-On Linux, the launcher will prompt to install with NVMe workload generation support (pynvme).
 
 ### Manual Setup
 
@@ -127,252 +55,42 @@ calypso ports 0
 calypso serve --host 0.0.0.0 --port 8000
 ```
 
-## Architecture
+The web dashboard is available at `http://localhost:8000/`. Interactive API docs are at `http://localhost:8000/docs`.
+
+## Key Features
+
+- **Device discovery** across PCIe, UART, and SDB transports
+- **Link diagnostics** -- port status, LTSSM tracing, equalization monitoring
+- **Performance monitoring** -- real-time bandwidth/utilization via WebSocket
+- **PHY analysis** -- SerDes diagnostics, User Test Patterns, lane margining
+- **Compliance testing** -- 6 automated suites with HTML reports
+- **Recipes and Workflows** -- 27 validation recipes across 6 categories, chainable into multi-step workflows
+- **Gen6 Flit mode** -- BER measurement, FEC analysis, error injection, PAM4 eye sweep
+- **NVMe workloads** -- SPDK and pynvme backends with combined host+switch metrics
+- **MCU monitoring** -- thermal, fan, voltage, power, error counters, BIST, I2C/I3C bus, NVMe-MI
+
+## Project Structure
 
 ```
 src/calypso/
-├── bindings/       # ctypes bindings to Broadcom PLX SDK (PlxApi)
-├── transport/      # Transport abstraction (PCIe, UART, SDB/USB)
-├── sdk/            # Low-level SDK wrappers (device, registers, EEPROM, DMA, etc.)
-├── hardware/       # Atlas3 board definitions (station/connector/lane mapping, PHY)
-├── models/         # Pydantic data models
-├── core/           # Domain logic (switch, ports, topology, perf, PCIe config, PHY, EEPROM)
-├── compliance/     # PCIe compliance testing (6 suites, HTML reports)
-├── workflows/      # Recipes & Workflows for structured hardware validation
-├── workloads/      # Optional NVMe workload generation (SPDK perf, pynvme)
-├── mcu/            # MCU serial client (health, ports, errors, BIST, config, I2C/I3C bus)
-├── mctp/           # MCTP over I2C/I3C transport, framing, and endpoint discovery
-├── nvme_mi/        # NVMe-MI client, commands, drive discovery, and health models
-├── api/            # FastAPI REST + WebSocket API
-├── cli/            # Click CLI commands
-├── ui/             # NiceGUI web dashboard
-├── driver/         # PLX kernel driver build/install manager
-└── utils/          # Logging utilities
+  bindings/       ctypes bindings to Broadcom PLX SDK
+  transport/      Transport abstraction (PCIe, UART, SDB)
+  sdk/            Pythonic wrappers over PLX SDK C functions
+  hardware/       Atlas3 board definitions (station/connector/lane mapping)
+  models/         Pydantic v2 data models
+  core/           Domain logic (switch, ports, topology, perf, PHY, EEPROM)
+  compliance/     PCIe compliance testing engine
+  workflows/      Recipes and workflow validation system
+  workloads/      NVMe workload generation (SPDK, pynvme)
+  mcu/            MCU serial client
+  mctp/           MCTP over I2C/I3C transport
+  nvme_mi/        NVMe-MI client and drive discovery
+  api/            FastAPI REST + WebSocket API
+  cli/            Click CLI commands
+  ui/             NiceGUI web dashboard
+  driver/         PLX kernel driver build/install manager
+  utils/          Logging utilities
 ```
-
-## CLI
-
-### Device Operations
-
-```bash
-calypso scan                          # Discover devices
-calypso scan --transport uart --port COM3  # Discover via UART
-calypso info 0                        # Device details
-calypso ports 0                       # All port statuses
-calypso perf 0 --interval 1 --count 10    # Performance counters
-```
-
-### PCIe Config Space
-
-```bash
-calypso pcie config-space 0                  # Dump config registers
-calypso pcie config-space 0 --offset 0x100 --count 16
-calypso pcie caps 0                          # List capabilities
-calypso pcie link 0                          # Link speed/width
-calypso pcie retrain 0                       # Retrain link
-calypso pcie set-speed 0 --speed 4           # Target Gen4
-calypso pcie device-control 0                # Show MPS/MRRS
-calypso pcie device-control 0 --mps 256 --mrrs 512
-calypso pcie aer 0                           # AER error status
-calypso pcie aer 0 --clear                   # Clear AER errors
-```
-
-### EEPROM
-
-```bash
-calypso eeprom info 0                        # EEPROM presence/status
-calypso eeprom read 0 --offset 0 --count 16  # Read DWORDs
-calypso eeprom write 0 --offset 0 --value 0xDEADBEEF
-calypso eeprom crc 0                         # Verify CRC
-calypso eeprom crc 0 --update                # Recalculate + write CRC
-```
-
-### PHY Diagnostics
-
-```bash
-calypso phy speeds 0                         # Supported link speeds
-calypso phy eq-status 0                      # Equalization status
-calypso phy lane-eq 0 --port-number 112 --num-lanes 4
-calypso phy serdes-diag 0 --port-number 112
-calypso phy port-control 0 --port-number 112
-calypso phy cmd-status 0 --port-number 112
-calypso phy utp-test 0 --port-number 112 --pattern prbs31 --rate 4
-calypso phy margining 0
-```
-
-### MCU (Serial)
-
-```bash
-calypso mcu --port COM3 discover             # Discover on serial
-calypso mcu --port COM3 version              # Firmware version
-calypso mcu --port COM3 health               # Thermal/power/fan
-calypso mcu --port COM3 ports                # Port status
-calypso mcu --port COM3 errors               # Error counters
-calypso mcu --port COM3 errors --clear       # Clear counters
-calypso mcu --port COM3 config               # Mode/clock/spread/FLIT
-calypso mcu --port COM3 bist                 # Built-In Self Test
-```
-
-### I2C/I3C Bus (via MCU Serial)
-
-```bash
-calypso mcu --port COM3 i2c-scan -c 0 -ch a              # Scan I2C bus on connector 0, channel a
-calypso mcu --port COM3 i2c-read -c 0 -ch a -a 0x50 -r 0 -n 16  # Read 16 bytes from I2C device
-calypso mcu --port COM3 i2c-write -c 0 -ch a -a 0x50 -d 0x00,0x01  # Write bytes to I2C device
-calypso mcu --port COM3 i3c-scan -c 0 -ch a              # Run I3C ENTDAA discovery
-calypso mcu --port COM3 i3c-read -c 0 -ch a -a 0x08 -r 0 -n 16  # Read from I3C target
-calypso mcu --port COM3 i3c-write -c 0 -ch a -a 0x08 -r 0 -d 0x00  # Write to I3C target
-```
-
-### NVMe-MI (via MCU Serial)
-
-```bash
-calypso mcu --port COM3 nvme discover               # Scan all connectors for NVMe drives
-calypso mcu --port COM3 nvme health -c 0 -ch a      # Poll health for drive at CN0/a
-calypso mcu --port COM3 nvme health -c 2 -ch b -a 0x6A  # Specify I2C address
-```
-
-Discovers NVMe drives via the NVMe-MI over MCTP over I2C protocol stack. Each connector (CN0-CN5) has two I2C channels (a/b). The MCU acts as the I2C bus master, with MCTP framing carried over I2C to NVMe-MI endpoints on attached drives.
-
-### NVMe Workloads (Linux only)
-
-```bash
-calypso workloads backends                   # Show available backends
-calypso workloads validate --bdf 0000:01:00.0  # Validate target device
-
-# Run SPDK workload
-calypso workloads run --backend spdk --bdf 0000:01:00.0 \
-    --workload randread --io-size 4096 --queue-depth 128 \
-    --duration 30 --workers 4 --core-mask 0xFF
-
-# Run pynvme workload
-calypso workloads run --backend pynvme --bdf 0000:01:00.0 \
-    --workload randread --duration 10
-
-# Combined host + switch metrics
-calypso workloads run --backend spdk --bdf 0000:01:00.0 \
-    --duration 30 --with-switch-perf --device-index 0
-```
-
-Neither backend is required. The module probes for SPDK and pynvme at runtime and degrades gracefully. When no backend is available, `calypso workloads backends` reports an empty list and all other commands return helpful errors.
-
-### Recipes & Workflows
-
-```bash
-calypso recipe list                              # List all available recipes
-calypso recipe params <recipe_id>                # Show configurable parameters for a recipe
-calypso recipe run <recipe_id> <device_index>    # Run a recipe on a device
-calypso recipe list-workflows                    # List saved workflow definitions
-calypso recipe run-workflow <workflow_id> <device_index>  # Run a saved workflow
-```
-
-27 recipes across 6 categories: link_health, signal_integrity, performance, configuration, debug, error_testing. Includes Gen6-specific recipes for Flit BER measurement, Flit error injection, PAM4 eye sweep, and Flit performance tracking. Recipes are individual validation test sequences; workflows chain multiple recipes with conditions, loops, and inter-step parameter bindings. Signal integrity and performance recipes declare `requires_link_up` and the API enforces a link-up guard before execution (bypass with `force` flag).
-
-Both the recipe runner and workflow monitor provide live monitoring with real-time metric cards (pass/fail/warn/running counts, rendered via cached DOM elements for flicker-free updates), per-step measured values (bandwidth, BER, error counts, register values) with smart unit formatting and anomaly color coding, and an inline cancel button. Each step displays port/lane context badges (e.g., "Port 2", "Lane 3") and criticality-based styling (red left border for CRITICAL, orange for HIGH). The active recipe card shows a cyan glow indicator, and duplicate runs are prevented while a recipe is in progress. Steps are matched by index rather than name to avoid collisions in retry loops. On completion, a toast notification fires, and a "Run Again" button allows re-execution with the same parameters. A "Download Report" button generates a self-contained HTML report and a "JSON" button exports results for programmatic consumption. BER soak results use tiered coloring per PCIe 6.1 spec (greater than 1e-6 red, greater than 1e-12 yellow) and read actual link speed rather than assuming 64GT/s for FBER calculations. FBER measurement uses rate-based BER thresholds, and the BER soak UTP path computes estimated BER per lane. BER and eye scan recipe outputs include link speed and width. Shared UI helpers live in `ui/components/monitor_common.py` (includes `render_metric_cards()` with caching, `CRITICALITY_BORDER` and `SUBDUED_CRITICALITIES` constants).
-
-HTML reports include 22 specialized recipe-specific renderers (split across 7 modules: `report_sections.py` dispatcher, `report_sections_helpers.py` shared theme/formatting, `report_sections_recipes.py` core renderers, `report_sections_gen6.py` Gen6 renderers, `report_sections_gen6_ext.py` extended Gen6 renderers, `report_sections_error_debug.py` error/debug renderers, and `thresholds.py` shared threshold constants) covering per-lane BER with confidence intervals, eye scan margins, bandwidth per-port charts with speed-aware encoding efficiency (Gen1/2: 8b/10b at 0.80, Gen3-5: 128b/130b at 0.9846, Gen6: Flit mode at 0.9375), LTSSM state transitions, Gen6 capability checklists with TX EQ coefficient reporting (per-lane downstream/upstream presets), Flit performance metrics, FEC analysis (correctable and uncorrectable events), ordered set audit, EQ phase audit, SerDes diagnostics, error aggregation, and link health checks. A generic renderer handles all remaining recipes and includes full `measured_values` data. All specialized renderers include a catch-all "Additional Measurements" section (collapsible) so no measurement data is ever silently dropped. Reports display device identification (chip type, silicon revision, BDF address) in headers, test parameters per recipe, wall-clock timestamps on step results, pass/fail threshold documentation, human-readable duration formatting (e.g., "30.0s", "2.5min"), CSP meta tag for security, and print-friendly CSS with repeated table headers and intact row page breaks. Run-to-run comparison reports are available via `report_comparison.py`, producing side-by-side delta analysis between a baseline and current run. CSV export includes a `measured_values_json` column with full measurement data alongside individual scalar columns, a `device_id` field in the summary CSV, and CSV injection protection. BER soak results include `bits_tested` for 95% confidence interval calculation, and Multi-Speed BER computes per-lane `estimated_ber` and `bits_tested` for both FBER and UTP paths. The report modules are covered by 183 tests (120 in `test_report_renderers.py`, 63 in `test_report_export.py`) achieving 97-100% coverage.
-
-### Driver Management
-
-```bash
-calypso driver status                        # Check driver/service status
-calypso driver check                         # Check prerequisites
-calypso driver build                         # Build PlxSvc + PlxApi (Linux only)
-calypso driver install                       # Install and start driver/service
-calypso driver uninstall                     # Stop and remove driver/service
-```
-
-On **Linux**, `install` loads the PlxSvc kernel module (requires sudo). On **Windows**, `install` registers and starts the PlxSvc kernel service (requires administrator). The Windows driver (`PlxSvc.sys`) is vendored in `vendor/plxsdk/Driver/`.
-
-## REST API
-
-Start the server:
-
-```bash
-calypso serve --host 0.0.0.0 --port 8000
-```
-
-API docs available at `http://localhost:8000/docs` (Swagger UI).
-
-### Endpoints
-
-| Group | Endpoints | Description |
-|-------|----------|-------------|
-| Devices | `POST /scan`, `GET /`, `POST /connect`, `POST /{id}/disconnect`, `GET /{id}`, `POST /{id}/reset` | Device lifecycle |
-| Ports | `GET /{id}/ports`, `GET /{id}/ports/{n}` | Port status |
-| Performance | `POST /{id}/perf/start`, `POST /{id}/perf/stop`, `GET /{id}/perf/snapshot`, `WS /{id}/perf/stream` | Perf monitoring + live WebSocket |
-| Config | `GET /{id}/config` | Switch configuration |
-| Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
-| Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
-| Compliance | `POST /{id}/compliance/start`, `GET /{id}/compliance/progress`, `GET /{id}/compliance/result`, `POST /{id}/compliance/cancel`, `GET /{id}/compliance/report` | PCIe compliance testing + HTML reports |
-| Recipes | `GET /{id}/recipes`, `POST /{id}/recipes/run`, `GET /{id}/recipes/progress`, `GET /{id}/recipes/result`, `POST /{id}/recipes/cancel`, `GET /{id}/recipes/report` | Recipe execution + progress + HTML report download |
-| Workflows | `POST /{id}/workflows/run`, `GET /{id}/workflows/progress/{run_id}`, `GET /{id}/workflows/result/{run_id}`, `POST /{id}/workflows/cancel/{run_id}`, `GET /{id}/workflows/report/{run_id}` | Multi-recipe workflow execution + HTML reports |
-| Saved Workflows | `GET /workflows`, `GET /workflows/{id}`, `POST /workflows`, `DELETE /workflows/{id}` | Workflow definition CRUD |
-| Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear`, `POST /{id}/config-write` | PCIe config space (port-targeted) |
-| Flit Logging | `GET /{id}/flit-logging`, `POST /{id}/flit-logging/drain-log`, `POST /{id}/flit-logging/fber/start`, `POST /{id}/flit-logging/fber/stop`, `POST /{id}/flit-logging/fber/clear` | Flit error log FIFO + FBER measurement |
-| Flit Perf | `GET /{id}/flit-perf`, `POST /{id}/flit-perf/start`, `POST /{id}/flit-perf/stop` | Flit performance measurement + LTSSM tracking |
-| Flit Error Injection | `GET /{id}/flit-error-injection`, `POST /{id}/flit-error-injection/flit/configure`, `POST /{id}/flit-error-injection/flit/disable`, `POST /{id}/flit-error-injection/os/configure`, `POST /{id}/flit-error-injection/os/disable` | Flit + Ordered Set error injection |
-| EEPROM | `GET /{id}/eeprom/info`, `GET /{id}/eeprom/read`, `POST /{id}/eeprom/write`, `GET /{id}/eeprom/crc`, `POST /{id}/eeprom/crc/update` | EEPROM access |
-| PHY | `GET /{id}/phy/speeds`, `GET /{id}/phy/eq-status`, `GET /{id}/phy/lane-eq`, `GET /{id}/phy/serdes-diag`, `POST /{id}/phy/serdes-diag/clear`, `GET /{id}/phy/port-control`, `GET /{id}/phy/cmd-status`, `POST /{id}/phy/utp/load`, `GET /{id}/phy/utp/results`, `POST /{id}/phy/utp/prepare` | PHY layer (port-aware) |
-| Margining | `GET /{id}/phy/margining/capabilities`, `POST /{id}/phy/margining/sweep`, `GET /{id}/phy/margining/progress`, `GET /{id}/phy/margining/result`, `POST /{id}/phy/margining/reset`, `POST /{id}/phy/margining/sweep-pam4`, `GET /{id}/phy/margining/progress-pam4`, `GET /{id}/phy/margining/result-pam4` | Lane margining (NRZ + PAM4 3-eye) |
-| LTSSM | `GET /{id}/ltssm/snapshot`, `POST /{id}/ltssm/retrain`, `GET /{id}/ltssm/retrain/progress`, `GET /{id}/ltssm/retrain/result`, `POST /{id}/ltssm/clear-counters`, `POST /{id}/ltssm/ptrace/configure`, `POST /{id}/ltssm/ptrace/start`, `POST /{id}/ltssm/ptrace/stop`, `GET /{id}/ltssm/ptrace/status`, `GET /{id}/ltssm/ptrace/buffer` | LTSSM state trace + Ptrace capture |
-| PTrace | `POST /{id}/ptrace/configure`, `POST /{id}/ptrace/start`, `POST /{id}/ptrace/stop`, `POST /{id}/ptrace/clear`, `POST /{id}/ptrace/manual-trigger`, `GET /{id}/ptrace/status`, `GET /{id}/ptrace/buffer`, `POST /{id}/ptrace/filter`, `POST /{id}/ptrace/filter-control`, `POST /{id}/ptrace/condition-attributes`, `POST /{id}/ptrace/condition-data`, `POST /{id}/ptrace/error-trigger`, `POST /{id}/ptrace/event-counter` | Protocol trace capture + Flit mode (A0) |
-| Packet Exerciser | `POST /{id}/exerciser/send`, `POST /{id}/exerciser/stop`, `GET /{id}/exerciser/status`, `POST /{id}/exerciser/capture-and-send`, `POST /{id}/exerciser/dp-bist/start`, `POST /{id}/exerciser/dp-bist/stop`, `GET /{id}/exerciser/dp-bist/status` | PCIe TLP generation + DP BIST |
-| MCU | `GET /mcu/discover`, `POST /mcu/connect`, `GET /mcu/health`, `GET /mcu/ports`, `GET /mcu/errors`, `GET /mcu/config/*`, `POST /mcu/bist` | MCU serial |
-| NVMe-MI | `GET /mcu/nvme/discover`, `GET /mcu/nvme/health`, `GET /mcu/nvme/drive` | NVMe-MI over MCTP drive discovery and health |
-| Workloads | `GET /workloads/backends`, `POST /workloads/start`, `POST /workloads/{id}/stop`, `GET /workloads/{id}`, `GET /workloads`, `GET /workloads/{id}/combined/{device_id}`, `WS /workloads/{id}/stream` | NVMe workload generation + live progress |
-
-All device endpoints prefixed with `/api/devices`. Workloads endpoints prefixed with `/api`. MCU endpoints prefixed with `/api/mcu`. NVMe-MI endpoints prefixed with `/api/mcu/nvme`.
-
-## Web Dashboard
-
-The NiceGUI dashboard runs alongside the API server on the same port. Navigate to `http://localhost:8000/` in a browser.
-
-The dashboard uses a dark theme with consistent header, sidebar navigation, and Serial Cables branding across all pages. The sidebar organizes switch pages into collapsible categories (Overview, Configuration, Diagnostics, Monitoring, Validation) that auto-expand to reveal the active page. The discovery page auto-scans the PCIe bus on load (Windows and Linux) and displays any detected PLX devices immediately.
-
-### Switch Pages (SDK)
-
-| Page | Route | Features |
-|------|-------|----------|
-| Discovery | `/` | Auto-scan PCIe bus, scan for devices via UART/SDB, MCU serial connection |
-| Dashboard | `/switch/{id}` | Device overview |
-| Ports | `/switch/{id}/ports` | Port grid with link status |
-| Performance | `/switch/{id}/perf` | Live WebSocket streaming, bandwidth + utilization charts |
-| Configuration | `/switch/{id}/config` | Virtual switch and multi-host config |
-| Topology | `/switch/{id}/topology` | Fabric topology with connector health, hardware reference, downstream device identification |
-| Error Overview | `/switch/{id}/errors` | Combined AER, MCU, and LTSSM error view with per-port breakdown |
-| Registers | `/switch/{id}/registers` | Port-targeted config space browser with annotated hex dump, clickable expandable capabilities, register decode (incl. Flit Logging, Flit Perf, Flit Error Injection), config write with confirmation, AER, link control, device control |
-| EEPROM | `/switch/{id}/eeprom` | Hex viewer, write with confirmation, CRC management |
-| PHY Monitor | `/switch/{id}/phy` | Port-aware link & EQ (16/32/64 GT/s), UTP testing with auto-poll SerDes, PHY register browser |
-| Eye Diagram | `/switch/{id}/eye` | Lane margining sweep visualization, eye width/height measurement |
-| LTSSM Trace | `/switch/{id}/ltssm` | LTSSM state polling, retrain-and-watch with state transition chart, Ptrace capture |
-| Protocol Trace | `/switch/{id}/ptrace` | Embedded protocol analyzer with capture config, hardware trigger/filter, Flit mode condition matching, 28-bit error triggers, event counters, 600-bit trace buffer with CSV/hex export, auto-poll status |
-| Packet Exerciser | `/switch/{id}/pktexer` | PCIe TLP generation (15 types), 4 hardware threads, DW FIFO + RAM loading, PTrace+Exerciser composite capture, Datapath BIST |
-| Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
-| Recipes | `/switch/{id}/workflows` | Category tabs (6 categories), recipe cards with parameters, inline runner with live metric cards (flicker-free cached rendering), per-step port/lane badges and criticality borders, progress tracking, active card cyan glow, duplicate-run prevention, cancel, completion toast, "Run Again" button, HTML report and JSON export |
-| Workflow Builder | `/switch/{id}/workflow-builder` | Visual workflow composer, step editor with conditions/loops/bindings, total estimated duration display, save/load with delete confirmation, live execution monitor with metric cards and measured values, HTML report and JSON export |
-| Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
-
-### MCU Pages (Serial)
-
-| Page | Route | Features |
-|------|-------|----------|
-| Health | `/mcu/health` | Thermal, fan, voltage, power |
-| Port Status | `/mcu/ports` | Station/port status via MCU |
-| Error Counters | `/mcu/errors` | Per-port error counts with clear |
-| Configuration | `/mcu/config` | Mode, clock, spread spectrum, FLIT |
-| Diagnostics | `/mcu/diagnostics` | BIST and diagnostic tools |
-| I2C/I3C Bus | `/mcu/bus` | I2C/I3C bus scan, read, write, I3C ENTDAA discovery |
-| NVMe Drives | `/mcu/nvme` | NVMe-MI drive discovery, SMART health, per-controller detail, auto-refresh |
-
-## Transport Layers
-
-Calypso supports three transport modes for communicating with Atlas3 devices:
-
-- **PCIe** -- Direct PCIe bus access via PLX SDK. Primary transport for all switch operations. On Linux, requires the `PlxSvc` kernel module. On Windows, requires the Broadcom PlxSvc Windows service and `PlxApi.dll`.
-- **UART** -- Serial port communication via the Atlas3 MCU over USB. Used for health, port status, error counters, configuration, and BIST. Requires the `serialcables-atlas3` Python package.
-- **SDB** -- Serial Debug Bus over USB. Alternative debug interface using the PLX SDK's SDB mode.
-- **I2C/I3C (MCTP)** -- MCU-managed I2C/I3C bus for NVMe-MI over MCTP. The MCU on the Atlas3 board acts as the I2C bus master; MCTP messages are framed over I2C to communicate with NVMe-MI endpoints on attached NVMe drives (CN0-CN5, channels a/b).
 
 ## Development
 
@@ -389,6 +107,12 @@ ruff check src/
 # Format
 ruff format src/
 ```
+
+Tests are organized under `tests/` with `unit/`, `integration/`, and `e2e/` subdirectories.
+
+## Documentation
+
+- **[User Manual](docs/USER_MANUAL.md)** -- Complete guide covering installation, all web dashboard pages, hardware reference, REST API reference, CLI reference, and troubleshooting.
 
 ## License
 

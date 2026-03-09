@@ -10,6 +10,7 @@ Version 0.1.0
 
 1. [Introduction](#1-introduction)
 2. [System Requirements](#2-system-requirements)
+   - 2.1 [Transport Layers](#transport-layers)
 3. [Installation](#3-installation)
 4. [Getting Started](#4-getting-started)
 5. [Web Dashboard](#5-web-dashboard)
@@ -38,6 +39,7 @@ Version 0.1.0
 7. [Appendix A: REST API Reference](#appendix-a-rest-api-reference)
 8. [Appendix B: CLI Reference](#appendix-b-cli-reference)
 9. [Appendix C: Troubleshooting](#appendix-c-troubleshooting)
+10. [Appendix D: Script Examples](#appendix-d-script-examples)
 
 ---
 
@@ -56,6 +58,8 @@ Calypso is a comprehensive management tool for Broadcom Atlas3 PCIe Gen6 switche
 - **MCU monitoring** -- thermal, fan, voltage, power, error counters, BIST via serial
 
 The primary audience for this tool is PCIe validation engineers performing link bring-up, signal integrity testing, error analysis, and system-level validation on Atlas3 host card platforms.
+
+Most users begin by exploring the web dashboard to understand the full capabilities of their Atlas3 hardware, then integrate Calypso into automation frameworks using the REST API or CLI. This manual is organized accordingly -- the web dashboard is documented first, with the CLI, REST API, and scripting examples in the appendixes.
 
 ---
 
@@ -105,6 +109,19 @@ Calypso searches for the PLX SDK shared library in the following order:
 |----------|-------------|---------|
 | `PLX_SDK_DIR` | Path to Broadcom PLX SDK root directory | Auto-detected |
 | `CALYPSO_STORAGE_SECRET` | Secret key for browser session storage | Random 32-byte hex per launch |
+
+### Transport Layers
+
+Calypso supports four transport modes for communicating with Atlas3 hardware:
+
+| Transport | Description | Requirements | Platform |
+|-----------|-------------|--------------|----------|
+| **PCIe** | Direct PCIe bus access via PLX SDK | PlxSvc driver loaded, PlxApi library | Linux, Windows |
+| **UART** | Serial access via MCU USB port | USB cable to Atlas3 MCU, `serialcables-atlas3` package | Linux, Windows |
+| **SDB** | Serial Debug Bus | SDB-capable firmware, serial connection | Linux, Windows |
+| **I2C/I3C MCTP** | Management Component Transport Protocol over I2C/I3C backplane | MCU serial connection, I3C-capable drives | Linux, Windows |
+
+PCIe transport provides full switch management (config space, performance, PHY, compliance). UART and SDB provide a subset of operations when PCIe is unavailable (e.g., pre-boot debug). I2C/I3C MCTP is used exclusively for NVMe-MI drive health monitoring through the MCU.
 
 ---
 
@@ -995,7 +1012,7 @@ Click **Cancel** to request cancellation of a running test. The engine completes
 
 NVMe workload generation with optional combined host+switch performance correlation. Requires the SPDK or pynvme backend, both of which are Linux-only.
 
-> Requires SPDK (`spdk_nvme_perf` on PATH) or pynvme. Backend availability is shown at the top of the page.
+> Requires SPDK (`spdk_nvme_perf` on PATH) or pynvme. Backend availability is shown at the top of the page. For SPDK installation instructions, see the [SPDK Getting Started Guide](https://spdk.io/doc/getting_started.html).
 
 #### Configuration
 
@@ -2307,6 +2324,219 @@ calypso serve [--host HOST] [--port PORT] [--no-ui]
 3. Use **Eye Diagram** to measure timing and voltage margins on the affected lane
 4. Check **Error Overview > LTSSM Recoveries** for the affected port
 5. Consider reducing target link speed via **PCIe Registers > Link Status > Set Target Speed**
+
+---
+
+## Appendix D: Script Examples
+
+The following examples demonstrate how to integrate Calypso into automation frameworks using the REST API. All examples use Python with the `requests` library.
+
+> **Tip:** Interactive API documentation is available at `http://localhost:8000/docs` (Swagger UI) when the server is running.
+
+### Connecting and Scanning for Devices
+
+```python
+import requests
+
+BASE = "http://localhost:8000"
+
+# Scan for PCIe devices
+resp = requests.post(f"{BASE}/api/devices/scan", json={"transport": "pcie"})
+devices = resp.json()
+print(f"Found {len(devices)} device(s)")
+
+# Connect to the first device
+resp = requests.post(f"{BASE}/api/devices/connect", json={
+    "transport": "pcie",
+    "device_index": 0
+})
+device = resp.json()
+device_id = device["device_id"]
+print(f"Connected: {device_id}")
+```
+
+### Reading Port Status
+
+```python
+# Get all port statuses
+resp = requests.get(f"{BASE}/api/devices/{device_id}/ports")
+ports = resp.json()
+
+for port in ports:
+    status = "UP" if port["link_up"] else "DOWN"
+    speed = port.get("current_speed", "N/A")
+    width = port.get("current_width", "N/A")
+    print(f"Port {port['port_number']}: {status} ({speed} x{width})")
+```
+
+### Running a Recipe and Downloading the Report
+
+```python
+import time
+
+# Start a recipe
+resp = requests.post(f"{BASE}/api/devices/{device_id}/recipes/run", json={
+    "recipe_id": "all_port_sweep",
+    "parameters": {}
+})
+
+# Poll for completion
+while True:
+    progress = requests.get(f"{BASE}/api/devices/{device_id}/recipes/progress").json()
+    if progress["status"] in ("completed", "failed", "cancelled"):
+        break
+    print(f"Progress: {progress.get('percent', 0):.0f}%")
+    time.sleep(2)
+
+# Get results
+result = requests.get(f"{BASE}/api/devices/{device_id}/recipes/result").json()
+print(f"Verdict: {result['summary']['overall_status']}")
+print(f"Pass: {result['summary']['total_pass']}, Fail: {result['summary']['total_fail']}")
+
+# Download HTML report
+report = requests.get(f"{BASE}/api/devices/{device_id}/recipes/report")
+with open("port_sweep_report.html", "wb") as f:
+    f.write(report.content)
+print("Report saved to port_sweep_report.html")
+```
+
+### Running a Workflow
+
+```python
+import time
+
+# Define a workflow inline
+workflow = {
+    "name": "Quick Validation",
+    "description": "Port sweep followed by BER soak on port 32",
+    "steps": [
+        {
+            "recipe_id": "all_port_sweep",
+            "parameters": {},
+            "on_fail": "continue"
+        },
+        {
+            "recipe_id": "ber_soak",
+            "parameters": {"port_number": 32, "duration_s": 30},
+            "on_fail": "stop",
+            "condition": "step_0.status == \"pass\""
+        }
+    ]
+}
+
+# Start workflow
+resp = requests.post(f"{BASE}/api/devices/{device_id}/workflows/run", json=workflow)
+run_id = resp.json()["run_id"]
+
+# Poll for completion
+while True:
+    progress = requests.get(
+        f"{BASE}/api/devices/{device_id}/workflows/progress/{run_id}"
+    ).json()
+    if progress["status"] in ("completed", "failed", "cancelled"):
+        break
+    print(f"Step: {progress.get('current_step', '?')} - {progress.get('percent', 0):.0f}%")
+    time.sleep(2)
+
+# Download workflow report
+report = requests.get(f"{BASE}/api/devices/{device_id}/workflows/report/{run_id}")
+with open("validation_report.html", "wb") as f:
+    f.write(report.content)
+```
+
+### Monitoring Performance via WebSocket
+
+```python
+import json
+import websocket  # pip install websocket-client
+
+def on_message(ws, message):
+    snapshot = json.loads(message)
+    for port_data in snapshot.get("port_snapshots", []):
+        port = port_data["port_number"]
+        ingress = port_data.get("ingress_mbps", 0)
+        egress = port_data.get("egress_mbps", 0)
+        if ingress > 0 or egress > 0:
+            print(f"Port {port}: IN {ingress:.1f} MB/s, OUT {egress:.1f} MB/s")
+
+# Start performance monitoring first
+requests.post(f"{BASE}/api/devices/{device_id}/perf/start")
+
+# Connect to WebSocket stream
+ws = websocket.WebSocketApp(
+    f"ws://localhost:8000/api/devices/{device_id}/perf/stream",
+    on_message=on_message
+)
+ws.run_forever()
+```
+
+### Reading AER Error Status
+
+```python
+# Read AER status
+resp = requests.get(f"{BASE}/api/devices/{device_id}/aer")
+aer = resp.json()
+
+if aer.get("uncorrectable_status", 0) != 0:
+    print(f"UNCORRECTABLE ERRORS: 0x{aer['uncorrectable_status']:08X}")
+    for error_name in aer.get("uncorrectable_errors", []):
+        print(f"  - {error_name}")
+
+if aer.get("correctable_status", 0) != 0:
+    print(f"Correctable errors: 0x{aer['correctable_status']:08X}")
+
+# Clear AER errors
+requests.post(f"{BASE}/api/devices/{device_id}/errors/clear-aer")
+```
+
+### MCU Health Check (Serial)
+
+```python
+# Connect to MCU
+requests.post(f"{BASE}/api/mcu/connect", params={"port": "COM3"})
+
+# Read health telemetry
+health = requests.get(f"{BASE}/api/mcu/health", params={"port": "COM3"}).json()
+print(f"Temperature: {health['temperature']}C")
+print(f"Fan Speed: {health['fan_speed']} RPM")
+print(f"Power: {health['power_watts']}W")
+
+# Check error counters
+errors = requests.get(f"{BASE}/api/mcu/errors", params={"port": "COM3"}).json()
+total = sum(e.get("total", 0) for e in errors.get("port_errors", []))
+print(f"Total MCU errors: {total}")
+```
+
+### Batch Compliance Testing
+
+```python
+import time
+
+# Run full compliance suite
+resp = requests.post(f"{BASE}/api/devices/{device_id}/compliance/start", json={
+    "suites": ["T1", "T2", "T3", "T4", "T5", "T6"],
+    "ports": [{"port_number": 32, "port_select": 0, "lane_count": 16}],
+    "ber_duration_s": 10,
+    "idle_wait_s": 5,
+    "speed_settle_s": 2
+})
+
+# Poll
+while True:
+    progress = requests.get(f"{BASE}/api/devices/{device_id}/compliance/progress").json()
+    if progress["status"] in ("completed", "failed"):
+        break
+    print(f"{progress.get('current_suite', '?')}: {progress.get('percent', 0):.0f}%")
+    time.sleep(3)
+
+# Get result and report
+result = requests.get(f"{BASE}/api/devices/{device_id}/compliance/result").json()
+print(f"Overall: {result['overall_verdict']}")
+
+report = requests.get(f"{BASE}/api/devices/{device_id}/compliance/report")
+with open("compliance_report.html", "wb") as f:
+    f.write(report.content)
+```
 
 ---
 
