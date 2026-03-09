@@ -341,7 +341,7 @@ class FecAnalysisRecipe(Recipe):
         fec_ber = fec_delta / bits_tested if bits_tested > 0 else 0.0
 
         # Margin ratio: how far from the fail threshold
-        fec_margin_ratio = _FEC_RATE_FAIL / max(fec_rate, 1e-30) if fec_rate >= 0 else float("inf")
+        fec_margin_ratio = _FEC_RATE_FAIL / fec_rate if fec_rate > 0 else float("inf")
 
         if fec_rate >= _FEC_RATE_FAIL:
             status = StepStatus.FAIL

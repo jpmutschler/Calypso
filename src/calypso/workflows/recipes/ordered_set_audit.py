@@ -356,14 +356,16 @@ class OrderedSetAuditRecipe(Recipe):
             entries = buffer_result.entries if hasattr(buffer_result, "entries") else []
 
             # Count ordered sets by inspecting DW occupancy patterns
+            # PTrace DW occupancy codes for Gen6 ordered sets
+            _DW_SKP_CODES = (1, 2)  # SKP ordered set DW patterns
+            _DW_EIEOS_CODE = 3  # EIEOS ordered set DW pattern
             skp_count = 0
             eieos_count = 0
             for entry in entries:
                 dw = getattr(entry, "dw_occupancy", 0)
-                # SKP ordered sets typically have specific DW patterns
-                if dw in (1, 2):
+                if dw in _DW_SKP_CODES:
                     skp_count += 1
-                elif dw == 3:
+                elif dw == _DW_EIEOS_CODE:
                     eieos_count += 1
 
             dur = _elapsed_ms(t0)

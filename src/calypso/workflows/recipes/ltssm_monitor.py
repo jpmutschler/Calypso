@@ -95,6 +95,7 @@ class LtssmMonitorRecipe(Recipe):
         port_number: int = int(kwargs.get("port_number", 0))
         duration_s: float = float(kwargs.get("duration_s", 10.0))
         poll_interval_ms: int = int(kwargs.get("poll_interval_ms", 100))
+        device_id: str = str(kwargs.get("device_id", ""))
 
         params = {
             "port_number": port_number,
@@ -136,13 +137,13 @@ class LtssmMonitorRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         if self._is_cancelled(cancel):
             skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
             yield skip
             steps.append(skip)
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         # --- Step 2: Poll samples ---
         step = "Poll LTSSM samples"
@@ -210,7 +211,7 @@ class LtssmMonitorRecipe(Recipe):
         steps.append(result)
 
         if result.status == StepStatus.ERROR:
-            return self._make_summary(steps, start_time, params)
+            return self._make_summary(steps, start_time, params, device_id)
 
         # --- Step 3: Analyze transitions ---
         step = "Analyze transitions"
@@ -249,4 +250,4 @@ class LtssmMonitorRecipe(Recipe):
         yield result
         steps.append(result)
 
-        return self._make_summary(steps, start_time, params)
+        return self._make_summary(steps, start_time, params, device_id)
