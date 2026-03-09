@@ -567,8 +567,8 @@ class TestEyeBarCharts:
     def test_pam4_thresholds_shown(self):
         summary = make_summary(recipe_id="pam4_eye_sweep", steps=self._eye_steps())
         result = render_recipe_section(summary)
-        assert "0.1 UI" in result
-        assert "0.05 UI" in result
+        assert "0.1 UI" in result  # PAM4_EYE.pass_ui
+        assert "0.025 UI" in result  # PAM4_EYE.fail_ui
 
     def test_no_eye_data_no_charts(self):
         summary = make_summary(recipe_id="eye_quick_scan", steps=[make_result()])

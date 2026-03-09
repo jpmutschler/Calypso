@@ -352,7 +352,7 @@ class BerSoakRecipe(Recipe):
                 lane_rate = _LANE_RATE_BPS.get(speed_str, 64.0e9)
                 bits_tested = elapsed * lane_rate
 
-                thresholds = get_ber_thresholds(link.current_speed, is_flit_ber=False)
+                thresholds = get_ber_thresholds(link.current_speed, is_flit_ber=True)
                 worst_status = StepStatus.PASS
                 for idx, count in enumerate(lane_counters):
                     ber = count / bits_tested if bits_tested > 0 else 0.0

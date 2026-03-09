@@ -99,15 +99,14 @@ class Recipe(ABC):
     def _is_gen6_flit(self, dev: PLX_DEVICE_OBJECT, dev_key: PLX_DEVICE_KEY) -> bool:
         """Check if link is operating at 64 GT/s (Gen6 Flit mode).
 
-        Uses numeric speed code comparison rather than string matching.
-        PCIe 6.1: Link Status Current Link Speed = 6 for 64 GT/s.
+        Matches PLX SDK speed string formats: "Gen6", "64 GT/s", "64.0 GT/s".
         """
         from calypso.core.pcie_config import PcieConfigReader
 
         reader = PcieConfigReader(dev, dev_key)
         link = reader.get_link_status()
         speed = link.current_speed or ""
-        return speed == "Gen6" or "64" in speed
+        return speed == "Gen6" or "64 GT/s" in speed or "64.0" in speed
 
     def _is_cancelled(self, cancel: dict[str, bool]) -> bool:
         """Check the cancellation flag."""

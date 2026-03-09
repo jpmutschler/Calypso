@@ -15,9 +15,7 @@ from calypso.workflows.report_charts import (
     results_table,
     section_header,
 )
-from calypso.workflows.recipes.ltssm_monitor import (
-    _RECOVERY_WARN_THRESHOLD,
-)
+from calypso.workflows.thresholds import LTSSM_RECOVERY_WARN
 from calypso.workflows.report_sections_helpers import (
     BG_CARD,
     BORDER,
@@ -566,7 +564,7 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
         cards.append(metric_card("Final State", final_state, CYAN))
         cards.append(metric_card("Samples", str(sample_count), TEXT_PRIMARY))
 
-        recovery_color = RED if recovery_count >= _RECOVERY_WARN_THRESHOLD else GREEN
+        recovery_color = RED if recovery_count >= LTSSM_RECOVERY_WARN else GREEN
         cards.append(metric_card("Recovery Count", str(recovery_count), recovery_color))
 
     cards_html = ""
@@ -580,7 +578,7 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
     criteria = criteria_box(
         [
             "PASS: No transitions or expected transitions only",
-            f"WARN: Recovery count >= {_RECOVERY_WARN_THRESHOLD} during monitoring",
+            f"WARN: Recovery count >= {LTSSM_RECOVERY_WARN} during monitoring",
             "Monitors endpoint LTSSM state/substate at configurable poll interval",
         ]
     )
@@ -620,7 +618,7 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
 
     # Guidance if recovery is high
     guidance = ""
-    if recovery_count >= _RECOVERY_WARN_THRESHOLD:
+    if recovery_count >= LTSSM_RECOVERY_WARN:
         guidance = failure_guidance_box("recovery_high")
 
     # Catch-all extras

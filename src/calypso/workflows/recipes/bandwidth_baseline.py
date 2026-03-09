@@ -19,10 +19,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import UTILIZATION_WARN
 
 logger = get_logger(__name__)
-
-_UTILIZATION_WARN_THRESHOLD = 0.90
 
 
 def _encoding_efficiency(speed_gbps: float) -> float:
@@ -236,7 +235,7 @@ class BandwidthBaseline(Recipe):
             status = StepStatus.WARN
             message = (
                 f"Baseline computed; {len(high_util_ports)} port(s) "
-                f"above {_UTILIZATION_WARN_THRESHOLD * 100:.0f}% utilization"
+                f"above {UTILIZATION_WARN * 100:.0f}% utilization"
             )
             criticality = StepCriticality.HIGH
         else:
@@ -299,7 +298,7 @@ def _compute_baseline(
         if theoretical_max_bps > 0 and max_rate > 0:
             utilization = max_rate / theoretical_max_bps
             port_entry["utilization"] = round(utilization, 4)
-            if utilization >= _UTILIZATION_WARN_THRESHOLD:
+            if utilization >= UTILIZATION_WARN:
                 high_util_ports.append(port_num)
 
         per_port[f"port_{port_num}"] = port_entry

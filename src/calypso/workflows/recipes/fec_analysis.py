@@ -18,13 +18,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import FEC_RATE_FAIL, FEC_RATE_WARN
 
 logger = get_logger(__name__)
-
-# FEC correction rate threshold (corrections per second)
-# A high rate suggests the channel is operating near its error correction limit
-_FEC_RATE_WARN = 100.0
-_FEC_RATE_FAIL = 10000.0
 
 
 class FecAnalysisRecipe(Recipe):
@@ -166,7 +162,7 @@ class FecAnalysisRecipe(Recipe):
         yield self._make_running(step)
         t0 = time.monotonic()
         try:
-            # Configure FEC counter for correctable events (events_to_count=0)
+            # Configure FEC counter for all errors (events_to_count=0)
             reader.configure_flit_error_counter(enable=True, events_to_count=0)
             baseline_status = reader.get_flit_logging_status()
             dur = _elapsed_ms(t0)
@@ -301,7 +297,7 @@ class FecAnalysisRecipe(Recipe):
                     criticality=StepCriticality.MEDIUM,
                     measured_values={
                         "final_count": final_count,
-                        "fec_correctable_total": delta,
+                        "fec_total_delta": delta,
                     },
                     duration_ms=dur,
                     port_number=port_number,
@@ -322,6 +318,53 @@ class FecAnalysisRecipe(Recipe):
         if result.status == StepStatus.ERROR:
             return self._make_summary(steps, start_time, params, device_id)
 
+        # --- Step 4b: Count uncorrectable events ---
+        step = "Count uncorrectable events"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        fec_uncorrectable = 0
+        try:
+            # Reconfigure counter for FEC uncorrectable only (events_to_count=1)
+            reader.configure_flit_error_counter(enable=True, events_to_count=1)
+            # Brief soak to accumulate uncorrectable count
+            time.sleep(min(2.0, soak_duration_s * 0.1))
+            uncorr_status = reader.get_flit_logging_status()
+            dur = _elapsed_ms(t0)
+
+            if uncorr_status is not None:
+                fec_uncorrectable = uncorr_status.error_counter.counter
+                result = self._make_result(
+                    step,
+                    StepStatus.PASS,
+                    message=f"FEC uncorrectable count: {fec_uncorrectable}",
+                    criticality=StepCriticality.MEDIUM,
+                    measured_values={"fec_uncorrectable_raw": fec_uncorrectable},
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                result = self._make_result(
+                    step,
+                    StepStatus.WARN,
+                    message="Could not read uncorrectable counter; using 0",
+                    criticality=StepCriticality.MEDIUM,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = _elapsed_ms(t0)
+            logger.debug("fec_uncorrectable_read_failed", error=str(exc))
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Uncorrectable read failed ({exc}); using 0",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
         # --- Step 5: Analyze FEC rate ---
         step = "Analyze FEC rate"
         yield self._make_running(step)
@@ -330,30 +373,34 @@ class FecAnalysisRecipe(Recipe):
         fec_delta = final_count - baseline_count
         actual_soak = elapsed if elapsed > 0 else soak_duration_s
 
+        # Compute correctable = all_errors - uncorrectable
+        fec_correctable = max(fec_delta - fec_uncorrectable, 0)
+
         # Corrections per second
         fec_rate = fec_delta / actual_soak if actual_soak > 0 else 0.0
 
-        # Per-lane bit rate at 64GT/s
+        # Per-lane bit rate at 64GT/s, scaled by link width
         lane_rate_bps = 64.0e9
-        bits_tested = actual_soak * lane_rate_bps
+        link_width = baseline_status.error_counter.link_width or 1
+        bits_tested = actual_soak * lane_rate_bps * link_width
 
         # Corrections per bit (rough FEC correction BER)
         fec_ber = fec_delta / bits_tested if bits_tested > 0 else 0.0
 
         # Margin ratio: how far from the fail threshold
-        fec_margin_ratio = _FEC_RATE_FAIL / fec_rate if fec_rate > 0 else float("inf")
+        fec_margin_ratio = FEC_RATE_FAIL / fec_rate if fec_rate > 0 else float("inf")
 
-        if fec_rate >= _FEC_RATE_FAIL:
+        if fec_rate >= FEC_RATE_FAIL:
             status = StepStatus.FAIL
             msg = (
                 f"FEC correction rate {fec_rate:.1f}/s exceeds fail threshold"
-                f" ({_FEC_RATE_FAIL:.0f}/s)"
+                f" ({FEC_RATE_FAIL:.0f}/s)"
             )
-        elif fec_rate >= _FEC_RATE_WARN:
+        elif fec_rate >= FEC_RATE_WARN:
             status = StepStatus.WARN
             msg = (
                 f"FEC correction rate {fec_rate:.1f}/s exceeds warn threshold"
-                f" ({_FEC_RATE_WARN:.0f}/s)"
+                f" ({FEC_RATE_WARN:.0f}/s)"
             )
         elif fec_delta > 0:
             status = StepStatus.PASS
@@ -369,8 +416,8 @@ class FecAnalysisRecipe(Recipe):
             message=msg,
             criticality=StepCriticality.CRITICAL,
             measured_values={
-                "fec_correctable_total": fec_delta,
-                "fec_uncorrectable_total": 0,
+                "fec_correctable_total": fec_correctable,
+                "fec_uncorrectable_total": fec_uncorrectable,
                 "fec_correction_rate": round(fec_rate, 4),
                 "fec_correction_ber": fec_ber,
                 "soak_duration_s": round(actual_soak, 1),

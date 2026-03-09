@@ -1408,12 +1408,12 @@ Datapath Built-In Self Test -- factory-level TLP generation for datapath verific
 
 **Route:** `/switch/{device_id}/workflows`
 
-The Recipes page provides a library of 25 pre-built hardware validation test sequences organized into 6 categories:
+The Recipes page provides a library of 27 pre-built hardware validation test sequences organized into 6 categories:
 
 | Category | Icon | Description | Example Recipes |
 |----------|------|-------------|-----------------|
 | Link Health | Heart | PCIe link state and diagnostics | All Port Sweep, Link Health Check, Link Training Debug, LTSSM Monitor, EQ Phase Audit, Speed Downshift Test |
-| Signal Integrity | Waves | SerDes and signal quality | Eye Quick Scan, BER Soak, SerDes Diagnostics, PHY 64GT Audit, PAM4 Eye Sweep, FBER Measurement |
+| Signal Integrity | Waves | SerDes and signal quality | Eye Quick Scan, BER Soak, SerDes Diagnostics, PHY 64GT Audit, PAM4 Eye Sweep, FBER Measurement, FEC Counter Analysis, Ordered Set Audit |
 | Performance | Speed | Bandwidth and throughput testing | Bandwidth Baseline, Datapath BIST, Flit Performance Measurement |
 | Configuration | Settings | Device config validation | EEPROM Validation, Config Dump, Topology Snapshot |
 | Debug | Bug | Protocol trace and packet generation | PTrace Capture, Packet Exerciser Test |
@@ -1421,11 +1421,13 @@ The Recipes page provides a library of 25 pre-built hardware validation test seq
 
 #### Gen6 Flit Mode Recipes
 
-Nine recipes specifically target PCIe Gen6 64GT/s Flit mode capabilities:
+Eleven recipes specifically target PCIe Gen6 64GT/s Flit mode capabilities:
 
 | Recipe | Category | Description |
 |--------|----------|-------------|
 | FBER Measurement | Signal Integrity | Flit Bit Error Rate measurement with per-lane counters at 64GT/s. Uses BER rate thresholds: WARN at BER >= 1e-10, FAIL at BER >= 1e-8 |
+| FEC Counter Analysis | Signal Integrity | Measure FEC correction rate over a soak period -- reads both all-errors and uncorrectable counters, computes correctable = all - uncorrectable, uses link_width for bits_tested. Thresholds: WARN at >= 100 corrections/s, FAIL at >= 10000 corrections/s |
+| Ordered Set Audit | Signal Integrity | Capture PTrace traffic and analyze SKP/EIEOS ordered set patterns for Gen6 compliance. Validates SKP rate within spec bounds (0.1%-5% of trace entries) |
 | Flit Error Log Drain | Error Testing | Drain and analyze the Flit Error Log FIFO for FEC errors |
 | Flit Error Injection | Error Testing | Inject flit errors (TX/RX) and verify detection via error log |
 | Flit Performance Measurement | Performance | Track flit throughput and LTSSM state dwell times |
@@ -1489,7 +1491,7 @@ After a recipe completes (or is cancelled with partial results), three download 
   - Device identification header showing chip type, silicon revision, and BDF address
   - Test parameters and wall-clock timestamps for each step
   - Aggregate pass/fail/warn metrics and per-step results with pass/fail threshold criteria
-  - 10 specialized recipe renderers: port sweep summary tables, BER per-lane bar charts with 95% confidence intervals, eye scan grids, FBER measurement tables, bandwidth baselines with speed-aware encoding efficiency (Gen1/2: 8b/10b, Gen3-5: 128b/130b, Gen6: Flit mode), link training debug traces, PHY 64GT audit results with TX EQ coefficient reporting, PAM4 eye sweep grids, and Flit performance measurements. Recipes without a specialized renderer use a generic fallback that displays all measured_values.
+  - 22 specialized recipe renderers covering: port sweep summary tables, BER per-lane bar charts with 95% confidence intervals, eye scan grids, FBER measurement tables, bandwidth baselines with speed-aware encoding efficiency (Gen1/2: 8b/10b, Gen3-5: 128b/130b, Gen6: Flit mode), link training debug traces, PHY 64GT audit results with TX EQ coefficient reporting, PAM4 eye sweep grids, Flit performance measurements, FEC analysis (correctable and uncorrectable events with correction rates), ordered set audit, EQ phase audit, SerDes diagnostics, error aggregation sweep, link health check, LTSSM monitor, PTrace capture, speed downshift test, Flit error injection, Flit error log drain, and error recovery. Recipes without a specialized renderer use a generic fallback that displays all measured_values. All threshold constants (BER, eye margin, FEC rate, LTSSM recovery, utilization, SKP rate) are centralized in `thresholds.py`.
   - **Additional Measurements** -- All specialized renderers include a catch-all "Additional Measurements" section rendered as a collapsible `<details>` element. Any `measured_values` keys not explicitly handled by the specialized renderer appear here, ensuring no measurement data is ever silently dropped from reports.
   - Human-readable duration formatting (e.g., "30.0s" instead of "30000ms", "2.5min" instead of "150000ms")
   - CSP (Content Security Policy) meta tag on all generated HTML for security
@@ -1577,7 +1579,7 @@ After a workflow completes, two download options appear in the monitor panel:
   - Aggregate pass/fail/warn metrics across all steps
   - Per-recipe summary table with status badges
   - Detailed step-by-step results with wall-clock timestamps and pass/fail threshold criteria
-  - 10 specialized recipe visualizations (port sweep tables, BER per-lane charts with 95% confidence intervals, eye scan grids, FBER measurements, bandwidth with speed-aware encoding, PHY 64GT audit with TX EQ coefficients, and more). All renderers include a catch-all "Additional Measurements" collapsible section so no data is dropped. Unregistered recipes use a generic renderer that displays all measured_values.
+  - 22 specialized recipe visualizations (port sweep tables, BER per-lane charts with 95% confidence intervals, eye scan grids, FBER measurements, bandwidth with speed-aware encoding, PHY 64GT audit with TX EQ coefficients, FEC analysis with correctable/uncorrectable event breakdown, ordered set audit, EQ phase audit, SerDes diagnostics, error aggregation, link health, LTSSM monitor, PTrace capture, and more). All renderers include a catch-all "Additional Measurements" collapsible section so no data is dropped. Unregistered recipes use a generic renderer that displays all measured_values.
   - Human-readable durations, CSP meta tag, and print-friendly layout with repeated table headers and intact rows; works entirely offline with no external dependencies
 - **Comparison Report** -- Run-to-run comparison reports can be generated to compare baseline vs. current workflow results with side-by-side delta analysis.
 - **CSV** -- Step-level CSV with `measured_values_json` and individual scalar columns, plus a summary CSV with `device_id`. CSV injection protection applied on all string fields.

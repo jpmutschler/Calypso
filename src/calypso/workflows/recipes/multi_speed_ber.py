@@ -20,11 +20,7 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
-
 logger = get_logger(__name__)
-
-_BER_PASS_THRESHOLD = 1e-12
-_BER_WARN_THRESHOLD = 1e-9
 
 # (label, link_speed_code, expected_speed_substring)
 _ALL_SPEEDS: list[tuple[str, int, str]] = [

@@ -34,6 +34,7 @@ from calypso.workflows.report_sections_gen6_ext import (
     render_fec_analysis,
     render_flit_error_injection,
     render_flit_error_log_drain,
+    render_ordered_set_audit,
     render_serdes_diagnostics,
 )
 from calypso.workflows.report_sections_error_debug import (
@@ -153,4 +154,5 @@ _RENDERERS: dict[str, Callable[[RecipeSummary], str]] = {
     "ptrace_capture": render_ptrace_capture,
     "flit_error_log_drain": render_flit_error_log_drain,
     "fec_analysis": render_fec_analysis,
+    "ordered_set_audit": render_ordered_set_audit,
 }

@@ -24,12 +24,13 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import SKP_RATE_MAX, SKP_RATE_MIN
 
 logger = get_logger(__name__)
 
-# SKP ordered set expected insertion rate: ~1 per 370 symbols (PCIe 6.1 §4.2.7)
-_SKP_RATE_MIN = 0.001  # minimum fraction of trace entries that should be SKP
-_SKP_RATE_MAX = 0.05  # upper bound for reasonable SKP rate
+# PTrace DW occupancy codes for Gen6 ordered sets
+_DW_SKP_CODES = frozenset({1, 2})
+_DW_EIEOS_CODE = 3
 
 
 class OrderedSetAuditRecipe(Recipe):
@@ -208,12 +209,12 @@ class OrderedSetAuditRecipe(Recipe):
         if total_entries == 0:
             skp_status = StepStatus.WARN
             skp_msg = "No trace entries captured — cannot assess SKP rate"
-        elif skp_rate < _SKP_RATE_MIN:
+        elif skp_rate < SKP_RATE_MIN:
             skp_status = StepStatus.WARN
-            skp_msg = f"SKP rate {skp_rate:.4f} below minimum {_SKP_RATE_MIN}"
-        elif skp_rate > _SKP_RATE_MAX:
+            skp_msg = f"SKP rate {skp_rate:.4f} below minimum {SKP_RATE_MIN}"
+        elif skp_rate > SKP_RATE_MAX:
             skp_status = StepStatus.WARN
-            skp_msg = f"SKP rate {skp_rate:.4f} above expected maximum {_SKP_RATE_MAX}"
+            skp_msg = f"SKP rate {skp_rate:.4f} above expected maximum {SKP_RATE_MAX}"
         else:
             skp_status = StepStatus.PASS
             skp_msg = f"SKP insertion rate {skp_rate:.4f} within expected range"
@@ -356,9 +357,6 @@ class OrderedSetAuditRecipe(Recipe):
             entries = buffer_result.entries if hasattr(buffer_result, "entries") else []
 
             # Count ordered sets by inspecting DW occupancy patterns
-            # PTrace DW occupancy codes for Gen6 ordered sets
-            _DW_SKP_CODES = (1, 2)  # SKP ordered set DW patterns
-            _DW_EIEOS_CODE = 3  # EIEOS ordered set DW pattern
             skp_count = 0
             eieos_count = 0
             for entry in entries:

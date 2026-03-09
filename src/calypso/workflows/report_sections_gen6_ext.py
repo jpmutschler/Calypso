@@ -31,6 +31,7 @@ from calypso.workflows.report_sections_helpers import (
     safe_int,
     summary_metrics,
 )
+from calypso.workflows.thresholds import FEC_RATE_FAIL, FEC_RATE_WARN, SKP_RATE_MAX, SKP_RATE_MIN
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +534,111 @@ def render_flit_error_log_drain(summary: RecipeSummary) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Ordered Set Audit
+# ---------------------------------------------------------------------------
+
+
+def render_ordered_set_audit(summary: RecipeSummary) -> str:
+    """Specialized renderer for ordered_set_audit results."""
+    header = section_header(
+        "Ordered Set Audit",
+        f"Duration: {summary.duration_ms:.0f}ms | SKP/EIEOS pattern analysis at Gen6 64GT/s",
+    )
+
+    criteria = criteria_box(
+        [
+            f"PASS: SKP insertion rate within [{SKP_RATE_MIN}, {SKP_RATE_MAX}]",
+            "WARN: SKP rate outside expected bounds (PCIe 6.1 \u00a74.2.7)",
+            "SKP ordered sets should appear at ~1 per 370 symbols in Gen6 Flit mode.",
+        ]
+    )
+
+    # SKP analysis cards
+    skp_step = find_step_with_key(summary.steps, "total_skp")
+    skp_section = ""
+    if skp_step is not None:
+        mv = skp_step.measured_values
+        total_skp = safe_int(mv.get("total_skp", 0))
+        total_entries = safe_int(mv.get("total_entries", 0))
+        skp_rate = float(str(mv.get("skp_rate", 0)))
+        ingress_skp = safe_int(mv.get("ingress_skp", 0))
+        egress_skp = safe_int(mv.get("egress_skp", 0))
+
+        rate_ok = SKP_RATE_MIN <= skp_rate <= SKP_RATE_MAX if total_entries > 0 else False
+        rate_color = GREEN if rate_ok else YELLOW
+        skp_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Total SKP", str(total_skp), CYAN)
+            + metric_card("SKP Rate", f"{skp_rate:.4f}", rate_color)
+            + metric_card("Ingress SKP", str(ingress_skp), CYAN)
+            + metric_card("Egress SKP", str(egress_skp), CYAN)
+            + metric_card("Total Entries", str(total_entries), TEXT_SECONDARY)
+            + "</div>"
+        )
+
+    # EIEOS cards
+    eieos_step = find_step_with_key(summary.steps, "total_eieos")
+    eieos_section = ""
+    if eieos_step is not None:
+        mv = eieos_step.measured_values
+        total_eieos = safe_int(mv.get("total_eieos", 0))
+        ingress_eieos = safe_int(mv.get("ingress_eieos", 0))
+        egress_eieos = safe_int(mv.get("egress_eieos", 0))
+        eieos_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Total EIEOS", str(total_eieos), CYAN)
+            + metric_card("Ingress EIEOS", str(ingress_eieos), TEXT_SECONDARY)
+            + metric_card("Egress EIEOS", str(egress_eieos), TEXT_SECONDARY)
+            + "</div>"
+        )
+
+    # Capture summary table (ingress + egress)
+    capture_rows: list[list[str]] = []
+    for step in summary.steps:
+        mv = step.measured_values
+        if "entry_count" not in mv or "skp_count" not in mv:
+            continue
+        capture_rows.append(
+            [
+                step.step_name,
+                str(safe_int(mv.get("entry_count", 0))),
+                str(safe_int(mv.get("skp_count", 0))),
+                str(safe_int(mv.get("eieos_count", 0))),
+                "Yes" if mv.get("triggered") else "No",
+            ]
+        )
+
+    capture_table = ""
+    if capture_rows:
+        capture_table = section_header("Capture Summary", "") + results_table(
+            ["Direction", "Entries", "SKP Count", "EIEOS Count", "Triggered"],
+            capture_rows,
+        )
+
+    _rendered = frozenset(
+        {
+            "total_entries",
+            "total_skp",
+            "skp_rate",
+            "ingress_skp",
+            "egress_skp",
+            "total_eieos",
+            "ingress_eieos",
+            "egress_eieos",
+            "entry_count",
+            "skp_count",
+            "eieos_count",
+            "triggered",
+            "wrapped",
+            "tbuf_wrapped",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
+    metrics = summary_metrics(summary)
+    return f"{header}{criteria}{metrics}{skp_section}{eieos_section}{capture_table}{extras}"
+
+
+# ---------------------------------------------------------------------------
 # FEC Counter Analysis
 # ---------------------------------------------------------------------------
 
@@ -546,9 +652,9 @@ def render_fec_analysis(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            "PASS: FEC correction rate within acceptable limits",
-            "WARN: Elevated FEC correction rate (channel nearing limit)",
-            "FAIL: FEC correction rate exceeds threshold",
+            f"PASS: FEC correction rate < {FEC_RATE_WARN:.0f}/s",
+            f"WARN: FEC correction rate >= {FEC_RATE_WARN:.0f}/s",
+            f"FAIL: FEC correction rate >= {FEC_RATE_FAIL:.0f}/s",
         ]
     )
 
@@ -557,17 +663,20 @@ def render_fec_analysis(summary: RecipeSummary) -> str:
     rate_section = ""
     if rate_step is not None:
         mv = rate_step.measured_values
-        fec_total = safe_int(mv.get("fec_correctable_total", 0))
+        fec_correctable = safe_int(mv.get("fec_correctable_total", 0))
+        fec_uncorrectable = safe_int(mv.get("fec_uncorrectable_total", 0))
         fec_rate = float(str(mv.get("fec_correction_rate", 0)))
         margin = float(str(mv.get("fec_margin_ratio", 0)))
         soak_s = float(str(mv.get("soak_duration_s", 0)))
 
-        fec_color = RED if fec_total > 10000 else YELLOW if fec_total > 100 else GREEN
+        corr_color = RED if fec_correctable > 10000 else YELLOW if fec_correctable > 100 else GREEN
+        uncorr_color = RED if fec_uncorrectable > 0 else GREEN
         margin_color = RED if margin < 10 else YELLOW if margin < 100 else GREEN
         rate_section = (
             '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
-            + metric_card("FEC Corrections", str(fec_total), fec_color)
-            + metric_card("Rate (/s)", f"{fec_rate:.1f}", fec_color)
+            + metric_card("FEC Correctable", str(fec_correctable), corr_color)
+            + metric_card("FEC Uncorrectable", str(fec_uncorrectable), uncorr_color)
+            + metric_card("Rate (/s)", f"{fec_rate:.1f}", corr_color)
             + metric_card("Margin Ratio", f"{margin:.1f}x", margin_color)
             + metric_card("Soak Duration", f"{soak_s:.0f}s", TEXT_SECONDARY)
             + "</div>"
@@ -596,6 +705,7 @@ def render_fec_analysis(summary: RecipeSummary) -> str:
             "fec_correctable_total",
             "fec_uncorrectable_total",
             "fec_correction_rate",
+            "fec_uncorrectable_raw",
             "fec_correction_ber",
             "soak_duration_s",
             "bits_tested",

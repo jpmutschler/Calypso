@@ -105,6 +105,42 @@ def get_eye_thresholds(*, is_pam4: bool = False) -> EyeThresholds:
 # Comparison report: metric direction defaults
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# FEC correction rate thresholds (corrections per second)
+# A high rate suggests the channel is operating near its error correction limit
+# ---------------------------------------------------------------------------
+
+FEC_RATE_WARN = 100.0
+FEC_RATE_FAIL = 10000.0
+
+# ---------------------------------------------------------------------------
+# LTSSM recovery count warn threshold
+# ---------------------------------------------------------------------------
+
+LTSSM_RECOVERY_WARN = 5
+
+# ---------------------------------------------------------------------------
+# Bandwidth utilization warn threshold
+# ---------------------------------------------------------------------------
+
+UTILIZATION_WARN = 0.90
+
+# ---------------------------------------------------------------------------
+# SKP ordered set rate bounds (fraction of PTrace entries, PCIe 6.1 §4.2.7)
+# PCIe 6.1 §4.2.7: SKP ordered sets inserted every 370 ±10 symbols.
+# At ~32 symbols/flit, that's ~1 SKP per ~11.5 flits.
+# In PTrace captures, SKP fraction depends on link utilization and capture mode.
+# These bounds are empirical for typical Atlas3 traffic patterns.
+# ---------------------------------------------------------------------------
+
+SKP_RATE_MIN = 0.001
+SKP_RATE_MAX = 0.05
+
+
+# ---------------------------------------------------------------------------
+# Comparison report: metric direction defaults
+# ---------------------------------------------------------------------------
+
 NEUTRAL_METRIC_KEYS: frozenset[str] = frozenset(
     {
         "sample_count",

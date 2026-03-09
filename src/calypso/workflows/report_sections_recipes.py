@@ -30,6 +30,7 @@ from calypso.workflows.report_sections_helpers import (
     safe_int,
     summary_metrics,
 )
+from calypso.workflows.thresholds import POST_FEC_BER, PRE_FEC_BER, UTILIZATION_WARN
 
 
 # ---------------------------------------------------------------------------
@@ -148,11 +149,12 @@ def render_ber(summary: RecipeSummary) -> str:
     """Specialized renderer for BER results (ber_soak, multi_speed_ber)."""
     header = section_header(summary.recipe_name, f"Duration: {summary.duration_ms:.0f}ms")
 
+    gen5_ber = PRE_FEC_BER["Gen5"]
     criteria = criteria_box(
         [
-            "PASS: BER < 1e-12",
-            "WARN: BER < 1e-9",
-            "FAIL: BER >= 1e-9",
+            f"PASS: BER < {gen5_ber.pass_threshold:.0e}",
+            f"WARN: BER < {gen5_ber.warn_threshold:.0e}",
+            f"FAIL: BER >= {gen5_ber.warn_threshold:.0e}",
             "BER measures raw bit errors via User Test Pattern (UTP)"
             " comparison or Flit BER (FBER) counters at 64GT/s.",
         ]
@@ -333,7 +335,7 @@ def render_bandwidth(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            "WARN: Port utilization > 90%",
+            f"WARN: Port utilization > {UTILIZATION_WARN * 100:.0f}%",
         ]
     )
 
@@ -410,11 +412,12 @@ def render_fber_measurement(summary: RecipeSummary) -> str:
     """Specialized renderer for fber_measurement results."""
     header = section_header("FBER Measurement", f"Duration: {summary.duration_ms:.0f}ms")
 
+    gen6_fber = POST_FEC_BER["Gen6"]
     criteria = criteria_box(
         [
-            "PASS: BER = 0 (zero Flit CRC errors)",
-            "WARN: BER >= 1e-10",
-            "FAIL: BER >= 1e-8",
+            f"PASS: BER < {gen6_fber.pass_threshold:.0e}",
+            f"WARN: BER >= {gen6_fber.warn_threshold:.0e}",
+            f"FAIL: BER >= {gen6_fber.fail_threshold:.0e}",
             "FBER measures Flit CRC errors (Gen6 64GT/s only). Thresholds differ"
             " from raw BER because Flit CRC errors occur at the transport layer"
             " after FEC correction.",

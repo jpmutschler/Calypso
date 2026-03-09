@@ -19,11 +19,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import PAM4_EYE
 
 logger = get_logger(__name__)
-
-_PAM4_MIN_MARGIN_UI = 0.05
-_PAM4_WARN_MARGIN_UI = 0.10
 
 
 class Pam4EyeSweepRecipe(Recipe):
@@ -225,10 +223,10 @@ class Pam4EyeSweepRecipe(Recipe):
                     eye_width = pam4.worst_eye_width_ui
                     eye_height = pam4.worst_eye_height_mv
 
-                    if eye_width < _PAM4_MIN_MARGIN_UI:
+                    if eye_width < PAM4_EYE.fail_ui:
                         lane_status = StepStatus.FAIL
                         all_pass = False
-                    elif eye_width < _PAM4_WARN_MARGIN_UI:
+                    elif eye_width < PAM4_EYE.pass_ui:
                         lane_status = StepStatus.WARN
                     else:
                         lane_status = StepStatus.PASS
@@ -295,7 +293,7 @@ class Pam4EyeSweepRecipe(Recipe):
         if all_pass:
             agg_status = StepStatus.PASS
             msg = f"All {num_lanes} lane(s) meet PAM4 margin thresholds"
-        elif worst_margin < _PAM4_MIN_MARGIN_UI:
+        elif worst_margin < PAM4_EYE.fail_ui:
             agg_status = StepStatus.FAIL
             msg = f"Lane {worst_lane} has insufficient margin: {worst_margin:.4f} UI"
         else:

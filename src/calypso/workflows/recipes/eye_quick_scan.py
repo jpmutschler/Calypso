@@ -23,10 +23,6 @@ from calypso.workflows.models import (
 
 logger = get_logger(__name__)
 
-# Eye width threshold in UI (timing margin)
-_TIMING_MARGIN_GOOD_UI = 0.15
-_TIMING_MARGIN_MARGINAL_UI = 0.08
-
 
 class EyeQuickScanRecipe(Recipe):
     """Sweep lane margining per lane and assess signal eye quality."""

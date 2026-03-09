@@ -10,15 +10,7 @@ import html
 
 from calypso.workflows.models import RecipeSummary
 
-# Import threshold constants to keep renderers in sync with recipes
-from calypso.workflows.recipes.eye_quick_scan import (
-    _TIMING_MARGIN_GOOD_UI as _EYE_PASS_UI,
-    _TIMING_MARGIN_MARGINAL_UI as _EYE_WARN_UI,
-)
-from calypso.workflows.recipes.pam4_eye_sweep import (
-    _PAM4_MIN_MARGIN_UI as _PAM4_FAIL_UI,
-    _PAM4_WARN_MARGIN_UI as _PAM4_PASS_UI,
-)
+from calypso.workflows.thresholds import NRZ_EYE, PAM4_EYE
 from calypso.workflows.report_charts import (
     bar_chart,
     metric_card,
@@ -54,9 +46,9 @@ def render_eye_scan(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            f"PASS: Eye width >= {_EYE_PASS_UI} UI",
-            f"WARN: Eye width >= {_EYE_WARN_UI} UI",
-            f"FAIL: Eye width < {_EYE_WARN_UI} UI",
+            f"PASS: Eye width >= {NRZ_EYE.pass_ui} UI",
+            f"WARN: Eye width >= {NRZ_EYE.warn_ui} UI",
+            f"FAIL: Eye width < {NRZ_EYE.warn_ui} UI",
         ]
     )
 
@@ -107,8 +99,8 @@ def render_eye_scan(summary: RecipeSummary) -> str:
                 section_header("Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
-                f'margin:4px 0 8px 0;">PASS \u2265 {_EYE_PASS_UI} UI | '
-                f"WARN \u2265 {_EYE_WARN_UI} UI | FAIL &lt; {_EYE_WARN_UI} UI</div>"
+                f'margin:4px 0 8px 0;">PASS \u2265 {NRZ_EYE.pass_ui} UI | '
+                f"WARN \u2265 {NRZ_EYE.warn_ui} UI | FAIL &lt; {NRZ_EYE.warn_ui} UI</div>"
             )
         if height_data:
             height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
@@ -590,9 +582,9 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            f"PASS: Worst sub-eye margin >= {_PAM4_PASS_UI} UI",
-            f"WARN: Worst sub-eye margin >= {_PAM4_FAIL_UI} UI",
-            f"FAIL: Worst sub-eye margin < {_PAM4_FAIL_UI} UI",
+            f"PASS: Worst sub-eye margin >= {PAM4_EYE.pass_ui} UI",
+            f"WARN: Worst sub-eye margin >= {PAM4_EYE.fail_ui} UI",
+            f"FAIL: Worst sub-eye margin < {PAM4_EYE.fail_ui} UI",
             "PAM4 signaling uses 3 sub-eyes (upper/middle/lower) per lane.",
         ]
     )
@@ -637,9 +629,9 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             for eye_name, prefix in [("Upper", "upper"), ("Middle", "middle"), ("Lower", "lower")]:
                 w = float(mv.get(f"{prefix}_eye_width_ui", 0))
                 h = float(mv.get(f"{prefix}_eye_height_mv", 0))
-                if w >= _PAM4_PASS_UI:
+                if w >= PAM4_EYE.pass_ui:
                     eye_status = "PASS"
-                elif w >= _PAM4_FAIL_UI:
+                elif w >= PAM4_EYE.fail_ui:
                     eye_status = "WARN"
                 else:
                     eye_status = "FAIL"
@@ -669,8 +661,8 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
                 section_header("Worst Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
-                f'margin:4px 0 8px 0;">PASS \u2265 {_PAM4_PASS_UI} UI | '
-                f"WARN \u2265 {_PAM4_FAIL_UI} UI | FAIL &lt; {_PAM4_FAIL_UI} UI</div>"
+                f'margin:4px 0 8px 0;">PASS \u2265 {PAM4_EYE.pass_ui} UI | '
+                f"WARN \u2265 {PAM4_EYE.fail_ui} UI | FAIL &lt; {PAM4_EYE.fail_ui} UI</div>"
             )
         if height_data:
             height_chart = section_header("Worst Eye Height per Lane (mV)", "") + bar_chart(
@@ -686,9 +678,9 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
         worst_margin = float(str(mv.get("worst_margin_ui", 0)))
         margin_color = (
             RED
-            if worst_margin < _PAM4_FAIL_UI
+            if worst_margin < PAM4_EYE.fail_ui
             else YELLOW
-            if worst_margin < _PAM4_PASS_UI
+            if worst_margin < PAM4_EYE.pass_ui
             else GREEN
         )
         margin_section = (

@@ -49,6 +49,11 @@ _METRIC_KEYS = [
     ("fber_total", "FBER Total", True),
     # SerDes metrics
     ("lanes_with_errors", "Lanes with Errors", True),
+    # FEC analysis metrics
+    ("fec_correctable_total", "FEC Correctable", True),
+    ("fec_uncorrectable_total", "FEC Uncorrectable", True),
+    ("fec_correction_rate", "FEC Rate (/s)", True),
+    ("fec_margin_ratio", "FEC Margin Ratio", False),  # higher is better
 ]
 
 # Keys that are identifiers/enums rather than comparable numeric metrics

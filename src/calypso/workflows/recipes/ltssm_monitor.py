@@ -19,10 +19,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import LTSSM_RECOVERY_WARN
 
 logger = get_logger(__name__)
-
-_RECOVERY_WARN_THRESHOLD = 5
 
 
 class LtssmMonitorRecipe(Recipe):
@@ -219,7 +218,7 @@ class LtssmMonitorRecipe(Recipe):
         t0 = time.monotonic()
 
         transition_count = len(transitions)
-        has_frequent_recovery = recovery_total >= _RECOVERY_WARN_THRESHOLD
+        has_frequent_recovery = recovery_total >= LTSSM_RECOVERY_WARN
 
         if has_frequent_recovery:
             status = StepStatus.WARN

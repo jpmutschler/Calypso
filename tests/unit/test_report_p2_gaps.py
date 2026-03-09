@@ -227,11 +227,11 @@ class TestLtssmMonitorRenderer:
         assert "What To Do Next" in result
         assert "ber_soak" in result
 
-    def test_recovery_threshold_from_recipe(self):
-        """Verify the renderer uses the recipe's threshold constant."""
-        from calypso.workflows.recipes.ltssm_monitor import _RECOVERY_WARN_THRESHOLD
+    def test_recovery_threshold_from_thresholds(self):
+        """Verify the renderer uses the shared threshold constant."""
+        from calypso.workflows.thresholds import LTSSM_RECOVERY_WARN
 
-        assert _RECOVERY_WARN_THRESHOLD == 5
+        assert LTSSM_RECOVERY_WARN == 5
 
 
 # ===========================================================================
