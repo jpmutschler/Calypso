@@ -15,14 +15,9 @@ from calypso.workflows.report_charts import (
     section_header,
 )
 from calypso.workflows.report_sections_helpers import (
-    BG_CARD,
-    BORDER,
     CYAN,
-    GREEN,
-    RED,
-    TEXT_MUTED,
     TEXT_PRIMARY,
-    TEXT_SECONDARY,
+    render_measured_values_table,
     summary_metrics,
 )
 from calypso.workflows.report_sections_gen6 import (
@@ -67,116 +62,6 @@ def _format_timestamp(ts: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Measured values rendering helpers (C-1 fix)
-# ---------------------------------------------------------------------------
-
-
-def _render_value_cell(value: object) -> str:
-    """Render a single value as an HTML string, handling nested structures."""
-    if isinstance(value, dict):
-        return _render_nested_dict(value)
-    if isinstance(value, list):
-        return _render_nested_list(value)
-    if isinstance(value, bool):
-        color = GREEN if value else RED
-        label = "True" if value else "False"
-        return f'<span style="color:{color}; font-weight:600;">{label}</span>'
-    if isinstance(value, float):
-        if abs(value) < 0.001 and value != 0:
-            return html.escape(f"{value:.2e}")
-        return html.escape(f"{value:.4f}".rstrip("0").rstrip("."))
-    return html.escape(str(value))
-
-
-def _render_nested_dict(d: dict[str, object]) -> str:
-    """Render a dict as a compact inline sub-table."""
-    rows: list[str] = []
-    for k, v in d.items():
-        rows.append(
-            f'<tr><td style="padding:2px 6px; color:{TEXT_SECONDARY}; '
-            f'font-size:11px; vertical-align:top; white-space:nowrap;">'
-            f"{html.escape(str(k))}</td>"
-            f'<td style="padding:2px 6px; color:{TEXT_PRIMARY}; '
-            f'font-size:11px;">{_render_value_cell(v)}</td></tr>'
-        )
-    return (
-        f'<table style="border-collapse:collapse; background:{BG_CARD}; '
-        f'border:1px solid {BORDER}; border-radius:4px; margin:2px 0;">'
-        f"{''.join(rows)}</table>"
-    )
-
-
-def _render_nested_list(items: list[object]) -> str:
-    """Render a list. If items are dicts, render as a sub-table with columns."""
-    if not items:
-        return f'<span style="color:{TEXT_MUTED};">[]</span>'
-
-    # Check if all items are dicts -- render as a proper table
-    if all(isinstance(item, dict) for item in items):
-        dict_items: list[dict[str, object]] = items  # type: ignore[assignment]
-        all_keys: list[str] = []
-        for item in dict_items:
-            for k in item:
-                if k not in all_keys:
-                    all_keys.append(k)
-
-        header_cells = "".join(
-            f'<th style="text-align:left; padding:3px 6px; color:{TEXT_SECONDARY}; '
-            f'font-size:11px; font-weight:600; border-bottom:1px solid {BORDER};">'
-            f"{html.escape(str(k))}</th>"
-            for k in all_keys
-        )
-        body_rows: list[str] = []
-        for item in dict_items:
-            cells = "".join(
-                f'<td style="padding:3px 6px; color:{TEXT_PRIMARY}; '
-                f'font-size:11px; border-bottom:1px solid {BORDER};">'
-                f"{_render_value_cell(item.get(k, ''))}</td>"
-                for k in all_keys
-            )
-            body_rows.append(f"<tr>{cells}</tr>")
-
-        return (
-            f'<table style="border-collapse:collapse; background:{BG_CARD}; '
-            f"border:1px solid {BORDER}; border-radius:4px; "
-            f'margin:4px 0; width:100%;">'
-            f"<thead><tr>{header_cells}</tr></thead>"
-            f"<tbody>{''.join(body_rows)}</tbody></table>"
-        )
-
-    # Simple list of scalar values
-    formatted = ", ".join(html.escape(str(item)) for item in items[:20])
-    if len(items) > 20:
-        formatted += f" ... ({len(items)} total)"
-    return f'<span style="color:{TEXT_PRIMARY}; font-size:12px;">[{formatted}]</span>'
-
-
-def _render_measured_values_table(values: dict[str, object]) -> str:
-    """Render a key-value HTML table from measured_values dict."""
-    if not values:
-        return ""
-
-    rows: list[str] = []
-    for key, value in values.items():
-        rows.append(
-            f'<tr><td style="padding:4px 10px; color:{TEXT_SECONDARY}; '
-            f"font-size:12px; vertical-align:top; white-space:nowrap; "
-            f'border-bottom:1px solid {BORDER}; font-weight:500;">'
-            f"{html.escape(str(key))}</td>"
-            f'<td style="padding:4px 10px; color:{TEXT_PRIMARY}; '
-            f'font-size:12px; border-bottom:1px solid {BORDER};">'
-            f"{_render_value_cell(value)}</td></tr>"
-        )
-
-    return (
-        f'<table style="width:100%; border-collapse:collapse; '
-        f"background:{BG_CARD}; border:1px solid {BORDER}; "
-        f'border-radius:6px; overflow:hidden; margin:6px 0;">'
-        f"<tbody>{''.join(rows)}</tbody></table>"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Generic renderer (fallback for all unregistered recipes)
 # ---------------------------------------------------------------------------
 
@@ -217,7 +102,7 @@ def _render_generic(summary: RecipeSummary) -> str:
             f'<div style="font-size:13px; font-weight:600; color:{CYAN}; '
             f'margin:10px 0 4px 0;">{step_label}</div>'
         )
-        mv_table = _render_measured_values_table(step.measured_values)
+        mv_table = render_measured_values_table(step.measured_values)
         details_parts.append(f"{step_header}{mv_table}")
 
     details_section = ""

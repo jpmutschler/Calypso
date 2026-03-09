@@ -22,6 +22,15 @@ from calypso.workflows.report_charts import (
 from calypso.workflows.report_sections import render_recipe_section
 
 
+def format_duration(ms: float) -> str:
+    """Format milliseconds into a human-readable duration string."""
+    if ms >= 60_000:
+        return f"{ms / 60_000:.1f}min"
+    if ms >= 1000:
+        return f"{ms / 1000:.1f}s"
+    return f"{ms:.0f}ms"
+
+
 def generate_report(
     summaries: list[RecipeSummary],
     title: str = "Workflow Report",
@@ -86,7 +95,7 @@ def generate_report(
         f"{metric_card('Pass', str(total_pass), '#3fb950')}"
         f"{metric_card('Fail', str(total_fail), '#f85149')}"
         f"{metric_card('Warn', str(total_warn), '#d29922')}"
-        f"{metric_card('Duration', f'{total_duration_ms / 1000:.1f}s', '#8b949e')}"
+        f"{metric_card('Duration', format_duration(total_duration_ms), '#8b949e')}"
         f"</div>"
     )
 
@@ -105,7 +114,7 @@ def generate_report(
             f"{s.total_steps} steps</td>"
             f'<td style="padding:8px 12px; border-bottom:1px solid #30363d; '
             f'color:#8b949e; font-size:13px; text-align:right;">'
-            f"{s.duration_ms:.0f}ms</td>"
+            f"{format_duration(s.duration_ms)}</td>"
             f"</tr>"
         )
 
@@ -159,7 +168,7 @@ def generate_report(
         f"{''.join(detail_sections)}"
     )
 
-    return _wrap_html(title, body)
+    return wrap_html(title, body)
 
 
 def generate_single_report(
@@ -194,7 +203,7 @@ def _render_parameters(parameters: dict[str, object]) -> str:
     return key_value_table(display, "Test Parameters")
 
 
-def _wrap_html(title: str, body: str) -> str:
+def wrap_html(title: str, body: str) -> str:
     """Wrap content in a full HTML document with embedded CSS."""
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -221,9 +230,12 @@ table {{ border-spacing: 0; }}
 @media print {{
     body {{ background: white; color: #1a1a1a; padding: 12px; }}
     table td, table th {{ color: #1a1a1a !important; }}
-    table, tr, .recipe-section {{ page-break-inside: avoid; }}
+    table {{ page-break-inside: auto; }}
+    tr {{ page-break-inside: avoid; page-break-after: auto; }}
+    thead {{ display: table-header-group; }}
     .recipe-section {{ page-break-before: auto; }}
     h2, h3 {{ page-break-after: avoid; }}
+    details {{ page-break-inside: avoid; }}
     @page {{ margin: 15mm; }}
 }}
 </style>

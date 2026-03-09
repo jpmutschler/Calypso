@@ -390,6 +390,7 @@ class BerSoakRecipe(Recipe):
                     measured_values={
                         "mode": "fber",
                         "total_errors": total_errors,
+                        "bits_tested": bits_tested,
                         "flit_counter": fber.flit_counter,
                         "link_speed": link.current_speed,
                         "link_width": link.current_width,
@@ -592,6 +593,7 @@ class BerSoakRecipe(Recipe):
             measured_values={
                 "mode": "utp",
                 "total_errors": total_errors,
+                "bits_tested": utp_bits_tested,
                 "all_synced": all_synced,
                 "link_speed": utp_link_speed,
                 "link_width": utp_link_width,

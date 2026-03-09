@@ -43,6 +43,14 @@ _SPEED_SETS: dict[str, list[tuple[str, int, str]]] = {
 # Default 16-byte UTP pattern
 _DEFAULT_PATTERN = bytes([0xAA, 0x55] * 8)
 
+# Approximate per-lane bit rates by speed code for BER estimation
+_LANE_RATE_BPS: dict[int, float] = {
+    3: 8.0e9,  # Gen3 8GT/s
+    4: 16.0e9,  # Gen4 16GT/s
+    5: 32.0e9,  # Gen5 32GT/s
+    6: 64.0e9,  # Gen6 64GT/s
+}
+
 # Time to wait for link to retrain at new speed
 _SPEED_CHANGE_SETTLE_S = 2.0
 
@@ -217,8 +225,21 @@ class MultiSpeedBerRecipe(Recipe):
                     if fber is None:
                         status = StepStatus.ERROR
                         msg = f"{speed_label}: FBER capability not present"
+                        bits_tested = 0.0
+                        lane_details: list[dict[str, object]] = []
                     else:
                         total_errors = sum(fber.lane_counters)
+                        bits_tested = elapsed * 64.0e9
+                        lane_details = []
+                        for lane_idx, count in enumerate(fber.lane_counters):
+                            ber = count / bits_tested if bits_tested > 0 else 0.0
+                            lane_details.append(
+                                {
+                                    "lane": lane_idx,
+                                    "error_count": count,
+                                    "estimated_ber": ber,
+                                }
+                            )
                         if total_errors == 0:
                             status = StepStatus.PASS
                             msg = f"{speed_label}: zero FBER errors across all lanes"
@@ -237,9 +258,11 @@ class MultiSpeedBerRecipe(Recipe):
                             "actual_speed": actual_speed,
                             "mode": "fber",
                             "total_errors": total_errors if fber else 0,
+                            "bits_tested": bits_tested,
                             "flit_counter": fber.flit_counter if fber else 0,
                             "soak_duration_s": round(elapsed, 1),
                             "lane_counters": fber.lane_counters if fber else [],
+                            "lanes": lane_details,
                         },
                         duration_ms=dur,
                         port_number=port_number,
@@ -262,6 +285,19 @@ class MultiSpeedBerRecipe(Recipe):
                     total_errors = sum(r.error_count for r in utp_results)
                     all_synced = all(r.synced for r in utp_results)
 
+                    bits_tested = elapsed * _LANE_RATE_BPS.get(speed_code, 32.0e9)
+                    lane_details_utp: list[dict[str, object]] = []
+                    for r in utp_results:
+                        ber = r.error_count / bits_tested if bits_tested > 0 else 0.0
+                        lane_details_utp.append(
+                            {
+                                "lane": r.lane,
+                                "error_count": r.error_count,
+                                "synced": r.synced,
+                                "estimated_ber": ber,
+                            }
+                        )
+
                     if not all_synced:
                         status = StepStatus.FAIL
                         msg = f"{speed_label}: sync failure on some lanes"
@@ -283,9 +319,11 @@ class MultiSpeedBerRecipe(Recipe):
                             "actual_speed": actual_speed,
                             "mode": "utp",
                             "total_errors": total_errors,
+                            "bits_tested": bits_tested,
                             "all_synced": all_synced,
                             "soak_duration_s": round(elapsed, 1),
                             "lanes_tested": len(utp_results),
+                            "lanes": lane_details_utp,
                         },
                         duration_ms=dur,
                         port_number=port_number,

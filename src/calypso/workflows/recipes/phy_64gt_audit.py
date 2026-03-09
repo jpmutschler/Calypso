@@ -10,6 +10,7 @@ from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.core.phy_monitor import PhyMonitor
 from calypso.utils.logging import get_logger
+from calypso.models.phy import TX_PRESETS_8GT, TxPreset
 from calypso.workflows.base import Recipe
 from calypso.workflows.models import (
     RecipeCategory,
@@ -177,8 +178,10 @@ class Phy64gtAuditRecipe(Recipe):
         yield self._make_running(step)
         t0 = time.monotonic()
         is_at_64gt = False
+        negotiated_width: int | None = None
         try:
             link = reader.get_link_status()
+            negotiated_width = link.current_width
             dur = _elapsed_ms(t0)
             current_speed = link.current_speed or ""
             is_at_64gt = "64" in current_speed
@@ -313,7 +316,85 @@ class Phy64gtAuditRecipe(Recipe):
         yield result
         steps.append(result)
 
-        # --- Step 6: Summary ---
+        if self._is_cancelled(cancel):
+            return self._make_summary(steps, start_time, params, device_id)
+
+        # --- Step 6: Read per-lane TX EQ presets and coefficients ---
+        step = "Read TX EQ coefficients"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            # Determine lane count from negotiated width (fallback to 16)
+            num_lanes = 16
+            if negotiated_width is not None:
+                try:
+                    num_lanes = int(negotiated_width)
+                except (ValueError, TypeError):
+                    pass
+
+            eq_settings = phy.get_lane_eq_settings_16gt(num_lanes)
+            dur = _elapsed_ms(t0)
+
+            if not eq_settings:
+                result = self._make_result(
+                    step,
+                    StepStatus.SKIP,
+                    message="16 GT/s PHY capability not present (no EQ settings)",
+                    criticality=StepCriticality.MEDIUM,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                tx_eq_lanes: list[dict[str, object]] = []
+                for lane_eq in eq_settings:
+                    lane_data: dict[str, object] = {
+                        "lane": lane_eq.lane,
+                        "downstream_tx_preset": lane_eq.downstream_tx_preset.value,
+                        "upstream_tx_preset": lane_eq.upstream_tx_preset.value,
+                        "downstream_rx_hint": lane_eq.downstream_rx_hint.value,
+                        "upstream_rx_hint": lane_eq.upstream_rx_hint.value,
+                    }
+
+                    ds_preset = lane_eq.downstream_tx_preset
+                    us_preset = lane_eq.upstream_tx_preset
+
+                    if isinstance(ds_preset, TxPreset) and ds_preset in TX_PRESETS_8GT:
+                        ds_coeff = TX_PRESETS_8GT[ds_preset]
+                        lane_data["downstream_pre_cursor"] = ds_coeff.pre_cursor
+                        lane_data["downstream_cursor"] = ds_coeff.cursor
+                        lane_data["downstream_post_cursor"] = ds_coeff.post_cursor
+
+                    if isinstance(us_preset, TxPreset) and us_preset in TX_PRESETS_8GT:
+                        us_coeff = TX_PRESETS_8GT[us_preset]
+                        lane_data["upstream_pre_cursor"] = us_coeff.pre_cursor
+                        lane_data["upstream_cursor"] = us_coeff.cursor
+                        lane_data["upstream_post_cursor"] = us_coeff.post_cursor
+
+                    tx_eq_lanes.append(lane_data)
+
+                result = self._make_result(
+                    step,
+                    StepStatus.PASS,
+                    message=f"TX EQ read for {len(eq_settings)} lanes",
+                    criticality=StepCriticality.MEDIUM,
+                    measured_values={"tx_eq_lanes": tx_eq_lanes},
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = _elapsed_ms(t0)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"TX EQ read failed: {exc}",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        # --- Step 7: Summary ---
         step = "Summary"
         yield self._make_running(step)
         t0 = time.monotonic()

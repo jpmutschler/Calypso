@@ -20,10 +20,12 @@ from calypso.workflows.report_sections_helpers import (
     GREEN,
     RED,
     TEXT_MUTED,
+    TEXT_SECONDARY,
     ber_confidence_interval,
     criteria_box,
     find_step_with_key,
     format_ber,
+    render_extra_measured_values,
     safe_int,
     summary_metrics,
 )
@@ -39,23 +41,24 @@ def render_port_sweep(summary: RecipeSummary) -> str:
     header = section_header("All Port Sweep", f"Duration: {summary.duration_ms:.0f}ms")
 
     columns = ["Port", "Status", "Link", "Speed", "Width", "Role"]
-    rows: list[list[str]] = []
+    up_rows: list[list[str]] = []
+    down_rows: list[list[str]] = []
     for step in summary.steps:
         mv = step.measured_values
-        rows.append(
-            [
-                str(mv.get("port_number", step.port_number or "")),
-                step.status.value.upper(),
-                "UP" if mv.get("is_link_up") else "DOWN",
-                str(mv.get("link_speed", "")),
-                f"x{mv.get('link_width', '')}" if mv.get("link_width") else "",
-                str(mv.get("role", "")),
-            ]
-        )
+        row = [
+            str(mv.get("port_number", step.port_number or "")),
+            step.status.value.upper(),
+            "UP" if mv.get("is_link_up") else "DOWN",
+            str(mv.get("link_speed", "")),
+            f"x{mv.get('link_width', '')}" if mv.get("link_width") else "",
+            str(mv.get("role", "")),
+        ]
+        if mv.get("is_link_up"):
+            up_rows.append(row)
+        else:
+            down_rows.append(row)
 
-    table = results_table(columns, rows, status_column=1)
-
-    up_count = sum(1 for s in summary.steps if s.measured_values.get("is_link_up"))
+    up_count = len(up_rows)
     total = len(summary.steps)
     metrics = (
         f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
@@ -65,7 +68,36 @@ def render_port_sweep(summary: RecipeSummary) -> str:
         f"</div>"
     )
 
-    return f"{header}{metrics}{table}"
+    # Active links table
+    up_table = results_table(columns, up_rows, status_column=1) if up_rows else ""
+
+    # Down ports in collapsible section
+    down_section = ""
+    if down_rows:
+        down_table = results_table(columns, down_rows, status_column=1)
+        down_section = (
+            f'<details style="margin:12px 0;">'
+            f'<summary style="color:{TEXT_SECONDARY}; cursor:pointer; '
+            f'font-size:13px; font-weight:600;">Down Ports ({len(down_rows)})</summary>'
+            f"{down_table}</details>"
+        )
+
+    _rendered = frozenset(
+        {
+            "port_number",
+            "is_link_up",
+            "link_speed",
+            "link_width",
+            "role",
+            "degraded",
+            "total_ports",
+            "ports_up",
+            "ports_down",
+            "ports_degraded",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
+    return f"{header}{metrics}{up_table}{down_section}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +205,11 @@ def render_ber(summary: RecipeSummary) -> str:
 
             if ber_data:
                 chart = bar_chart(ber_data, max_value=15, bar_color=GREEN, height_px=16)
+                chart += (
+                    f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
+                    f'margin:4px 0 8px 0;">Chart shows -log\u2081\u2080(BER). '
+                    f"Value of 15 = zero errors (display floor 1e-15).</div>"
+                )
             lane_table = results_table(columns, rows, status_column=1)
 
     # Handle multi_speed_ber per-speed steps
@@ -222,10 +259,27 @@ def render_ber(summary: RecipeSummary) -> str:
         if lc_parts:
             lane_counter_section = "".join(lc_parts)
 
+    _rendered = frozenset(
+        {
+            "lanes",
+            "total_errors",
+            "mode",
+            "link_speed",
+            "link_width",
+            "bits_tested",
+            "flit_counter",
+            "all_synced",
+            "speed",
+            "actual_speed",
+            "lane_counters",
+            "lanes_tested",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
     return (
         f"{header}{criteria}{metrics}{link_cards}{extra_metrics}"
-        f"{chart}{lane_table}{speed_table}{lane_counter_section}"
+        f"{chart}{lane_table}{speed_table}{lane_counter_section}{extras}"
     )
 
 
@@ -295,8 +349,17 @@ def render_bandwidth(summary: RecipeSummary) -> str:
             if rows:
                 port_table = results_table(columns, rows)
 
+    _rendered = frozenset(
+        {
+            "port_baselines",
+            "total_ports",
+            "high_utilization_ports",
+            "theoretical_max_bps",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{chart}{port_table}"
+    return f"{header}{criteria}{metrics}{chart}{port_table}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -382,5 +445,17 @@ def render_fber_measurement(summary: RecipeSummary) -> str:
                 rows.append(row)
             lane_table = results_table(columns, rows, status_column=1)
 
+    _rendered = frozenset(
+        {
+            "lanes",
+            "total_errors",
+            "flit_counter",
+            "soak_duration_s",
+            "bits_tested",
+            "link_speed",
+            "link_width",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{extra_metrics}{context_cards}{lane_table}"
+    return f"{header}{criteria}{metrics}{extra_metrics}{context_cards}{lane_table}{extras}"

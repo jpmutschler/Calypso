@@ -26,6 +26,7 @@ from calypso.workflows.report_sections_helpers import (
     YELLOW,
     criteria_box,
     find_step_with_key,
+    render_extra_measured_values,
     safe_int,
     summary_metrics,
 )
@@ -94,8 +95,22 @@ def render_eye_scan(summary: RecipeSummary) -> str:
             f"</div>"
         )
 
+    _rendered = frozenset(
+        {
+            "eye_width_ui",
+            "eye_height_mv",
+            "margin_right_ui",
+            "margin_left_ui",
+            "margin_up_mv",
+            "margin_down_mv",
+            "link_speed",
+            "link_width",
+            "lane",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{link_cards}{table}"
+    return f"{header}{criteria}{metrics}{link_cards}{table}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -252,8 +267,51 @@ def render_link_training_debug(summary: RecipeSummary) -> str:
 
         flit_section = flit_header + flit_cards + flit_table
 
+    _rendered = frozenset(
+        {
+            "transitions",
+            "final_state",
+            "uncorrectable_raw",
+            "correctable_raw",
+            "current_speed",
+            "current_width",
+            "dll_link_active",
+            "target_speed",
+            "link_training",
+            "pre_retrain_ltssm",
+            "eq_16gt_complete",
+            "eq_16gt_phase1",
+            "eq_16gt_phase2",
+            "eq_16gt_phase3",
+            "eq_16gt_flit_mode",
+            "eq_16gt_raw",
+            "eq_16gt_raw_status",
+            "eq_32gt_complete",
+            "eq_32gt_phase1",
+            "eq_32gt_phase2",
+            "eq_32gt_phase3",
+            "eq_32gt_flit_mode",
+            "eq_32gt_raw",
+            "eq_32gt_raw_status",
+            "eq_32gt_no_eq_needed",
+            "eq_64gt_complete",
+            "eq_64gt_phase1",
+            "eq_64gt_phase2",
+            "eq_64gt_phase3",
+            "eq_64gt_flit_mode",
+            "eq_64gt_raw",
+            "eq_64gt_raw_status",
+            "eq_64gt_no_eq_needed",
+            "valid_entries",
+            "uncorrectable_count",
+            "entries",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{metrics}{link_section}{aer_section}{eq_section}{flit_section}{timeline}"
+    return (
+        f"{header}{metrics}{link_section}{aer_section}{eq_section}{flit_section}{timeline}{extras}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -316,8 +374,23 @@ def render_phy_64gt_audit(summary: RecipeSummary) -> str:
         else ""
     )
 
+    _rendered = frozenset(
+        {
+            "gen6_supported",
+            "gen5_supported",
+            "gen4_supported",
+            "is_at_64gt",
+            "eq_complete",
+            "phase1_ok",
+            "phase2_ok",
+            "phase3_ok",
+            "flit_mode_supported",
+            "tx_eq_lanes",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{metrics}{checklist}"
+    return f"{header}{metrics}{checklist}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -398,8 +471,28 @@ def render_flit_perf_measurement(summary: RecipeSummary) -> str:
             f"</div>"
         )
 
+    _rendered_keys: set[str] = {
+        "flits_tracked",
+        "ltssm_counter",
+        "actual_soak_s",
+        "cap_offset",
+    }
+    # Include dynamically-named ltssm keys
+    if results_step is not None:
+        idx = 0
+        mv = results_step.measured_values
+        while f"ltssm_{idx}_counter" in mv:
+            _rendered_keys.update(
+                {
+                    f"ltssm_{idx}_counter",
+                    f"ltssm_{idx}_tracking_status",
+                    f"ltssm_{idx}_tracking_count",
+                }
+            )
+            idx += 1
+    extras = render_extra_measured_values(summary, frozenset(_rendered_keys))
     metrics = summary_metrics(summary)
-    return f"{header}{metrics}{flit_metrics}{cap_section}{ltssm_table}"
+    return f"{header}{metrics}{flit_metrics}{cap_section}{ltssm_table}{extras}"
 
 
 # ---------------------------------------------------------------------------
@@ -468,5 +561,19 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             f"</div>"
         )
 
+    _rendered = frozenset(
+        {
+            "eye_width_ui",
+            "eye_height_mv",
+            "margin_right_ui",
+            "margin_left_ui",
+            "margin_up_mv",
+            "margin_down_mv",
+            "lane",
+            "worst_lane",
+            "worst_margin_ui",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
-    return f"{header}{criteria}{metrics}{margin_section}{eye_table}"
+    return f"{header}{criteria}{metrics}{margin_section}{eye_table}{extras}"

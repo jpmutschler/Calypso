@@ -25,6 +25,20 @@ logger = get_logger(__name__)
 _UTILIZATION_WARN_THRESHOLD = 0.90
 
 
+def _encoding_efficiency(speed_gbps: float) -> float:
+    """Return PCIe encoding efficiency for a given link speed.
+
+    Gen1/Gen2 (2.5/5.0 GT/s): 8b/10b encoding = 0.80
+    Gen3/Gen4/Gen5 (8/16/32 GT/s): 128b/130b encoding ≈ 0.9846
+    Gen6 (64 GT/s): Flit mode 240/256 byte payload ratio ≈ 0.9375
+    """
+    if speed_gbps <= 5.0:
+        return 0.80
+    if speed_gbps >= 64.0:
+        return 0.9375
+    return 128.0 / 130.0
+
+
 class BandwidthBaseline(Recipe):
     """Capture a performance counter baseline with multiple samples."""
 
@@ -250,11 +264,11 @@ def _compute_baseline(
     high_util_ports: list[int] = []
 
     # Theoretical max in bytes/sec: speed_gbps * width * encoding_efficiency / 8
-    # PCIe Gen3+: 128b/130b encoding ≈ 0.9846; Gen1/2: 8b/10b = 0.8
-    # Use approximate effective byte rate per lane per GT/s
+    # Encoding overhead varies by generation — see _encoding_efficiency()
     theoretical_max_bps = 0.0
     if link_speed_gbps > 0 and link_width > 0:
-        effective_rate_per_lane = link_speed_gbps * 1e9 / 8 * 0.9846
+        efficiency = _encoding_efficiency(link_speed_gbps)
+        effective_rate_per_lane = link_speed_gbps * 1e9 / 8 * efficiency
         theoretical_max_bps = effective_rate_per_lane * link_width
 
     for port_num, samples in sorted(port_samples.items()):

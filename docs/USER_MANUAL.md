@@ -1429,7 +1429,7 @@ Nine recipes specifically target PCIe Gen6 64GT/s Flit mode capabilities:
 | Flit Error Log Drain | Error Testing | Drain and analyze the Flit Error Log FIFO for FEC errors |
 | Flit Error Injection | Error Testing | Inject flit errors (TX/RX) and verify detection via error log |
 | Flit Performance Measurement | Performance | Track flit throughput and LTSSM state dwell times |
-| PHY 64GT Audit | Signal Integrity | Verify 64GT/s capability, operating speed, and EQ completion |
+| PHY 64GT Audit | Signal Integrity | Verify 64GT/s capability, operating speed, EQ completion, and TX EQ coefficient reporting (per-lane downstream/upstream TX presets with coefficient lookup) |
 | PAM4 Eye Sweep | Signal Integrity | Sweep 3 PAM4 sub-eyes per lane for signal quality at 64GT/s |
 | EQ Phase Audit | Link Health | Read and analyze equalization status across 16GT/32GT/64GT speeds |
 | Speed Downshift Test | Link Health | Downshift through Gen5/Gen4/Gen3 and verify clean transitions |
@@ -1462,7 +1462,7 @@ While a recipe is running, the stepper panel provides real-time feedback:
   - Red for BER above 1e-6 (exceeds the raw BER budget -- indicates a serious link problem)
   - Yellow for BER above 1e-12 (non-zero errors detected, marginal link quality)
   - Default color for clean links with no detected errors
-- **BER confidence intervals** -- BER Soak and Multi-Speed BER results include 95% confidence intervals per lane per PCIe 6.1 Section 8.2. The confidence interval is computed from the error count and displayed alongside the estimated BER in both the live stepper and HTML reports.
+- **BER confidence intervals** -- BER Soak and Multi-Speed BER results include 95% confidence intervals per lane per PCIe 6.1 Section 8.2. The confidence interval is computed from the error count and `bits_tested` (included in `measured_values`) and displayed alongside the estimated BER in both the live stepper and HTML reports. Multi-Speed BER computes per-lane `estimated_ber` and `bits_tested` for both FBER (Gen6) and UTP (Gen3-5) paths.
 - **Link operating conditions** -- BER Soak and Eye Scan results display the active link speed and width alongside measurement data, providing context for interpreting signal integrity metrics.
 - **Color-coded anomalies** highlight other values that may need attention: non-zero error counts appear in red.
 - A **toast notification** appears when the recipe finishes, so you can navigate away and still know when results are ready.
@@ -1489,9 +1489,13 @@ After a recipe completes (or is cancelled with partial results), three download 
   - Device identification header showing chip type, silicon revision, and BDF address
   - Test parameters and wall-clock timestamps for each step
   - Aggregate pass/fail/warn metrics and per-step results with pass/fail threshold criteria
-  - 10 specialized recipe renderers: port sweep summary tables, BER per-lane bar charts with 95% confidence intervals, eye scan grids, FBER measurement tables, bandwidth baselines, link training debug traces, PHY 64GT audit results, PAM4 eye sweep grids, and Flit performance measurements. Recipes without a specialized renderer use a generic fallback that displays all measured_values.
-  - Print-friendly layout with proper page breaks between recipe sections
-- **CSV** -- Exports step-level results as CSV. Each row includes a `measured_values_json` column containing the full serialized measurement dict, plus individual columns for each scalar value (e.g., `ber`, `bw_gbps`, `error_count`). A separate summary CSV (one row per recipe) includes `device_id`. All string values are sanitized against CSV formula injection (CWE-1236).
+  - 10 specialized recipe renderers: port sweep summary tables, BER per-lane bar charts with 95% confidence intervals, eye scan grids, FBER measurement tables, bandwidth baselines with speed-aware encoding efficiency (Gen1/2: 8b/10b, Gen3-5: 128b/130b, Gen6: Flit mode), link training debug traces, PHY 64GT audit results with TX EQ coefficient reporting, PAM4 eye sweep grids, and Flit performance measurements. Recipes without a specialized renderer use a generic fallback that displays all measured_values.
+  - **Additional Measurements** -- All specialized renderers include a catch-all "Additional Measurements" section rendered as a collapsible `<details>` element. Any `measured_values` keys not explicitly handled by the specialized renderer appear here, ensuring no measurement data is ever silently dropped from reports.
+  - Human-readable duration formatting (e.g., "30.0s" instead of "30000ms", "2.5min" instead of "150000ms")
+  - CSP (Content Security Policy) meta tag on all generated HTML for security
+  - Print-friendly layout with proper page breaks between recipe sections, repeated table headers across pages, and individual rows kept intact (no mid-row page breaks)
+- **Comparison Report** -- After running the same recipe or workflow multiple times, you can generate a run-to-run comparison report that shows baseline vs. current results side by side with delta analysis. This is useful for tracking improvements or regressions after hardware changes (cable swaps, firmware updates, equalization tuning). Comparison reports are available via the API using `generate_comparison_report(baseline, current)`.
+- **CSV** -- Exports step-level results as CSV. Each row includes a `measured_values_json` column containing the full serialized measurement dict, plus individual columns for each scalar value (e.g., `ber`, `bw_gbps`, `error_count`). A separate summary CSV (one row per recipe) includes `device_id`. All string values are sanitized against CSV formula injection (CWE-1236) -- leading `=`, `+`, `-`, `@`, `\t`, and `\r` characters are escaped.
 - **JSON** -- Exports the raw results as a JSON file for programmatic analysis, scripting, or archival.
 
 #### Recipe Parameters
@@ -1573,9 +1577,10 @@ After a workflow completes, two download options appear in the monitor panel:
   - Aggregate pass/fail/warn metrics across all steps
   - Per-recipe summary table with status badges
   - Detailed step-by-step results with wall-clock timestamps and pass/fail threshold criteria
-  - 10 specialized recipe visualizations (port sweep tables, BER per-lane charts with 95% confidence intervals, eye scan grids, FBER measurements, and more). Unregistered recipes use a generic renderer that displays all measured_values.
-  - Print-friendly layout with page breaks between recipe sections; works entirely offline with no external dependencies
-- **CSV** -- Step-level CSV with `measured_values_json` and individual scalar columns, plus a summary CSV with `device_id`. Formula injection protection applied.
+  - 10 specialized recipe visualizations (port sweep tables, BER per-lane charts with 95% confidence intervals, eye scan grids, FBER measurements, bandwidth with speed-aware encoding, PHY 64GT audit with TX EQ coefficients, and more). All renderers include a catch-all "Additional Measurements" collapsible section so no data is dropped. Unregistered recipes use a generic renderer that displays all measured_values.
+  - Human-readable durations, CSP meta tag, and print-friendly layout with repeated table headers and intact rows; works entirely offline with no external dependencies
+- **Comparison Report** -- Run-to-run comparison reports can be generated to compare baseline vs. current workflow results with side-by-side delta analysis.
+- **CSV** -- Step-level CSV with `measured_values_json` and individual scalar columns, plus a summary CSV with `device_id`. CSV injection protection applied on all string fields.
 - **JSON** -- Exports the complete workflow results as a JSON file for programmatic analysis or archival.
 
 ---
