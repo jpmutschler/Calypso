@@ -3,15 +3,20 @@
 Covers:
 - 4 new specialized renderers (eq_phase_audit, error_recovery_test,
   flit_error_injection, serdes_diagnostics)
+- 3 new renderers (error_aggregation_sweep, link_health_check, speed_downshift_test)
 - TX EQ coefficients in PHY 64GT audit
 - Eye width/height bar charts in eye_quick_scan and pam4_eye_sweep
 - Expanded comparison report metrics
 - Port sweep reframe for endpoint validation
 - Environment metadata in generate_report
 - render_step_details helper
+- AER decode, safe_int fixes, large float formatting
+- HTML structural validation
 """
 
 from __future__ import annotations
+
+from html.parser import HTMLParser
 
 from calypso.workflows.models import RecipeCategory, RecipeResult, RecipeSummary, StepStatus
 from calypso.workflows.report_comparison import (
@@ -19,7 +24,15 @@ from calypso.workflows.report_comparison import (
     generate_comparison_report,
 )
 from calypso.workflows.report_sections import render_recipe_section
-from calypso.workflows.report_sections_helpers import render_step_details
+from calypso.workflows.report_sections_helpers import (
+    decode_aer_bits,
+    failure_guidance_box,
+    format_aer_with_decode,
+    format_timestamp_ms,
+    render_step_details,
+    render_value_cell,
+    safe_int,
+)
 from calypso.workflows.workflow_report import generate_report, generate_single_report
 
 
@@ -481,7 +494,7 @@ class TestPhyAuditTxEq:
         ]
         summary = make_summary(recipe_id="phy_64gt_audit", steps=steps)
         result = render_recipe_section(summary)
-        assert "PHY 64GT Audit" in result
+        assert "Endpoint PHY 64GT/s Audit" in result
         # No crash when tx_eq_lanes is missing
 
 
@@ -553,7 +566,7 @@ class TestEyeBarCharts:
     def test_pam4_thresholds_shown(self):
         summary = make_summary(recipe_id="pam4_eye_sweep", steps=self._eye_steps())
         result = render_recipe_section(summary)
-        assert "0.10 UI" in result
+        assert "0.1 UI" in result
         assert "0.05 UI" in result
 
     def test_no_eye_data_no_charts(self):
@@ -921,3 +934,446 @@ class TestRenderStepDetails:
         result = render_recipe_section(summary)
         assert "Diagnostic Details" in result
         assert "Extended cap at 0x100" in result
+
+
+# ===========================================================================
+# P2-9: safe_int fixes
+# ===========================================================================
+
+
+class TestSafeIntFixes:
+    def test_safe_int_true_returns_1(self):
+        assert safe_int(True) == 1
+
+    def test_safe_int_false_returns_0(self):
+        assert safe_int(False) == 0
+
+    def test_safe_int_string_float(self):
+        assert safe_int("3.14") == 3
+
+    def test_safe_int_none_returns_0(self):
+        assert safe_int(None) == 0
+
+
+# ===========================================================================
+# P2-8: Large float formatting
+# ===========================================================================
+
+
+class TestLargeFloatFormatting:
+    def test_large_float_scientific(self):
+        result = render_value_cell(1_500_000.0)
+        assert "e+" in result.lower() or "E+" in result
+
+    def test_very_large_float_scientific(self):
+        result = render_value_cell(1.92e13)
+        assert "e+" in result.lower() or "E+" in result
+
+    def test_small_float_scientific(self):
+        result = render_value_cell(0.0001)
+        assert "e-" in result.lower() or "E-" in result
+
+    def test_normal_float_fixed(self):
+        result = render_value_cell(3.14)
+        assert "3.14" in result
+
+
+# ===========================================================================
+# P2-6: AER decode
+# ===========================================================================
+
+
+class TestAerDecode:
+    def test_decode_uncorrectable_single_bit(self):
+        names = decode_aer_bits(0x00100000, "uncorrectable")
+        assert "Unsupported Request" in names
+
+    def test_decode_uncorrectable_multiple_bits(self):
+        # Bits 18 (Malformed TLP) and 20 (Unsupported Request)
+        names = decode_aer_bits(0x00140000, "uncorrectable")
+        assert "Malformed TLP" in names
+        assert "Unsupported Request" in names
+
+    def test_decode_correctable(self):
+        names = decode_aer_bits(0x00000001, "correctable")
+        assert "Receiver Error" in names
+
+    def test_decode_zero_returns_empty(self):
+        assert decode_aer_bits(0, "uncorrectable") == []
+
+    def test_format_aer_with_decode_zero(self):
+        result = format_aer_with_decode(0, "uncorrectable")
+        assert result == "0x00000000"
+
+    def test_format_aer_with_decode_named(self):
+        result = format_aer_with_decode(0x00100000, "uncorrectable")
+        assert "0x00100000" in result
+        assert "Unsupported Request" in result
+
+
+# ===========================================================================
+# P2-5: Failure guidance
+# ===========================================================================
+
+
+class TestFailureGuidance:
+    def test_guidance_box_renders(self):
+        result = failure_guidance_box("aer_uncorrectable")
+        assert "What To Do Next" in result
+        assert "eye_quick_scan" in result
+
+    def test_guidance_unknown_key_empty(self):
+        result = failure_guidance_box("nonexistent_key")
+        assert result == ""
+
+    def test_guidance_ber_errors(self):
+        result = failure_guidance_box("ber_errors")
+        assert "TX EQ" in result
+
+
+# ===========================================================================
+# P3-12: Timestamp formatting
+# ===========================================================================
+
+
+class TestTimestampFormatting:
+    def test_milliseconds_preserved(self):
+        result = format_timestamp_ms("2024-01-01T12:34:56.789Z")
+        assert result == "12:34:56.789"
+
+    def test_no_fractional(self):
+        result = format_timestamp_ms("2024-01-01T12:34:56Z")
+        assert result == "12:34:56"
+
+    def test_empty_returns_empty(self):
+        assert format_timestamp_ms("") == ""
+
+
+# ===========================================================================
+# P2-1: New specialized renderers
+# ===========================================================================
+
+
+class TestErrorAggregationSweepRenderer:
+    def test_dispatch(self):
+        steps = [
+            make_result(
+                name="Enumerate active ports",
+                measured_values={"total_ports": 8, "active_ports": 3},
+            ),
+            make_result(
+                name="Port 0 errors",
+                measured_values={
+                    "recovery_count": 0,
+                    "aer_uncorrectable": 0,
+                    "aer_correctable": 0,
+                },
+            ),
+            make_result(
+                name="Aggregate totals",
+                measured_values={
+                    "total_aer_uncorrectable": 0,
+                    "total_aer_correctable": 0,
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="error_aggregation_sweep", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Multi-Port Error Aggregation" in result
+
+    def test_per_port_table(self):
+        steps = [
+            make_result(
+                name="Port 0 errors",
+                measured_values={
+                    "recovery_count": 5,
+                    "aer_uncorrectable": 0x00040000,
+                    "aer_correctable": 0,
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="error_aggregation_sweep", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Port 0" in result
+
+    def test_aer_decoded(self):
+        steps = [
+            make_result(
+                name="Port 0 errors",
+                measured_values={
+                    "recovery_count": 0,
+                    "aer_uncorrectable": 0x00040000,
+                    "aer_correctable": 0,
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="error_aggregation_sweep", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Malformed TLP" in result or "0x00040000" in result
+
+
+class TestLinkHealthCheckRenderer:
+    def test_dispatch(self):
+        steps = [
+            make_result(
+                name="Check link status",
+                measured_values={
+                    "current_speed": "64GT",
+                    "current_width": 16,
+                    "dll_link_active": True,
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="link_health_check", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Endpoint Link Health" in result
+
+    def test_dut_framing(self):
+        steps = [make_result(name="Check link status", measured_values={"current_speed": "64GT"})]
+        summary = make_summary(recipe_id="link_health_check", steps=steps)
+        result = render_recipe_section(summary)
+        assert "endpoint" in result.lower()
+
+    def test_eq_checklist(self):
+        steps = [
+            make_result(
+                name="Check equalization",
+                measured_values={
+                    "eq_64gt_complete": True,
+                    "eq_64gt_phase1_ok": True,
+                    "eq_64gt_phase2_ok": True,
+                    "eq_64gt_phase3_ok": False,
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="link_health_check", steps=steps)
+        result = render_recipe_section(summary)
+        assert "PASS" in result
+        assert "FAIL" in result
+
+
+class TestSpeedDownshiftRenderer:
+    def test_dispatch(self):
+        steps = [
+            make_result(
+                name="Record baseline",
+                measured_values={"baseline_speed": "64GT", "baseline_width": 16},
+            ),
+            make_result(
+                name="Downshift to Gen5",
+                measured_values={
+                    "target_speed": "Gen5 (32GT)",
+                    "actual_speed": "32GT",
+                    "actual_width": 16,
+                    "speed_matched": True,
+                    "aer_uncorrectable": 0,
+                    "aer_correctable": 0,
+                },
+            ),
+            make_result(
+                name="Restore max speed",
+                measured_values={"restored_speed": "64GT", "restored_width": 16},
+            ),
+        ]
+        summary = make_summary(recipe_id="speed_downshift_test", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Speed Downshift" in result
+        assert "64GT" in result
+
+    def test_dut_framing(self):
+        steps = [make_result(name="Record baseline", measured_values={"baseline_speed": "64GT"})]
+        summary = make_summary(recipe_id="speed_downshift_test", steps=steps)
+        result = render_recipe_section(summary)
+        assert "endpoint" in result.lower() or "Endpoint" in result
+
+
+# ===========================================================================
+# P2-3: Auto-discover comparison metrics
+# ===========================================================================
+
+
+class TestComparisonAutoDiscover:
+    def test_discovers_unknown_metric(self):
+        steps = [make_result(measured_values={"custom_metric": 42.0})]
+        summary = make_summary(steps=steps)
+        metrics = _extract_key_metrics(summary)
+        assert "custom_metric" in metrics
+        assert metrics["custom_metric"] == 42.0
+
+    def test_skips_identifiers(self):
+        steps = [make_result(measured_values={"port_number": 3, "lane": 5})]
+        summary = make_summary(steps=steps)
+        metrics = _extract_key_metrics(summary)
+        assert "port_number" not in metrics
+        assert "lane" not in metrics
+
+    def test_skips_booleans(self):
+        steps = [make_result(measured_values={"gen6_supported": True})]
+        summary = make_summary(steps=steps)
+        metrics = _extract_key_metrics(summary)
+        assert "gen6_supported" not in metrics
+
+
+# ===========================================================================
+# P3-9: Parameter differences warning
+# ===========================================================================
+
+
+class TestComparisonParamDifferences:
+    def test_param_warning_shown(self):
+        base = make_summary(
+            recipe_id="ber_soak",
+            parameters={"duration_s": 30},
+            steps=[make_result(measured_values={"estimated_ber": 1e-12})],
+        )
+        curr = make_summary(
+            recipe_id="ber_soak",
+            parameters={"duration_s": 60},
+            steps=[make_result(measured_values={"estimated_ber": 1e-13})],
+        )
+        result = generate_comparison_report([base], [curr])
+        assert "Parameter Differences" in result
+        assert "duration_s" in result
+
+
+# ===========================================================================
+# DUT framing on existing headers (P3-2/3/4/5)
+# ===========================================================================
+
+
+class TestDutFramingHeaders:
+    def test_phy_64gt_endpoint_framing(self):
+        steps = [make_result(measured_values={"gen6_supported": True})]
+        summary = make_summary(recipe_id="phy_64gt_audit", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Endpoint PHY 64GT/s Audit" in result
+
+    def test_link_training_endpoint_framing(self):
+        steps = [make_result(measured_values={"transitions": []})]
+        summary = make_summary(recipe_id="link_training_debug", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Endpoint Link Training Debug" in result
+
+    def test_flit_perf_endpoint_framing(self):
+        steps = [make_result(measured_values={"flits_tracked": 100})]
+        summary = make_summary(recipe_id="flit_perf_measurement", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Endpoint Flit Throughput" in result
+
+    def test_bandwidth_endpoint_framing(self):
+        steps = [make_result(measured_values={"utilization": 0.85})]
+        summary = make_summary(recipe_id="bandwidth_baseline", steps=steps)
+        result = render_recipe_section(summary)
+        assert "Endpoint Bandwidth Baseline" in result
+
+
+# ===========================================================================
+# P2-10: HTML structural validation
+# ===========================================================================
+
+
+class _TagValidator(HTMLParser):
+    """Simple HTML tag balance checker."""
+
+    def __init__(self):
+        super().__init__()
+        self.stack: list[str] = []
+        self.errors: list[str] = []
+        self._void = frozenset({
+            "br", "hr", "img", "input", "meta", "link", "area", "base",
+            "col", "embed", "source", "track", "wbr",
+        })
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in self._void:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._void:
+            return
+        if not self.stack:
+            self.errors.append(f"Unexpected closing </{tag}> with empty stack")
+            return
+        if self.stack[-1] != tag:
+            self.errors.append(
+                f"Mismatched tag: expected </{self.stack[-1]}>, got </{tag}>"
+            )
+        else:
+            self.stack.pop()
+
+
+class TestHtmlStructuralValidation:
+    def _validate_html(self, html_str: str) -> list[str]:
+        validator = _TagValidator()
+        validator.feed(html_str)
+        errors = list(validator.errors)
+        if validator.stack:
+            errors.append(f"Unclosed tags: {validator.stack}")
+        return errors
+
+    def test_full_report_valid_html(self):
+        """Generate a full report with multiple recipe types and validate HTML structure."""
+        summaries = [
+            make_summary(
+                recipe_id="all_port_sweep",
+                steps=[
+                    make_result(
+                        name="Port 0",
+                        measured_values={
+                            "port_number": 0,
+                            "link_speed": "64GT",
+                            "link_width": 16,
+                            "role": "downstream",
+                        },
+                    ),
+                ],
+            ),
+            make_summary(
+                recipe_id="ber_soak",
+                steps=[
+                    make_result(
+                        name="Lane 0 BER",
+                        measured_values={
+                            "estimated_ber": 1e-14,
+                            "error_count": 0,
+                            "bits_tested": 1e12,
+                        },
+                    ),
+                ],
+            ),
+            make_summary(
+                recipe_id="link_health_check",
+                steps=[
+                    make_result(
+                        name="Check link status",
+                        measured_values={"current_speed": "64GT", "dll_link_active": True},
+                    ),
+                ],
+            ),
+        ]
+        html = generate_report(summaries, title="Test Report")
+        errors = self._validate_html(html)
+        assert errors == [], f"HTML validation errors: {errors}"
+
+    def test_report_has_csp_meta(self):
+        summary = make_summary(steps=[make_result()])
+        html = generate_report([summary])
+        assert "Content-Security-Policy" in html
+
+    def test_report_has_title(self):
+        summary = make_summary(steps=[make_result()])
+        html = generate_report([summary], title="My Test Report")
+        assert "<title>My Test Report" in html
+
+    def test_comparison_report_valid_html(self):
+        base = make_summary(
+            recipe_id="ber_soak",
+            steps=[make_result(measured_values={"estimated_ber": 1e-12})],
+        )
+        curr = make_summary(
+            recipe_id="ber_soak",
+            steps=[make_result(measured_values={"estimated_ber": 1e-13})],
+        )
+        html = generate_comparison_report([base], [curr])
+        errors = self._validate_html(html)
+        assert errors == [], f"HTML validation errors: {errors}"

@@ -33,6 +33,11 @@ from calypso.workflows.report_sections_gen6_ext import (
     render_flit_error_injection,
     render_serdes_diagnostics,
 )
+from calypso.workflows.report_sections_error_debug import (
+    render_error_aggregation_sweep,
+    render_link_health_check,
+    render_speed_downshift_test,
+)
 from calypso.workflows.report_sections_recipes import (
     render_bandwidth,
     render_ber,
@@ -147,4 +152,7 @@ _RENDERERS: dict[str, Callable[[RecipeSummary], str]] = {
     "error_recovery_test": render_error_recovery,
     "flit_error_injection": render_flit_error_injection,
     "serdes_diagnostics": render_serdes_diagnostics,
+    "error_aggregation_sweep": render_error_aggregation_sweep,
+    "link_health_check": render_link_health_check,
+    "speed_downshift_test": render_speed_downshift_test,
 }

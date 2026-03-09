@@ -9,6 +9,16 @@ from __future__ import annotations
 import html
 
 from calypso.workflows.models import RecipeSummary
+
+# Import threshold constants to keep renderers in sync with recipes
+from calypso.workflows.recipes.eye_quick_scan import (
+    _TIMING_MARGIN_GOOD_UI as _EYE_PASS_UI,
+    _TIMING_MARGIN_MARGINAL_UI as _EYE_WARN_UI,
+)
+from calypso.workflows.recipes.pam4_eye_sweep import (
+    _PAM4_MIN_MARGIN_UI as _PAM4_PASS_UI,
+    _PAM4_WARN_MARGIN_UI as _PAM4_WARN_UI,
+)
 from calypso.workflows.report_charts import (
     bar_chart,
     metric_card,
@@ -44,9 +54,9 @@ def render_eye_scan(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            "PASS: Eye width >= 0.15 UI",
-            "WARN: Eye width >= 0.08 UI",
-            "FAIL: Eye width < 0.08 UI",
+            f"PASS: Eye width >= {_EYE_PASS_UI} UI",
+            f"WARN: Eye width >= {_EYE_WARN_UI} UI",
+            f"FAIL: Eye width < {_EYE_WARN_UI} UI",
         ]
     )
 
@@ -97,8 +107,8 @@ def render_eye_scan(summary: RecipeSummary) -> str:
                 section_header("Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
-                f'margin:4px 0 8px 0;">PASS \u2265 0.15 UI | '
-                f"WARN \u2265 0.08 UI | FAIL &lt; 0.08 UI</div>"
+                f'margin:4px 0 8px 0;">PASS \u2265 {_EYE_PASS_UI} UI | '
+                f"WARN \u2265 {_EYE_WARN_UI} UI | FAIL &lt; {_EYE_WARN_UI} UI</div>"
             )
         if height_data:
             height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
@@ -140,7 +150,7 @@ def render_eye_scan(summary: RecipeSummary) -> str:
 
 def render_link_training_debug(summary: RecipeSummary) -> str:
     """Specialized renderer for link_training_debug results."""
-    header = section_header("Link Training Debug", f"Duration: {summary.duration_ms:.0f}ms")
+    header = section_header("Endpoint Link Training Debug", f"Duration: {summary.duration_ms:.0f}ms")
 
     # LTSSM transition timeline
     transition_step = find_step_with_key(summary.steps, "transitions")
@@ -341,7 +351,7 @@ def render_link_training_debug(summary: RecipeSummary) -> str:
 
 def render_phy_64gt_audit(summary: RecipeSummary) -> str:
     """Specialized renderer for phy_64gt_audit -- Gen6 capability checklist."""
-    header = section_header("PHY 64GT Audit", f"Duration: {summary.duration_ms:.0f}ms")
+    header = section_header("Endpoint PHY 64GT/s Audit", f"Duration: {summary.duration_ms:.0f}ms")
 
     # Gather capability flags from steps
     cap_step = find_step_with_key(summary.steps, "gen6_supported")
@@ -473,7 +483,7 @@ def render_phy_64gt_audit(summary: RecipeSummary) -> str:
 def render_flit_perf_measurement(summary: RecipeSummary) -> str:
     """Specialized renderer for flit_perf_measurement results."""
     header = section_header(
-        "Flit Performance Measurement",
+        "Endpoint Flit Throughput",
         f"Duration: {summary.duration_ms:.0f}ms",
     )
 
@@ -578,9 +588,9 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
 
     criteria = criteria_box(
         [
-            "PASS: Margin >= 0.10 UI",
-            "WARN: Margin >= 0.05 UI",
-            "FAIL: Margin < 0.05 UI",
+            f"PASS: Margin >= {_PAM4_WARN_UI} UI",
+            f"WARN: Margin >= {_PAM4_PASS_UI} UI",
+            f"FAIL: Margin < {_PAM4_PASS_UI} UI",
             "Note: PAM4 sub-eye identity (upper/middle/lower) requires per-eye"
             " sweep capability. Current results show aggregate margin per lane.",
         ]
@@ -629,8 +639,8 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
                 section_header("Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
-                f'margin:4px 0 8px 0;">PASS \u2265 0.10 UI | '
-                f"WARN \u2265 0.05 UI | FAIL &lt; 0.05 UI</div>"
+                f'margin:4px 0 8px 0;">PASS \u2265 {_PAM4_WARN_UI} UI | '
+                f"WARN \u2265 {_PAM4_PASS_UI} UI | FAIL &lt; {_PAM4_PASS_UI} UI</div>"
             )
         if height_data:
             height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(
@@ -644,7 +654,7 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
         mv = agg_step.measured_values
         worst_lane = mv.get("worst_lane", -1)
         worst_margin = float(str(mv.get("worst_margin_ui", 0)))
-        margin_color = RED if worst_margin < 0.05 else YELLOW if worst_margin < 0.10 else GREEN
+        margin_color = RED if worst_margin < _PAM4_PASS_UI else YELLOW if worst_margin < _PAM4_WARN_UI else GREEN
         margin_section = (
             f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
             f"{metric_card('Worst Lane', str(worst_lane), margin_color)}"

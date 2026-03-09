@@ -112,6 +112,65 @@ def export_csv(summaries: list[RecipeSummary]) -> str:
     return output.getvalue()
 
 
+def _collect_lane_keys(summaries: list[RecipeSummary]) -> list[str]:
+    """Collect sorted union of all keys from lane dicts across all steps."""
+    keys: set[str] = set()
+    for summary in summaries:
+        for step in summary.steps:
+            lanes = step.measured_values.get("lanes", [])
+            if isinstance(lanes, list):
+                for lane in lanes:
+                    if isinstance(lane, dict):
+                        for k in lane:
+                            keys.add(k)
+    return sorted(keys)
+
+
+def export_lane_csv(summaries: list[RecipeSummary]) -> str:
+    """Export per-lane data as a flattened CSV (one row per lane per step).
+
+    Only includes steps that have a 'lanes' list in measured_values.
+    Steps without lane data are omitted.
+    """
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    lane_keys = _collect_lane_keys(summaries)
+    if not lane_keys:
+        return ""
+
+    fixed_columns = [
+        "recipe_id",
+        "recipe_name",
+        "step_name",
+        "step_status",
+        "lane_index",
+    ]
+    writer.writerow(fixed_columns + lane_keys)
+
+    for summary in summaries:
+        for step in summary.steps:
+            lanes = step.measured_values.get("lanes", [])
+            if not isinstance(lanes, list):
+                continue
+            for idx, lane in enumerate(lanes):
+                if not isinstance(lane, dict):
+                    continue
+                fixed_row = [
+                    _sanitize_csv_value(summary.recipe_id),
+                    _sanitize_csv_value(summary.recipe_name),
+                    _sanitize_csv_value(step.step_name),
+                    _sanitize_csv_value(step.status.value),
+                    idx,
+                ]
+                lane_values = [
+                    _sanitize_csv_value(lane.get(k, "")) for k in lane_keys
+                ]
+                writer.writerow(fixed_row + lane_values)
+
+    return output.getvalue()
+
+
 def export_summary_csv(summaries: list[RecipeSummary]) -> str:
     """Export recipe-level summary as CSV (one row per recipe).
 

@@ -30,6 +30,8 @@ RED = "#f85149"
 def safe_int(value: object) -> int:
     """Safely convert a value to int, handling floats from JSON round-tripping."""
     try:
+        if isinstance(value, bool):
+            return int(value)
         return int(float(str(value)))
     except (ValueError, TypeError):
         return 0
@@ -115,6 +117,163 @@ def color_for_status(status_str: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# PCIe AER error bit definitions (PCIe 6.1 §7.8.4)
+# ---------------------------------------------------------------------------
+
+_AER_UNCORRECTABLE_BITS: tuple[tuple[int, str], ...] = (
+    (4, "Data Link Protocol Error"),
+    (5, "Surprise Down Error"),
+    (12, "Poisoned TLP Received"),
+    (13, "Flow Control Protocol Error"),
+    (14, "Completion Timeout"),
+    (15, "Completer Abort"),
+    (16, "Unexpected Completion"),
+    (17, "Receiver Overflow"),
+    (18, "Malformed TLP"),
+    (19, "ECRC Error"),
+    (20, "Unsupported Request"),
+    (21, "ACS Violation"),
+    (22, "Internal Error"),
+    (23, "MC Blocked TLP"),
+    (24, "AtomicOp Egress Blocked"),
+    (25, "TLP Prefix Blocked"),
+    (26, "Poisoned TLP Egress Blocked"),
+)
+
+_AER_CORRECTABLE_BITS: tuple[tuple[int, str], ...] = (
+    (0, "Receiver Error"),
+    (6, "Bad TLP"),
+    (7, "Bad DLLP"),
+    (8, "Replay Num Rollover"),
+    (12, "Replay Timer Timeout"),
+    (13, "Advisory Non-Fatal Error"),
+    (14, "Corrected Internal Error"),
+    (15, "Header Log Overflow"),
+)
+
+
+def decode_aer_bits(raw: int, error_type: str = "uncorrectable") -> list[str]:
+    """Decode AER status register bits into named error strings.
+
+    Args:
+        raw: Raw AER status register value.
+        error_type: "uncorrectable" or "correctable".
+
+    Returns:
+        List of error name strings for each set bit.
+    """
+    bit_defs = (
+        _AER_UNCORRECTABLE_BITS if error_type == "uncorrectable"
+        else _AER_CORRECTABLE_BITS
+    )
+    return [name for bit, name in bit_defs if raw & (1 << bit)]
+
+
+def format_aer_with_decode(raw: int, error_type: str = "uncorrectable") -> str:
+    """Format an AER register value as hex with decoded error names."""
+    hex_str = f"0x{raw:08X}"
+    if raw == 0:
+        return hex_str
+    names = decode_aer_bits(raw, error_type)
+    if names:
+        return hex_str + " (" + ", ".join(names) + ")"
+    return hex_str
+
+
+# ---------------------------------------------------------------------------
+# Debug guidance for common failure patterns
+# ---------------------------------------------------------------------------
+
+_FAILURE_GUIDANCE: dict[str, list[str]] = {
+    "aer_uncorrectable": [
+        "Check physical connections and cable seating",
+        "Run eye_quick_scan to verify signal margins",
+        "Inspect TX EQ settings with eq_phase_audit",
+    ],
+    "link_degraded": [
+        "Run speed_downshift_test to isolate the degraded speed tier",
+        "Check EQ status with eq_phase_audit",
+        "Verify endpoint supports the target link speed and width",
+    ],
+    "recovery_high": [
+        "Check cable/connector seating on all lanes",
+        "Run ber_soak for per-lane error rate analysis",
+        "Monitor LTSSM transitions with ltssm_monitor",
+    ],
+    "ber_errors": [
+        "Run eye_quick_scan on affected lanes",
+        "Check TX EQ coefficients with phy_64gt_audit",
+        "Consider retesting with a shorter or higher-quality cable",
+    ],
+    "eye_fail": [
+        "Check channel loss — verify cable length and connector quality",
+        "Inspect TX EQ presets negotiated with eq_phase_audit",
+        "Try different receiver preset hints if supported",
+    ],
+    "eq_incomplete": [
+        "Verify endpoint supports the target speed's EQ phases",
+        "Check for firmware updates on the endpoint device",
+        "Run link_training_debug for detailed LTSSM analysis",
+    ],
+    "flit_errors": [
+        "Check for FEC uncorrectable errors in the Flit Error Log",
+        "Run serdes_diagnostics for per-lane signal quality",
+        "Verify endpoint Flit mode compliance at 64GT/s",
+    ],
+}
+
+
+def failure_guidance_box(guidance_key: str) -> str:
+    """Render a 'What to do next' guidance box for a failure pattern.
+
+    Args:
+        guidance_key: Key into _FAILURE_GUIDANCE dict.
+
+    Returns:
+        HTML string, or empty string if no guidance available.
+    """
+    steps = _FAILURE_GUIDANCE.get(guidance_key)
+    if not steps:
+        return ""
+    bullet = "\u2022"
+    items = "".join(
+        f'<div style="margin:2px 0; color:{TEXT_PRIMARY}; font-size:12px;">'
+        f"{bullet} {html.escape(step)}</div>"
+        for step in steps
+    )
+    return (
+        f'<div style="margin:12px 0; padding:10px 14px; background:{BG_CARD}; '
+        f"border:1px solid {BORDER}; border-left:3px solid {YELLOW}; "
+        f'border-radius:4px;">'
+        f'<div style="font-size:12px; font-weight:600; color:{YELLOW}; '
+        f'margin-bottom:4px;">What To Do Next</div>'
+        f"{items}</div>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Timestamp formatting
+# ---------------------------------------------------------------------------
+
+
+def format_timestamp_ms(ts: str) -> str:
+    """Format an ISO timestamp to HH:MM:SS.mmm for display."""
+    if not ts:
+        return ""
+    try:
+        if "T" in ts:
+            time_part = ts.split("T")[1]
+            time_part = time_part.split("+")[0].split("Z")[0]
+            parts = time_part.split(".")
+            if len(parts) > 1:
+                return parts[0] + "." + parts[1][:3]
+            return parts[0]
+    except (IndexError, ValueError):
+        pass
+    return ts
+
+
+# ---------------------------------------------------------------------------
 # Measured values rendering helpers
 # ---------------------------------------------------------------------------
 
@@ -132,6 +291,8 @@ def render_value_cell(value: object, depth: int = 0) -> str:
         label = "True" if value else "False"
         return f'<span style="color:{color}; font-weight:600;">{label}</span>'
     if isinstance(value, float):
+        if abs(value) >= 1e6:
+            return html.escape(f"{value:.2e}")
         if abs(value) < 0.001 and value != 0:
             return html.escape(f"{value:.2e}")
         return html.escape(f"{value:.4f}".rstrip("0").rstrip("."))

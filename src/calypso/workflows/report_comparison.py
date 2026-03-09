@@ -50,6 +50,20 @@ _METRIC_KEYS = [
     ("lanes_with_errors", "Lanes with Errors", True),
 ]
 
+# Keys that are identifiers/enums rather than comparable numeric metrics
+_SKIP_KEYS = frozenset(
+    {
+        "port_number",
+        "lane",
+        "attempt",
+        "original_speed_code",
+        "error_type",
+        "cap_offset",
+        "first_error_pointer",
+        "ltssm_state",
+    }
+)
+
 
 def _extract_key_metrics(summary: RecipeSummary) -> dict[str, float]:
     """Extract key numeric metrics from ALL steps' measured_values.
@@ -71,6 +85,15 @@ def _extract_key_metrics(summary: RecipeSummary) -> dict[str, float]:
                     metrics[key] = float(val)
                 except (ValueError, TypeError):
                     pass
+
+    # Auto-discover additional numeric metrics not in _METRIC_KEYS
+    for step in summary.steps:
+        mv = step.measured_values or {}
+        for key, val in mv.items():
+            if key in metrics or key in _SKIP_KEYS:
+                continue
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                metrics[key] = float(val)
 
     # Aggregate worst-lane BER from any step with a lanes list
     worst_ber = 0.0
@@ -131,6 +154,59 @@ def _extract_key_metrics(summary: RecipeSummary) -> dict[str, float]:
         metrics["total_recovery_delta"] = float(total_recovery_delta)
 
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Per-lane metric extraction
+# ---------------------------------------------------------------------------
+
+
+def _extract_lane_metrics(
+    summary: RecipeSummary,
+) -> dict[int, dict[str, float]]:
+    """Extract per-lane metrics from steps with 'lanes' lists or lane fields."""
+    lane_data: dict[int, dict[str, float]] = {}
+    for step in summary.steps:
+        mv = step.measured_values or {}
+        lanes = mv.get("lanes", [])
+        if isinstance(lanes, list):
+            for lane_info in lanes:
+                if not isinstance(lane_info, dict):
+                    continue
+                lane_idx = lane_info.get("lane", len(lane_data))
+                try:
+                    lane_num = int(lane_idx)
+                except (ValueError, TypeError):
+                    continue
+                entry = lane_data.setdefault(lane_num, {})
+                for k in ("estimated_ber", "error_count", "utp_error_count"):
+                    v = lane_info.get(k)
+                    if v is not None:
+                        try:
+                            entry[k] = float(v)
+                        except (ValueError, TypeError):
+                            pass
+        # Also extract per-lane eye data from eye scan steps
+        ew = mv.get("eye_width_ui")
+        eh = mv.get("eye_height_mv")
+        lane_val = step.lane if step.lane is not None else mv.get("lane")
+        if lane_val is not None and (ew is not None or eh is not None):
+            try:
+                ln = int(lane_val)
+            except (ValueError, TypeError):
+                continue
+            entry = lane_data.setdefault(ln, {})
+            if ew is not None:
+                try:
+                    entry["eye_width_ui"] = float(ew)
+                except (ValueError, TypeError):
+                    pass
+            if eh is not None:
+                try:
+                    entry["eye_height_mv"] = float(eh)
+                except (ValueError, TypeError):
+                    pass
+    return lane_data
 
 
 # ---------------------------------------------------------------------------
@@ -220,20 +296,29 @@ def generate_comparison_report(
                 unchanged += 1
 
             name = html_mod.escape(curr.recipe_name)
+            base_dur_ms = max(base.duration_ms, 1)
+            dur_delta_pct = (curr.duration_ms - base.duration_ms) / base_dur_ms * 100
+            dur_color = TEXT_SECONDARY
+            if abs(dur_delta_pct) > 20:
+                dur_color = GREEN if dur_delta_pct < 0 else RED
+            base_badge = status_badge(base.status.value)
+            curr_badge = status_badge(curr.status.value)
+            base_dur = format_duration(base.duration_ms)
+            curr_dur = format_duration(curr.duration_ms)
             comparison_rows.append(
                 f"<tr>"
                 f'<td style="padding:8px 12px; border-bottom:1px solid #30363d; '
                 f'color:{TEXT_PRIMARY}; font-size:13px;">{name}</td>'
                 f'<td style="padding:8px 12px; border-bottom:1px solid #30363d;">'
-                f"{status_badge(base.status.value)}</td>"
+                f"{base_badge}</td>"
                 f'<td style="padding:8px 12px; border-bottom:1px solid #30363d;">'
-                f"{status_badge(curr.status.value)}</td>"
+                f"{curr_badge}</td>"
                 f'<td style="padding:8px 12px; border-bottom:1px solid #30363d; '
                 f'color:{TEXT_SECONDARY}; font-size:13px; text-align:right;">'
-                f"{format_duration(base.duration_ms)}</td>"
+                f"{base_dur}</td>"
                 f'<td style="padding:8px 12px; border-bottom:1px solid #30363d; '
-                f'color:{TEXT_SECONDARY}; font-size:13px; text-align:right;">'
-                f"{format_duration(curr.duration_ms)}</td>"
+                f'color:{dur_color}; font-size:13px; text-align:right;">'
+                f"{curr_dur}</td>"
                 f"</tr>"
             )
 
@@ -366,12 +451,34 @@ def _render_recipe_comparison(
     if not all_metric_keys:
         return ""
 
-    label_map = {k: label for k, label, _ in _METRIC_KEYS}
+    # --- Parameter differences warning ---
+    param_warning = ""
+    if base.parameters != curr.parameters:
+        changed: list[str] = []
+        all_param_keys = sorted(set(list(base.parameters.keys()) + list(curr.parameters.keys())))
+        for k in all_param_keys:
+            bv = base.parameters.get(k)
+            cv = curr.parameters.get(k)
+            if bv != cv:
+                changed.append(f"{k}: {bv} \u2192 {cv}")
+        if changed:
+            changes_html = ", ".join(html_mod.escape(c) for c in changed)
+            param_warning = (
+                '<div style="margin:12px 0; padding:10px 14px; background:#1c2128; '
+                "border:1px solid #30363d; border-left:3px solid #d29922; "
+                'border-radius:4px;">'
+                '<div style="font-size:12px; font-weight:600; color:#d29922; '
+                'margin-bottom:4px;">Parameter Differences</div>'
+                f'<div style="font-size:12px; color:#8b949e;">{changes_html}</div>'
+                "</div>"
+            )
+
+    label_map: dict[str, str] = {k: label for k, label, _ in _METRIC_KEYS}
     label_map["worst_lane_ber"] = "Worst Lane BER"
     label_map["worst_eye_width"] = "Worst Eye Width (UI)"
     label_map["worst_eye_height"] = "Worst Eye Height (mV)"
     label_map["total_recovery_delta"] = "Total Recovery Count"
-    lower_map = {k: lower for k, _, lower in _METRIC_KEYS}
+    lower_map: dict[str, bool] = {k: lower for k, _, lower in _METRIC_KEYS}
     lower_map["worst_lane_ber"] = True
     lower_map["worst_eye_width"] = False  # wider is better
     lower_map["worst_eye_height"] = False  # taller is better
@@ -379,12 +486,12 @@ def _render_recipe_comparison(
 
     rows: list[list[str]] = []
     for key in all_metric_keys:
-        label = label_map.get(key, key)
+        label = label_map.get(key, key.replace("_", " ").title())
         base_val = base_metrics.get(key)
         curr_val = curr_metrics.get(key)
 
-        base_str = _format_metric_value(key, base_val) if base_val is not None else "—"
-        curr_str = _format_metric_value(key, curr_val) if curr_val is not None else "—"
+        base_str = _format_metric_value(key, base_val) if base_val is not None else "\u2014"
+        curr_str = _format_metric_value(key, curr_val) if curr_val is not None else "\u2014"
 
         delta_str = ""
         if base_val is not None and curr_val is not None:
@@ -392,19 +499,71 @@ def _render_recipe_comparison(
             if delta != 0:
                 lower = lower_map.get(key, True)
                 color = _delta_color(delta, lower)
-                delta_str = (
-                    f'<span style="color:{color}; font-weight:600;">'
-                    f"{_format_delta(key, delta)}</span>"
-                )
+                d_str = _format_delta(key, delta)
+                delta_str = f'<span style="color:{color}; font-weight:600;">{d_str}</span>'
 
         rows.append([label, base_str, curr_str, delta_str])
 
     header = section_header(
         curr.recipe_name,
-        f"Status: {base.status.value} → {curr.status.value}",
+        f"Status: {base.status.value} \u2192 {curr.status.value}",
     )
     table = results_table(
         ["Metric", "Baseline", "Current", "Delta"],
         rows,
     )
-    return f"{header}{table}"
+
+    # --- Per-lane regression table ---
+    lane_html = ""
+    base_lanes = _extract_lane_metrics(base)
+    curr_lanes = _extract_lane_metrics(curr)
+    common_lanes = sorted(set(base_lanes) & set(curr_lanes))
+    if common_lanes:
+        lane_rows: list[list[str]] = []
+        lane_metric_keys = [
+            "estimated_ber",
+            "eye_width_ui",
+            "eye_height_mv",
+            "error_count",
+        ]
+        lane_labels = {
+            "estimated_ber": "BER",
+            "eye_width_ui": "Eye Width",
+            "eye_height_mv": "Eye Height",
+            "error_count": "Errors",
+        }
+        lane_lower = {
+            "estimated_ber": True,
+            "eye_width_ui": False,
+            "eye_height_mv": False,
+            "error_count": True,
+        }
+        for ln in common_lanes:
+            bl = base_lanes[ln]
+            cl = curr_lanes[ln]
+            for mk in lane_metric_keys:
+                bv = bl.get(mk)
+                cv = cl.get(mk)
+                if bv is None and cv is None:
+                    continue
+                bv_str = _format_metric_value(mk, bv) if bv is not None else "\u2014"
+                cv_str = _format_metric_value(mk, cv) if cv is not None else "\u2014"
+                delta_str = ""
+                if bv is not None and cv is not None:
+                    d = cv - bv
+                    if d != 0:
+                        lower = lane_lower.get(mk, True)
+                        color = _delta_color(d, lower)
+                        d_str = _format_delta(mk, d)
+                        delta_str = f'<span style="color:{color}; font-weight:600;">{d_str}</span>'
+                label = lane_labels.get(mk, mk)
+                lane_rows.append([str(ln), label, bv_str, cv_str, delta_str])
+        if lane_rows:
+            lane_header = section_header("Per-Lane Regression", "")
+            lane_table = results_table(
+                ["Lane", "Metric", "Baseline", "Current", "Delta"],
+                lane_rows,
+            )
+            lane_html = f"{lane_header}{lane_table}"
+
+    return f"{header}{param_warning}{table}{lane_html}"

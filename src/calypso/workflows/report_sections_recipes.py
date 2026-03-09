@@ -329,7 +329,7 @@ def render_ber(summary: RecipeSummary) -> str:
 
 def render_bandwidth(summary: RecipeSummary) -> str:
     """Specialized renderer for bandwidth_baseline results."""
-    header = section_header("Bandwidth Baseline", f"Duration: {summary.duration_ms:.0f}ms")
+    header = section_header("Endpoint Bandwidth Baseline", f"Duration: {summary.duration_ms:.0f}ms")
 
     criteria = criteria_box(
         [
