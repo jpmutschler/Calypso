@@ -11,33 +11,33 @@ from collections.abc import Callable
 
 from calypso.workflows.models import RecipeSummary
 from calypso.workflows.report_charts import (
-    metric_card,
     results_table,
     section_header,
-    status_color,
 )
-from calypso.workflows.report_sections_recipes import (
-    render_bandwidth,
-    render_ber,
+from calypso.workflows.report_sections_helpers import (
+    BG_CARD,
+    BORDER,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    summary_metrics,
+)
+from calypso.workflows.report_sections_gen6 import (
     render_eye_scan,
-    render_fber_measurement,
     render_flit_perf_measurement,
     render_link_training_debug,
     render_pam4_eye_sweep,
     render_phy_64gt_audit,
+)
+from calypso.workflows.report_sections_recipes import (
+    render_bandwidth,
+    render_ber,
+    render_fber_measurement,
     render_port_sweep,
 )
-
-# Theme colors (matching report_charts)
-_BG_CARD = "#1c2128"
-_BORDER = "#30363d"
-_TEXT_PRIMARY = "#e6edf3"
-_TEXT_SECONDARY = "#8b949e"
-_TEXT_MUTED = "#484f58"
-_CYAN = "#00d4ff"
-_GREEN = "#3fb950"
-_YELLOW = "#d29922"
-_RED = "#f85149"
 
 
 def render_recipe_section(summary: RecipeSummary) -> str:
@@ -78,7 +78,7 @@ def _render_value_cell(value: object) -> str:
     if isinstance(value, list):
         return _render_nested_list(value)
     if isinstance(value, bool):
-        color = _GREEN if value else _RED
+        color = GREEN if value else RED
         label = "True" if value else "False"
         return f'<span style="color:{color}; font-weight:600;">{label}</span>'
     if isinstance(value, float):
@@ -93,15 +93,15 @@ def _render_nested_dict(d: dict[str, object]) -> str:
     rows: list[str] = []
     for k, v in d.items():
         rows.append(
-            f'<tr><td style="padding:2px 6px; color:{_TEXT_SECONDARY}; '
+            f'<tr><td style="padding:2px 6px; color:{TEXT_SECONDARY}; '
             f'font-size:11px; vertical-align:top; white-space:nowrap;">'
             f"{html.escape(str(k))}</td>"
-            f'<td style="padding:2px 6px; color:{_TEXT_PRIMARY}; '
+            f'<td style="padding:2px 6px; color:{TEXT_PRIMARY}; '
             f'font-size:11px;">{_render_value_cell(v)}</td></tr>'
         )
     return (
-        f'<table style="border-collapse:collapse; background:{_BG_CARD}; '
-        f'border:1px solid {_BORDER}; border-radius:4px; margin:2px 0;">'
+        f'<table style="border-collapse:collapse; background:{BG_CARD}; '
+        f'border:1px solid {BORDER}; border-radius:4px; margin:2px 0;">'
         f"{''.join(rows)}</table>"
     )
 
@@ -109,7 +109,7 @@ def _render_nested_dict(d: dict[str, object]) -> str:
 def _render_nested_list(items: list[object]) -> str:
     """Render a list. If items are dicts, render as a sub-table with columns."""
     if not items:
-        return f'<span style="color:{_TEXT_MUTED};">[]</span>'
+        return f'<span style="color:{TEXT_MUTED};">[]</span>'
 
     # Check if all items are dicts -- render as a proper table
     if all(isinstance(item, dict) for item in items):
@@ -121,24 +121,24 @@ def _render_nested_list(items: list[object]) -> str:
                     all_keys.append(k)
 
         header_cells = "".join(
-            f'<th style="text-align:left; padding:3px 6px; color:{_TEXT_SECONDARY}; '
-            f'font-size:11px; font-weight:600; border-bottom:1px solid {_BORDER};">'
+            f'<th style="text-align:left; padding:3px 6px; color:{TEXT_SECONDARY}; '
+            f'font-size:11px; font-weight:600; border-bottom:1px solid {BORDER};">'
             f"{html.escape(str(k))}</th>"
             for k in all_keys
         )
         body_rows: list[str] = []
         for item in dict_items:
             cells = "".join(
-                f'<td style="padding:3px 6px; color:{_TEXT_PRIMARY}; '
-                f'font-size:11px; border-bottom:1px solid {_BORDER};">'
+                f'<td style="padding:3px 6px; color:{TEXT_PRIMARY}; '
+                f'font-size:11px; border-bottom:1px solid {BORDER};">'
                 f"{_render_value_cell(item.get(k, ''))}</td>"
                 for k in all_keys
             )
             body_rows.append(f"<tr>{cells}</tr>")
 
         return (
-            f'<table style="border-collapse:collapse; background:{_BG_CARD}; '
-            f"border:1px solid {_BORDER}; border-radius:4px; "
+            f'<table style="border-collapse:collapse; background:{BG_CARD}; '
+            f"border:1px solid {BORDER}; border-radius:4px; "
             f'margin:4px 0; width:100%;">'
             f"<thead><tr>{header_cells}</tr></thead>"
             f"<tbody>{''.join(body_rows)}</tbody></table>"
@@ -148,7 +148,7 @@ def _render_nested_list(items: list[object]) -> str:
     formatted = ", ".join(html.escape(str(item)) for item in items[:20])
     if len(items) > 20:
         formatted += f" ... ({len(items)} total)"
-    return f'<span style="color:{_TEXT_PRIMARY}; font-size:12px;">[{formatted}]</span>'
+    return f'<span style="color:{TEXT_PRIMARY}; font-size:12px;">[{formatted}]</span>'
 
 
 def _render_measured_values_table(values: dict[str, object]) -> str:
@@ -159,18 +159,18 @@ def _render_measured_values_table(values: dict[str, object]) -> str:
     rows: list[str] = []
     for key, value in values.items():
         rows.append(
-            f'<tr><td style="padding:4px 10px; color:{_TEXT_SECONDARY}; '
+            f'<tr><td style="padding:4px 10px; color:{TEXT_SECONDARY}; '
             f"font-size:12px; vertical-align:top; white-space:nowrap; "
-            f'border-bottom:1px solid {_BORDER}; font-weight:500;">'
+            f'border-bottom:1px solid {BORDER}; font-weight:500;">'
             f"{html.escape(str(key))}</td>"
-            f'<td style="padding:4px 10px; color:{_TEXT_PRIMARY}; '
-            f'font-size:12px; border-bottom:1px solid {_BORDER};">'
+            f'<td style="padding:4px 10px; color:{TEXT_PRIMARY}; '
+            f'font-size:12px; border-bottom:1px solid {BORDER};">'
             f"{_render_value_cell(value)}</td></tr>"
         )
 
     return (
         f'<table style="width:100%; border-collapse:collapse; '
-        f"background:{_BG_CARD}; border:1px solid {_BORDER}; "
+        f"background:{BG_CARD}; border:1px solid {BORDER}; "
         f'border-radius:6px; overflow:hidden; margin:6px 0;">'
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
@@ -205,14 +205,7 @@ def _render_generic(summary: RecipeSummary) -> str:
     ]
     table = results_table(columns, rows, status_column=1)
 
-    metrics = (
-        f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
-        f"{metric_card('Pass', str(summary.total_pass), _GREEN)}"
-        f"{metric_card('Fail', str(summary.total_fail), _RED)}"
-        f"{metric_card('Warn', str(summary.total_warn), _YELLOW)}"
-        f"{metric_card('Overall', summary.status.value.upper(), status_color(summary.status.value))}"
-        f"</div>"
-    )
+    metrics = summary_metrics(summary)
 
     # Detailed Measurements section (C-1 fix) -- render measured_values
     details_parts: list[str] = []
@@ -221,7 +214,7 @@ def _render_generic(summary: RecipeSummary) -> str:
             continue
         step_label = html.escape(step.step_name)
         step_header = (
-            f'<div style="font-size:13px; font-weight:600; color:{_CYAN}; '
+            f'<div style="font-size:13px; font-weight:600; color:{CYAN}; '
             f'margin:10px 0 4px 0;">{step_label}</div>'
         )
         mv_table = _render_measured_values_table(step.measured_values)
@@ -230,7 +223,7 @@ def _render_generic(summary: RecipeSummary) -> str:
     details_section = ""
     if details_parts:
         details_header = (
-            f'<div style="font-size:15px; font-weight:600; color:{_TEXT_PRIMARY}; '
+            f'<div style="font-size:15px; font-weight:600; color:{TEXT_PRIMARY}; '
             f'margin:20px 0 8px 0;">Detailed Measurements</div>'
         )
         details_section = details_header + "".join(details_parts)

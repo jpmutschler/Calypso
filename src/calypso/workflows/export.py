@@ -89,18 +89,18 @@ def export_csv(summaries: list[RecipeSummary]) -> str:
         for step in summary.steps:
             mv = step.measured_values or {}
             fixed_row = [
-                summary.recipe_id,
-                summary.recipe_name,
-                summary.category.value,
-                summary.status.value,
+                _sanitize_csv_value(summary.recipe_id),
+                _sanitize_csv_value(summary.recipe_name),
+                _sanitize_csv_value(summary.category.value),
+                _sanitize_csv_value(summary.status.value),
                 _sanitize_csv_value(step.step_name),
-                step.status.value,
-                step.criticality.value,
+                _sanitize_csv_value(step.status.value),
+                _sanitize_csv_value(step.criticality.value),
                 _sanitize_csv_value(step.message),
                 f"{step.duration_ms:.2f}",
                 step.port_number if step.port_number is not None else "",
                 step.lane if step.lane is not None else "",
-                step.timestamp,
+                _sanitize_csv_value(step.timestamp),
             ]
             mv_json = _serialize_measured_values(mv)
             scalar_values: list[object] = []
@@ -153,11 +153,11 @@ def export_summary_csv(summaries: list[RecipeSummary]) -> str:
 
         writer.writerow(
             [
-                s.recipe_id,
-                s.recipe_name,
-                s.category.value,
-                s.status.value,
-                s.device_id,
+                _sanitize_csv_value(s.recipe_id),
+                _sanitize_csv_value(s.recipe_name),
+                _sanitize_csv_value(s.category.value),
+                _sanitize_csv_value(s.status.value),
+                _sanitize_csv_value(s.device_id),
                 s.total_steps,
                 s.total_pass,
                 s.total_fail,
@@ -166,8 +166,8 @@ def export_summary_csv(summaries: list[RecipeSummary]) -> str:
                 s.total_error,
                 f"{s.pass_rate:.1f}",
                 f"{s.duration_ms:.2f}",
-                s.started_at,
-                s.completed_at,
+                _sanitize_csv_value(s.started_at),
+                _sanitize_csv_value(s.completed_at),
                 _serialize_measured_values(best_mv),
             ]
         )

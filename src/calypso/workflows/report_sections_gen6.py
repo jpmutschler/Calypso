@@ -1,0 +1,472 @@
+"""Gen6-specific recipe HTML section renderers for workflow reports.
+
+Renderers for eye scan, link training debug, PHY 64GT audit,
+Flit performance measurement, and PAM4 eye sweep.
+"""
+
+from __future__ import annotations
+
+import html
+
+from calypso.workflows.models import RecipeSummary
+from calypso.workflows.report_charts import (
+    metric_card,
+    results_table,
+    section_header,
+)
+from calypso.workflows.report_sections_helpers import (
+    BORDER,
+    BG_CARD,
+    CYAN,
+    GREEN,
+    RED,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    YELLOW,
+    criteria_box,
+    find_step_with_key,
+    safe_int,
+    summary_metrics,
+)
+
+
+# ---------------------------------------------------------------------------
+# Eye Quick Scan
+# ---------------------------------------------------------------------------
+
+
+def render_eye_scan(summary: RecipeSummary) -> str:
+    """Specialized renderer for eye_quick_scan results."""
+    header = section_header("Eye Quick Scan", f"Duration: {summary.duration_ms:.0f}ms")
+
+    criteria = criteria_box(
+        [
+            "PASS: Eye width >= 0.15 UI",
+            "WARN: Eye width >= 0.08 UI",
+            "FAIL: Eye width < 0.08 UI",
+        ]
+    )
+
+    columns = [
+        "Lane",
+        "Status",
+        "Eye Width (UI)",
+        "Eye Height (mV)",
+        "Margin R (UI)",
+        "Margin L (UI)",
+        "Margin Up (mV)",
+        "Margin Down (mV)",
+    ]
+    rows: list[list[str]] = []
+    link_speed = ""
+    link_width = ""
+    for step in summary.steps:
+        mv = step.measured_values
+        if "eye_width_ui" not in mv:
+            continue
+        if not link_speed:
+            link_speed = str(mv.get("link_speed", ""))
+            link_width = str(mv.get("link_width", ""))
+        lane = step.lane if step.lane is not None else mv.get("lane", "")
+        rows.append(
+            [
+                str(lane),
+                step.status.value.upper(),
+                f"{float(mv.get('eye_width_ui', 0)):.4f}",
+                f"{float(mv.get('eye_height_mv', 0)):.2f}",
+                f"{float(mv.get('margin_right_ui', 0)):.4f}",
+                f"{float(mv.get('margin_left_ui', 0)):.4f}",
+                f"{float(mv.get('margin_up_mv', 0)):.2f}",
+                f"{float(mv.get('margin_down_mv', 0)):.2f}",
+            ]
+        )
+
+    table = results_table(columns, rows, status_column=1)
+
+    # Link info cards
+    link_cards = ""
+    if link_speed:
+        link_cards = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Link Speed', link_speed, CYAN)}"
+            f"{metric_card('Link Width', f'x{link_width}' if link_width else 'N/A', CYAN)}"
+            f"</div>"
+        )
+
+    metrics = summary_metrics(summary)
+    return f"{header}{criteria}{metrics}{link_cards}{table}"
+
+
+# ---------------------------------------------------------------------------
+# Link Training Debug
+# ---------------------------------------------------------------------------
+
+
+def render_link_training_debug(summary: RecipeSummary) -> str:
+    """Specialized renderer for link_training_debug results."""
+    header = section_header("Link Training Debug", f"Duration: {summary.duration_ms:.0f}ms")
+
+    # LTSSM transition timeline
+    transition_step = find_step_with_key(summary.steps, "transitions")
+    timeline = ""
+    if transition_step is not None:
+        mv = transition_step.measured_values
+        transitions = mv.get("transitions", [])
+        final_state = mv.get("final_state", "")
+
+        if isinstance(transitions, list) and transitions:
+            timeline_header = section_header(
+                "LTSSM Transition Timeline",
+                f"Final state: {final_state}",
+            )
+            columns = ["Time (ms)", "LTSSM State", "Recovery Count"]
+            rows: list[list[str]] = []
+            for t in transitions:
+                if not isinstance(t, dict):
+                    continue
+                rows.append(
+                    [
+                        f"{float(t.get('elapsed_ms', 0)):.1f}",
+                        str(t.get("state", "")),
+                        str(t.get("recovery_count", "")),
+                    ]
+                )
+            timeline = timeline_header + results_table(columns, rows)
+
+    # AER results
+    aer_step = find_step_with_key(summary.steps, "uncorrectable_raw")
+    aer_section = ""
+    if aer_step is not None:
+        mv = aer_step.measured_values
+        uncorr = safe_int(mv.get("uncorrectable_raw", 0))
+        corr = safe_int(mv.get("correctable_raw", 0))
+        uncorr_hex = f"0x{uncorr:08X}"
+        corr_hex = f"0x{corr:08X}"
+        uncorr_color = RED if uncorr != 0 else GREEN
+        corr_color = YELLOW if corr != 0 else GREEN
+        aer_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Uncorrectable AER', uncorr_hex, uncorr_color)}"
+            f"{metric_card('Correctable AER', corr_hex, corr_color)}"
+            f"</div>"
+        )
+
+    # Post-retrain link status
+    link_step = find_step_with_key(summary.steps, "current_speed")
+    link_section = ""
+    if link_step is not None:
+        mv = link_step.measured_values
+        speed_val = str(mv.get("current_speed", ""))
+        width_val = "x" + str(mv.get("current_width", ""))
+        dll_active = mv.get("dll_link_active", False)
+        dll_color = GREEN if dll_active else RED
+        link_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Speed', speed_val, CYAN)}"
+            f"{metric_card('Width', width_val, CYAN)}"
+            f"{metric_card('DLL Active', str(dll_active), dll_color)}"
+            f"</div>"
+        )
+
+    # EQ Phase data (Issue #2)
+    eq_step = find_step_with_key(summary.steps, "eq_16gt_complete")
+    eq_section = ""
+    if eq_step is not None:
+        mv = eq_step.measured_values
+        eq_header = section_header("Equalization Phase Status", "")
+        eq_columns = ["Speed", "Complete", "Phase 1", "Phase 2", "Phase 3", "Flit Mode"]
+        eq_rows: list[list[str]] = []
+        for speed_prefix, speed_label in [
+            ("eq_16gt", "16 GT/s"),
+            ("eq_32gt", "32 GT/s"),
+            ("eq_64gt", "64 GT/s"),
+        ]:
+            complete_key = f"{speed_prefix}_complete"
+            if complete_key not in mv:
+                continue
+            complete = mv.get(complete_key, False)
+            p1 = mv.get(f"{speed_prefix}_phase1", None)
+            p2 = mv.get(f"{speed_prefix}_phase2", None)
+            p3 = mv.get(f"{speed_prefix}_phase3", None)
+            flit = mv.get(f"{speed_prefix}_flit_mode", None)
+            eq_rows.append(
+                [
+                    speed_label,
+                    "YES" if complete else "NO",
+                    "OK" if p1 else ("FAIL" if p1 is False else "N/A"),
+                    "OK" if p2 else ("FAIL" if p2 is False else "N/A"),
+                    "OK" if p3 else ("FAIL" if p3 is False else "N/A"),
+                    "YES" if flit else ("NO" if flit is False else "N/A"),
+                ]
+            )
+        if eq_rows:
+            eq_section = eq_header + results_table(eq_columns, eq_rows)
+
+    # Flit Error Log data (Issue #2)
+    flit_step = find_step_with_key(summary.steps, "valid_entries")
+    flit_section = ""
+    if flit_step is not None:
+        mv = flit_step.measured_values
+        valid = safe_int(mv.get("valid_entries", 0))
+        uncorr_count = safe_int(mv.get("uncorrectable_count", 0))
+        flit_header = section_header("Flit Error Log", "")
+        flit_cards = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Valid Entries', str(valid), CYAN)}"
+            f"{metric_card('Uncorrectable', str(uncorr_count), RED if uncorr_count > 0 else GREEN)}"
+            f"</div>"
+        )
+
+        entries = mv.get("entries", [])
+        flit_table = ""
+        if isinstance(entries, list) and entries:
+            entry_columns = [
+                "Link Width",
+                "Flit Offset",
+                "Consecutive",
+                "Unrecognized",
+                "FEC Uncorr.",
+                "Syndrome 0",
+                "Syndrome 1",
+                "Syndrome 2",
+            ]
+            entry_rows: list[list[str]] = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                entry_rows.append(
+                    [
+                        str(entry.get("link_width", "")),
+                        str(entry.get("flit_offset", "")),
+                        str(entry.get("consecutive_errors", "")),
+                        str(entry.get("unrecognized_flit", "")),
+                        str(entry.get("fec_uncorrectable", "")),
+                        str(entry.get("syndrome_0", "")),
+                        str(entry.get("syndrome_1", "")),
+                        str(entry.get("syndrome_2", "")),
+                    ]
+                )
+            if entry_rows:
+                flit_table = results_table(entry_columns, entry_rows)
+
+        flit_section = flit_header + flit_cards + flit_table
+
+    metrics = summary_metrics(summary)
+    return f"{header}{metrics}{link_section}{aer_section}{eq_section}{flit_section}{timeline}"
+
+
+# ---------------------------------------------------------------------------
+# PHY 64GT Audit
+# ---------------------------------------------------------------------------
+
+
+def render_phy_64gt_audit(summary: RecipeSummary) -> str:
+    """Specialized renderer for phy_64gt_audit -- Gen6 capability checklist."""
+    header = section_header("PHY 64GT Audit", f"Duration: {summary.duration_ms:.0f}ms")
+
+    # Gather capability flags from steps
+    cap_step = find_step_with_key(summary.steps, "gen6_supported")
+    link_step = find_step_with_key(summary.steps, "is_at_64gt")
+    eq_step = find_step_with_key(summary.steps, "eq_complete")
+
+    def _check_item(label: str, value: object) -> str:
+        if value is True:
+            icon_color = GREEN
+            icon = "PASS"
+        elif value is False:
+            icon_color = RED
+            icon = "FAIL"
+        else:
+            icon_color = TEXT_MUTED
+            icon = "N/A"
+        return (
+            f'<div style="display:flex; align-items:center; gap:8px; '
+            f'padding:6px 12px; border-bottom:1px solid {BORDER};">'
+            f'<span style="color:{icon_color}; font-weight:600; '
+            f'font-size:12px; min-width:40px;">{icon}</span>'
+            f'<span style="color:{TEXT_PRIMARY}; font-size:13px;">'
+            f"{html.escape(label)}</span></div>"
+        )
+
+    checks: list[str] = []
+    if cap_step is not None:
+        mv = cap_step.measured_values
+        checks.append(_check_item("Gen6 (64GT/s) Supported", mv.get("gen6_supported")))
+        checks.append(_check_item("Gen5 (32GT/s) Supported", mv.get("gen5_supported")))
+        checks.append(_check_item("Gen4 (16GT/s) Supported", mv.get("gen4_supported")))
+
+    if link_step is not None:
+        mv = link_step.measured_values
+        checks.append(_check_item("Operating at 64GT/s", mv.get("is_at_64gt")))
+
+    if eq_step is not None:
+        mv = eq_step.measured_values
+        checks.append(_check_item("64GT EQ Complete", mv.get("eq_complete")))
+        checks.append(_check_item("Phase 1 OK", mv.get("phase1_ok")))
+        checks.append(_check_item("Phase 2 OK", mv.get("phase2_ok")))
+        checks.append(_check_item("Phase 3 OK", mv.get("phase3_ok")))
+        checks.append(_check_item("Flit Mode Supported", mv.get("flit_mode_supported")))
+
+    checklist = (
+        f'<div style="background:{BG_CARD}; border:1px solid {BORDER}; '
+        f'border-radius:8px; overflow:hidden; margin:12px 0;">'
+        f"{''.join(checks)}</div>"
+        if checks
+        else ""
+    )
+
+    metrics = summary_metrics(summary)
+    return f"{header}{metrics}{checklist}"
+
+
+# ---------------------------------------------------------------------------
+# Flit Performance Measurement
+# ---------------------------------------------------------------------------
+
+
+def render_flit_perf_measurement(summary: RecipeSummary) -> str:
+    """Specialized renderer for flit_perf_measurement results."""
+    header = section_header(
+        "Flit Performance Measurement",
+        f"Duration: {summary.duration_ms:.0f}ms",
+    )
+
+    results_step = find_step_with_key(summary.steps, "flits_tracked")
+    flit_metrics = ""
+    ltssm_table = ""
+
+    if results_step is not None:
+        mv = results_step.measured_values
+        flits = mv.get("flits_tracked", 0)
+        ltssm_counter = mv.get("ltssm_counter", 0)
+
+        # Compute throughput rate (Issue #10)
+        soak_step = find_step_with_key(summary.steps, "actual_soak_s")
+        throughput_cards = ""
+        if soak_step is not None:
+            soak_s = float(soak_step.measured_values.get("actual_soak_s", 0))
+            if soak_s > 0:
+                flits_int = safe_int(flits)
+                flits_per_sec = flits_int / soak_s
+                # 256 bytes per Flit at Gen6
+                effective_gbps = flits_int * 256 / soak_s / 1e9
+                throughput_cards = (
+                    f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+                    f"{metric_card('Flits/s', f'{flits_per_sec:,.0f}', CYAN)}"
+                    f"{metric_card('~Effective GB/s', f'{effective_gbps:.1f}', GREEN)}"
+                    f"</div>"
+                )
+
+        flit_metrics = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Flits Tracked', str(flits), GREEN if safe_int(flits) > 0 else YELLOW)}"
+            f"{metric_card('LTSSM Counter', str(ltssm_counter), CYAN)}"
+            f"</div>"
+            f"{throughput_cards}"
+        )
+
+        # Extract LTSSM register data
+        ltssm_rows: list[list[str]] = []
+        idx = 0
+        while f"ltssm_{idx}_counter" in mv:
+            ltssm_rows.append(
+                [
+                    str(idx),
+                    str(mv.get(f"ltssm_{idx}_tracking_status", "")),
+                    str(mv.get(f"ltssm_{idx}_counter", "")),
+                    str(mv.get(f"ltssm_{idx}_tracking_count", "")),
+                ]
+            )
+            idx += 1
+
+        if ltssm_rows:
+            ltssm_table = section_header("LTSSM Tracking Registers", "") + results_table(
+                ["Index", "Tracking Status", "Counter", "Tracking Count"],
+                ltssm_rows,
+            )
+
+    # Capability info
+    cap_step = find_step_with_key(summary.steps, "cap_offset")
+    cap_section = ""
+    if cap_step is not None:
+        mv = cap_step.measured_values
+        cap_hex = f"0x{safe_int(mv.get('cap_offset', 0)):04X}"
+        cap_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Cap Offset', cap_hex, TEXT_SECONDARY)}"
+            f"</div>"
+        )
+
+    metrics = summary_metrics(summary)
+    return f"{header}{metrics}{flit_metrics}{cap_section}{ltssm_table}"
+
+
+# ---------------------------------------------------------------------------
+# PAM4 Eye Sweep
+# ---------------------------------------------------------------------------
+
+
+def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
+    """Specialized renderer for pam4_eye_sweep results."""
+    header = section_header("PAM4 Eye Sweep", f"Duration: {summary.duration_ms:.0f}ms")
+
+    criteria = criteria_box(
+        [
+            "PASS: Margin >= 0.10 UI",
+            "WARN: Margin >= 0.05 UI",
+            "FAIL: Margin < 0.05 UI",
+            "Note: PAM4 sub-eye identity (upper/middle/lower) requires per-eye"
+            " sweep capability. Current results show aggregate margin per lane.",
+        ]
+    )
+
+    # Per-lane eye data
+    columns = [
+        "Lane",
+        "Status",
+        "Eye Width (UI)",
+        "Eye Height (mV)",
+        "Margin R (UI)",
+        "Margin L (UI)",
+        "Margin Up (mV)",
+        "Margin Down (mV)",
+    ]
+    rows: list[list[str]] = []
+    for step in summary.steps:
+        mv = step.measured_values
+        if "eye_width_ui" not in mv:
+            continue
+        lane = step.lane if step.lane is not None else mv.get("lane", "")
+        rows.append(
+            [
+                str(lane),
+                step.status.value.upper(),
+                f"{float(mv.get('eye_width_ui', 0)):.4f}",
+                f"{float(mv.get('eye_height_mv', 0)):.2f}",
+                f"{float(mv.get('margin_right_ui', 0)):.4f}",
+                f"{float(mv.get('margin_left_ui', 0)):.4f}",
+                f"{float(mv.get('margin_up_mv', 0)):.2f}",
+                f"{float(mv.get('margin_down_mv', 0)):.2f}",
+            ]
+        )
+
+    eye_table = results_table(columns, rows, status_column=1) if rows else ""
+
+    # Worst margin summary from aggregate step
+    agg_step = find_step_with_key(summary.steps, "worst_lane")
+    margin_section = ""
+    if agg_step is not None:
+        mv = agg_step.measured_values
+        worst_lane = mv.get("worst_lane", -1)
+        worst_margin = float(str(mv.get("worst_margin_ui", 0)))
+        margin_color = RED if worst_margin < 0.05 else YELLOW if worst_margin < 0.10 else GREEN
+        margin_section = (
+            f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            f"{metric_card('Worst Lane', str(worst_lane), margin_color)}"
+            f"{metric_card('Worst Margin', f'{worst_margin:.4f} UI', margin_color)}"
+            f"</div>"
+        )
+
+    metrics = summary_metrics(summary)
+    return f"{header}{criteria}{metrics}{margin_section}{eye_table}"

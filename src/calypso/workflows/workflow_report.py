@@ -7,6 +7,7 @@ Uses Calypso dark theme colors.
 from __future__ import annotations
 
 import html as html_mod
+import importlib.metadata
 from datetime import datetime, timezone
 
 from calypso.workflows.models import RecipeSummary, StepStatus
@@ -39,6 +40,10 @@ def generate_report(
         Complete HTML string.
     """
     now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    try:
+        version = importlib.metadata.version("calypso")
+    except importlib.metadata.PackageNotFoundError:
+        version = "dev"
 
     # Compute aggregate stats
     total_pass = sum(s.total_pass for s in summaries)
@@ -66,7 +71,7 @@ def generate_report(
         f'<h2 style="color:#e6edf3; font-size:22px; margin-top:16px;">'
         f"{html_mod.escape(title)}</h2>"
         f'<div style="color:#484f58; font-size:12px; margin-top:8px;">'
-        f"Generated: {now}"
+        f"Generated: {now} | Calypso v{html_mod.escape(version)}"
         f"{f' | Device: {html_mod.escape(device_id)}' if device_id else ''}"
         f"</div>"
         f"</div>"
@@ -196,6 +201,7 @@ def _wrap_html(title: str, body: str) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">
 <title>{html_mod.escape(title)} - Calypso</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
