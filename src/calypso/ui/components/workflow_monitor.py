@@ -5,19 +5,32 @@ from __future__ import annotations
 from nicegui import ui
 
 from calypso.ui.components.monitor_common import (
-    count_step_statuses,
+    CRITICALITY_BORDER,
     download_action_bar,
     format_elapsed,
     measured_values_table,
-    metric_card,
     progress_text,
+    render_metric_cards,
     status_color,
     status_icon,
 )
 from calypso.ui.theme import COLORS
 from calypso.workflows.models import StepStatus
-from calypso.workflows.monitor_state import MonitorState
+from calypso.workflows.monitor_state import MonitorState, MonitorStepState
 from calypso.workflows.workflow_executor import get_run_progress, get_run_results
+
+
+
+def _panel_header_text(step: MonitorStepState) -> str:
+    """Build the expansion panel header, appending port/lane when present."""
+    parts: list[str] = []
+    if step.port_number is not None:
+        parts.append(f"Port {step.port_number}")
+    if step.lane is not None:
+        parts.append(f"Lane {step.lane}")
+    if parts:
+        return f"{step.step_name} [{', '.join(parts)}]"
+    return step.step_name
 
 
 class WorkflowMonitor:
@@ -25,6 +38,12 @@ class WorkflowMonitor:
 
     Creates an overall progress bar, metric cards, per-step expansion panels
     with measured values, and download actions on completion.
+
+    Uses incremental DOM updates to avoid flicker: metric card values and
+    expansion panel labels are updated in-place via ``set_text()`` when the
+    element count is stable.  A full ``clear()`` + rebuild only happens when
+    the number of displayed elements changes.  This preserves the user's
+    open/close state on expansion panels.
 
     Args:
         run_id: The workflow run ID to monitor.
@@ -37,6 +56,13 @@ class WorkflowMonitor:
         self._timer: ui.timer | None = None
         self._finished = False
         self._notified = False
+
+        # Cache for incremental metric card updates
+        self._metric_cache: dict = {}
+
+        # Incremental update tracking for panels
+        self._last_panel_count: int = 0
+        self._panel_elements: list[dict[str, ui.label | ui.expansion]] = []
 
         with (
             ui.card()
@@ -104,10 +130,10 @@ class WorkflowMonitor:
             self._progress.props(remove="indeterminate")
             self._progress.set_value(state.percent / 100.0)
 
-        # Rebuild metrics
+        # Update metrics incrementally
         self._update_metrics(state)
 
-        # Rebuild step panels
+        # Update step panels incrementally
         self._update_panels(state)
 
         if state.status in ("complete", "cancelled", "error"):
@@ -134,53 +160,102 @@ class WorkflowMonitor:
                 )
 
     def _update_metrics(self, state: MonitorState) -> None:
-        """Redraw the metric cards row."""
-        counts = count_step_statuses(state.steps)
-
-        self._metrics_container.clear()
-        with self._metrics_container:
-            metric_card("Completed", str(state.steps_completed), COLORS.cyan)
-            metric_card("Pass", str(counts.get(StepStatus.PASS, 0)), COLORS.green)
-            metric_card("Fail", str(counts.get(StepStatus.FAIL, 0)), COLORS.red)
-            metric_card(
-                "Error", str(counts.get(StepStatus.ERROR, 0)), COLORS.red
-            )
-            running = counts.get(StepStatus.RUNNING, 0)
-            if running > 0:
-                metric_card("Running", str(running), COLORS.cyan)
+        """Update metric cards via shared renderer with caching."""
+        render_metric_cards(
+            state, self._metrics_container, cache=self._metric_cache
+        )
 
     def _update_panels(self, state: MonitorState) -> None:
-        """Redraw per-step expansion panels with measured values."""
-        self._panels_container.clear()
-        with self._panels_container:
-            for step in state.steps:
+        """Update per-step expansion panels, only rebuilding when count changes.
+
+        When panel count is stable, update text labels in-place to preserve
+        the user's open/close state on expansion panels.
+        """
+        panel_count = len(state.steps)
+
+        if panel_count != self._last_panel_count:
+            # Full rebuild: panel count changed
+            self._last_panel_count = panel_count
+            self._panel_elements.clear()
+            self._panels_container.clear()
+            with self._panels_container:
+                for step in state.steps:
+                    refs = self._build_panel(step)
+                    self._panel_elements.append(refs)
+        else:
+            # Incremental: update existing panel text in-place
+            for idx, step in enumerate(state.steps):
+                if idx >= len(self._panel_elements):
+                    break
+                refs = self._panel_elements[idx]
                 step_clr = status_color(step.status)
                 icon_name, _ = status_icon(step.status)
-                is_running = step.status == StepStatus.RUNNING
+                header_text = _panel_header_text(step)
 
-                with (
-                    ui.expansion(
-                        text=step.step_name,
-                        icon=icon_name,
-                    )
-                    .classes("w-full")
-                    .style(
-                        f"background: {COLORS.bg_primary};"
-                        f" border: 1px solid {COLORS.border};"
-                    )
-                    .props("default-opened" if is_running else "")
-                ):
-                    ui.label(
-                        f"{step.status.value.upper()} - {step.message}"
-                    ).style(f"color: {step_clr}; font-size: 13px;")
+                refs["expansion"].props(f'icon="{icon_name}"')
+                refs["expansion"].text = header_text
+                refs["expansion"].update()
 
-                    if step.duration_ms > 0:
-                        ui.label(
-                            f"Duration: {format_elapsed(step.duration_ms)}"
-                        ).style(f"color: {COLORS.text_muted}; font-size: 12px;")
+                refs["status_label"].set_text(
+                    f"{step.status.value.upper()} - {step.message}"
+                )
+                refs["status_label"].style(
+                    f"color: {step_clr}; font-size: 13px;"
+                )
 
-                    if step.measured_values:
-                        measured_values_table(step.measured_values)
+                duration_text = (
+                    f"Duration: {format_elapsed(step.duration_ms)}"
+                    if step.duration_ms > 0
+                    else ""
+                )
+                refs["duration_label"].set_text(duration_text)
+                refs["duration_label"].set_visibility(step.duration_ms > 0)
+
+    def _build_panel(
+        self, step: MonitorStepState
+    ) -> dict[str, ui.label | ui.expansion]:
+        """Build a single expansion panel for a step, returning element refs."""
+        step_clr = status_color(step.status)
+        icon_name, _ = status_icon(step.status)
+        is_running = step.status == StepStatus.RUNNING
+
+        header_text = _panel_header_text(step)
+        border_color = CRITICALITY_BORDER.get(step.criticality)
+        border_style = (
+            f"background: {COLORS.bg_primary};"
+            f" border: 1px solid {COLORS.border};"
+        )
+        if border_color:
+            border_style += f" border-left: 3px solid {border_color};"
+
+        with (
+            ui.expansion(
+                text=header_text,
+                icon=icon_name,
+            )
+            .classes("w-full")
+            .style(border_style)
+            .props("default-opened" if is_running else "")
+        ) as expansion_el:
+            status_label = ui.label(
+                f"{step.status.value.upper()} - {step.message}"
+            ).style(f"color: {step_clr}; font-size: 13px;")
+
+            duration_label = ui.label(
+                f"Duration: {format_elapsed(step.duration_ms)}"
+                if step.duration_ms > 0
+                else ""
+            ).style(f"color: {COLORS.text_muted}; font-size: 12px;")
+            duration_label.set_visibility(step.duration_ms > 0)
+
+            if step.measured_values:
+                measured_values_table(step.measured_values)
+
+        return {
+            "expansion": expansion_el,
+            "status_label": status_label,
+            "duration_label": duration_label,
+        }
 
     def _render_results(self) -> None:
         """Show final workflow results after completion."""

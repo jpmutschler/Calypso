@@ -25,24 +25,42 @@ _CATEGORY_COLORS: dict[RecipeCategory, str] = {
 }
 
 
-def recipe_card(recipe: Recipe, device_id: str, on_run: Callable) -> None:
+def recipe_card(
+    recipe: Recipe,
+    device_id: str,
+    on_run: Callable,
+    *,
+    active: bool = False,
+    disabled: bool = False,
+) -> None:
     """Render a card showing recipe info with a Run button.
 
     Args:
         recipe: The recipe instance to display.
         device_id: The connected device ID.
         on_run: Callback invoked with ``(recipe, device_id)`` when Run is clicked.
+        active: When ``True`` the card is highlighted with a pulsing cyan left
+            border to indicate this recipe is currently executing.
+        disabled: When ``True`` the Run button is disabled and shows a loading
+            spinner, preventing duplicate launches while a recipe is active.
     """
     cat_color = _CATEGORY_COLORS.get(recipe.category, COLORS.text_secondary)
     cat_icon = CATEGORY_ICONS.get(recipe.category, "help_outline")
     cat_label = CATEGORY_DISPLAY_NAMES.get(recipe.category, recipe.category.value)
+
+    active_border = (
+        f"border-left: 3px solid {COLORS.cyan};"
+        f" box-shadow: -2px 0 8px {COLORS.cyan}40;"
+        if active
+        else ""
+    )
 
     with (
         ui.card()
         .classes("w-full")
         .style(
             f"background: {COLORS.bg_card}; border: 1px solid {COLORS.border};"
-            " min-width: 280px; max-width: 420px;"
+            f" min-width: 280px; max-width: 420px; {active_border}"
         )
     ):
         with ui.column().classes("q-pa-md q-gutter-sm w-full"):
@@ -80,8 +98,10 @@ def recipe_card(recipe: Recipe, device_id: str, on_run: Callable) -> None:
                     "Estimated duration"
                 )
 
-                ui.button(
-                    "Run",
-                    icon="play_arrow",
+                btn = ui.button(
+                    "Run" if not disabled else "Running...",
+                    icon="play_arrow" if not disabled else "sync",
                     on_click=lambda _, r=recipe: on_run(r, device_id),
                 ).props("color=positive dense")
+                if disabled:
+                    btn.props("disable loading")

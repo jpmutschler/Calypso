@@ -66,15 +66,18 @@ def _workflow_builder_content(device_id: str) -> None:
         }
         state["steps"].append(step_data)
         _refresh_steps()
+        _refresh_duration_estimate()
 
     def _on_step_update(step_index: int, step_data: dict) -> None:
         if 0 <= step_index < len(state["steps"]):
             state["steps"][step_index] = step_data
+            _refresh_duration_estimate()
 
     def _on_step_delete(step_index: int) -> None:
         if 0 <= step_index < len(state["steps"]):
             state["steps"].pop(step_index)
             _refresh_steps()
+            _refresh_duration_estimate()
 
     # --- Save / Load ---
 
@@ -121,16 +124,77 @@ def _workflow_builder_content(device_id: str) -> None:
         tags_input.set_value(state["tags"])
 
         _refresh_steps()
+        _refresh_duration_estimate()
         ui.notify(f"Loaded: {wf.name}", type="positive")
 
-    def _delete_workflow_by_id(workflow_id: str) -> None:
-        if delete_workflow(workflow_id):
-            ui.notify("Workflow deleted", type="info")
-            if state.get("workflow_id") == workflow_id:
-                state["workflow_id"] = ""
-            _refresh_saved_list()
-        else:
-            ui.notify("Workflow not found", type="warning")
+    def _delete_workflow_by_id(workflow_id: str, name: str = "") -> None:
+        display_name = name or workflow_id
+
+        with ui.dialog() as dialog, ui.card().style(
+            f"background: {COLORS.bg_card}; border: 1px solid {COLORS.border};"
+            " min-width: 340px;"
+        ):
+            ui.label("Confirm Deletion").classes("text-subtitle1").style(
+                f"color: {COLORS.text_primary}; font-weight: 600;"
+            )
+            ui.label(
+                f"Delete workflow '{display_name}'? This cannot be undone."
+            ).style(f"color: {COLORS.text_secondary}; margin-top: 8px;")
+
+            with ui.row().classes("justify-end gap-2 q-mt-md w-full"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+
+                def _confirm_delete() -> None:
+                    dialog.close()
+                    if delete_workflow(workflow_id):
+                        ui.notify("Workflow deleted", type="info")
+                        if state.get("workflow_id") == workflow_id:
+                            state["workflow_id"] = ""
+                        _refresh_saved_list()
+                    else:
+                        ui.notify("Workflow not found", type="warning")
+
+                ui.button(
+                    "Delete", on_click=_confirm_delete
+                ).props("color=negative")
+
+        dialog.open()
+
+    # --- Duration estimate ---
+
+    def _compute_estimated_duration() -> int:
+        """Sum estimated duration for all enabled steps, accounting for loops."""
+        from calypso.workflows import get_recipe
+
+        total = 0
+        for sd in state["steps"]:
+            if not sd.get("enabled", True):
+                continue
+            recipe_id = sd.get("recipe_id", "")
+            if not recipe_id:
+                continue
+            recipe = get_recipe(recipe_id)
+            if recipe is None:
+                continue
+            loop_count = max(1, int(sd.get("loop_count", 1)))
+            total += recipe.estimated_duration_s * loop_count
+        return total
+
+    def _format_duration(seconds: int) -> str:
+        """Format seconds as human-readable duration string."""
+        if seconds < 60:
+            return f"~{seconds}s"
+        if seconds < 3600:
+            minutes = seconds // 60
+            remaining = seconds % 60
+            if remaining:
+                return f"~{minutes}m {remaining}s"
+            return f"~{minutes}m"
+        hours = seconds // 3600
+        remaining_min = (seconds % 3600) // 60
+        if remaining_min:
+            return f"~{hours}h {remaining_min}m"
+        return f"~{hours}h"
 
     # --- Run ---
 
@@ -179,7 +243,7 @@ def _workflow_builder_content(device_id: str) -> None:
                 monitor = WorkflowMonitor(run_id, device_id=device_id)
                 state["active_monitor"] = monitor
 
-        asyncio.ensure_future(_launch())
+        asyncio.create_task(_launch())
 
     # --- Layout ---
 
@@ -247,7 +311,7 @@ def _workflow_builder_content(device_id: str) -> None:
             _refresh_steps()
 
             # Action buttons
-            with ui.row().classes("gap-3 q-mt-sm"):
+            with ui.row().classes("gap-3 q-mt-sm items-center"):
                 ui.button(
                     "Add Step",
                     icon="add",
@@ -265,6 +329,23 @@ def _workflow_builder_content(device_id: str) -> None:
                     icon="play_arrow",
                     on_click=_run_workflow,
                 ).props("color=positive")
+
+                duration_container = ui.row().classes("items-center gap-1")
+
+                @ui.refreshable
+                def _refresh_duration_estimate():
+                    duration_container.clear()
+                    with duration_container:
+                        total = _compute_estimated_duration()
+                        if total > 0:
+                            ui.icon("schedule").classes("text-sm").style(
+                                f"color: {COLORS.text_muted};"
+                            )
+                            ui.label(_format_duration(total)).style(
+                                f"color: {COLORS.text_muted}; font-size: 13px;"
+                            )
+
+                _refresh_duration_estimate()
 
                 ui.button(
                     "Back to Recipes",
@@ -333,5 +414,7 @@ def _saved_workflow_item(wf, on_load, on_delete) -> None:
 
             ui.button(
                 icon="delete",
-                on_click=lambda _, wid=wf.workflow_id: on_delete(wid),
+                on_click=lambda _, wid=wf.workflow_id, wname=wf.name: on_delete(
+                    wid, wname
+                ),
             ).props("flat dense color=negative size=sm").tooltip("Delete")

@@ -7,7 +7,7 @@ import json as _json
 from nicegui import ui
 
 from calypso.ui.theme import COLORS
-from calypso.workflows.models import StepStatus
+from calypso.workflows.models import StepCriticality, StepStatus
 from calypso.workflows.monitor_state import MonitorState, MonitorStepState
 
 # ── Status icon mapping ──────────────────────────────────────────────────
@@ -39,6 +39,19 @@ def status_color(status: StepStatus | str) -> str:
             _, color = _STATUS_DISPLAY.get(member, ("", COLORS.text_secondary))
             return color
     return COLORS.text_secondary
+
+
+# ── Criticality styling ──────────────────────────────────────────────────
+
+CRITICALITY_BORDER: dict[StepCriticality, str | None] = {
+    StepCriticality.CRITICAL: COLORS.red,
+    StepCriticality.HIGH: COLORS.orange,
+    StepCriticality.MEDIUM: None,
+    StepCriticality.LOW: None,
+    StepCriticality.INFO: None,
+}
+
+SUBDUED_CRITICALITIES = frozenset({StepCriticality.LOW, StepCriticality.INFO})
 
 
 # ── Step status counting ─────────────────────────────────────────────────
@@ -101,6 +114,88 @@ def metric_card(label: str, value: str, color: str) -> None:
             ui.label(label).style(f"color: {COLORS.text_muted}; font-size: 11px;")
 
 
+# ── Standardized metric cards renderer ────────────────────────────────────
+
+
+# Status display order and styling for metric cards
+_METRIC_STATUSES: list[tuple[StepStatus, str, str]] = [
+    (StepStatus.PASS, "Pass", COLORS.green),
+    (StepStatus.FAIL, "Fail", COLORS.red),
+    (StepStatus.WARN, "Warn", COLORS.yellow),
+    (StepStatus.ERROR, "Error", COLORS.red),
+    (StepStatus.RUNNING, "Running", COLORS.cyan),
+    (StepStatus.SKIP, "Skip", COLORS.text_muted),
+]
+
+
+def render_metric_cards(
+    state: MonitorState,
+    container: ui.element,
+    *,
+    cache: dict | None = None,
+) -> None:
+    """Render a standardized set of metric cards into *container*.
+
+    Always shows a Progress card (completed/total) followed by cards for every
+    non-zero status category.  This ensures both ``RecipeStepper`` and
+    ``WorkflowMonitor`` present identical metric layouts.
+
+    When *cache* is supplied (a mutable dict owned by the caller), label
+    elements are stored and reused across ticks.  A full DOM rebuild only
+    happens when the set of displayed categories changes; otherwise the
+    existing labels are updated in-place via ``set_text()``.
+    """
+    counts = count_step_statuses(state.steps)
+
+    items: list[tuple[str, str, str]] = [
+        ("Progress", f"{state.steps_completed}/{state.steps_total}", COLORS.cyan),
+    ]
+    for status, label, color in _METRIC_STATUSES:
+        count = counts.get(status, 0)
+        if count > 0:
+            items.append((label, str(count), color))
+
+    current_keys = tuple(lbl for lbl, _, _ in items)
+
+    if cache is not None and cache.get("keys") == current_keys:
+        # Incremental: update value text only (no DOM rebuild)
+        labels_map: dict[str, ui.label] = cache.get("labels", {})
+        for label, value, _color in items:
+            cached = labels_map.get(label)
+            if cached is not None:
+                cached.set_text(value)
+        return
+
+    # Full rebuild
+    container.clear()
+    labels_map = {}
+    with container:
+        for label, value, color in items:
+            with (
+                ui.card()
+                .classes("q-pa-sm")
+                .style(
+                    f"background: {COLORS.bg_primary};"
+                    f" border: 1px solid {COLORS.border};"
+                    " min-width: 80px;"
+                )
+            ):
+                with ui.column().classes("items-center"):
+                    val_label = (
+                        ui.label(value)
+                        .classes("text-h6")
+                        .style(f"color: {color}; font-weight: bold;")
+                    )
+                    labels_map[label] = val_label
+                    ui.label(label).style(
+                        f"color: {COLORS.text_muted}; font-size: 11px;"
+                    )
+
+    if cache is not None:
+        cache["keys"] = current_keys
+        cache["labels"] = labels_map
+
+
 # ── Measured values table ────────────────────────────────────────────────
 
 
@@ -128,6 +223,8 @@ def _format_measured_value(key: str, val: object) -> tuple[str, str]:
     # Color-code anomalies
     color = COLORS.text_primary
     if "error" in key_lower and isinstance(val, (int, float)) and val > 0:
+        color = COLORS.red
+    elif "ber" in key_lower and isinstance(val, float) and val > 1e-6:
         color = COLORS.red
     elif "ber" in key_lower and isinstance(val, float) and val > 1e-12:
         color = COLORS.yellow

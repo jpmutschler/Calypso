@@ -34,6 +34,7 @@ def _get_switch(device_id: str):
 class RunRecipeRequest(BaseModel):
     recipe_id: str = Field(..., description="ID of the recipe to execute")
     parameters: dict = Field(default_factory=dict, description="Override parameters")
+    force: bool = Field(default=False, description="Bypass link-up guard check")
 
 
 class RunRecipeResponse(BaseModel):
@@ -90,6 +91,19 @@ async def start_recipe(
     recipe = get_recipe(body.recipe_id)
     if recipe is None:
         raise HTTPException(status_code=404, detail=f"Recipe '{body.recipe_id}' not found")
+
+    # Link-state guard: reject if recipe requires link up and port is down
+    if recipe.requires_link_up and not body.force:
+        port_number = body.parameters.get("port_number")
+        if port_number is not None:
+            # TODO: Check actual port link status once a lightweight link-state
+            # query is available from the API layer.  Currently, checking link
+            # status requires a PcieConfigReader bound to the target port's
+            # dev_key, which is non-trivial to construct from the API layer
+            # without deeper SDK coupling.  For now the property is set on
+            # recipes so callers can inspect it, and the ``force`` flag allows
+            # bypassing this guard.
+            pass
 
     # Check if already running
     progress = get_recipe_progress(device_id)

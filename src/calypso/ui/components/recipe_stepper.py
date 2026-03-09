@@ -2,23 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from nicegui import ui
 
 from calypso.ui.components.monitor_common import (
-    count_step_statuses,
+    CRITICALITY_BORDER,
+    SUBDUED_CRITICALITIES,
     download_action_bar,
     format_elapsed,
     measured_values_table,
-    metric_card,
     progress_text,
+    render_metric_cards,
     status_color,
     status_icon,
     summary_chip,
 )
 from calypso.ui.theme import COLORS
-from calypso.workflows.models import StepStatus
-from calypso.workflows.monitor_state import MonitorState
+from calypso.workflows.monitor_state import MonitorState, MonitorStepState
 from calypso.workflows.workflow_executor import get_recipe_progress
+
+
+
+def _step_badges(step: MonitorStepState) -> None:
+    """Render port/lane badges for a step if present."""
+    badge_style = (
+        f"background: {COLORS.bg_elevated}; color: {COLORS.text_secondary};"
+        " font-size: 10px; padding: 2px 6px;"
+    )
+    if step.port_number is not None:
+        ui.badge(f"Port {step.port_number}").style(badge_style)
+    if step.lane is not None:
+        ui.badge(f"Lane {step.lane}").style(badge_style)
 
 
 class RecipeStepper:
@@ -27,15 +42,38 @@ class RecipeStepper:
     Creates UI elements for title, progress bar, per-step status list with
     measured values, metric cards, and download actions on completion.
 
+    Uses incremental DOM updates to avoid flicker: metric card values and
+    step row labels are updated in-place via ``set_text()`` when the element
+    count is stable.  A full ``clear()`` + rebuild only happens when the
+    number of displayed elements changes (e.g. a new step appears or the
+    "Running" metric card appears/disappears).
+
     Args:
         device_id: The device ID whose recipe run to monitor.
     """
 
-    def __init__(self, device_id: str) -> None:
+    def __init__(
+        self,
+        device_id: str,
+        recipe_name: str = "",
+        on_rerun: Callable[[str, dict], None] | None = None,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
         self._device_id = device_id
+        self._on_rerun = on_rerun
+        self._on_complete = on_complete
         self._timer: ui.timer | None = None
         self._finished = False
         self._notified = False
+
+        # Cache for incremental metric card updates
+        self._metric_cache: dict = {}
+
+        # Incremental update tracking for steps
+        self._last_step_count: int = 0
+        self._step_elements: list[dict[str, ui.label | ui.icon]] = []
+
+        initial_title = f"Running {recipe_name}..." if recipe_name else "Running recipe..."
 
         with (
             ui.card()
@@ -46,7 +84,7 @@ class RecipeStepper:
                 # Header row with title and cancel button
                 with ui.row().classes("w-full items-center justify-between"):
                     self._title = (
-                        ui.label("Running recipe...")
+                        ui.label(initial_title)
                         .classes("text-subtitle1")
                         .style(f"color: {COLORS.text_primary}; font-weight: 600;")
                     )
@@ -130,50 +168,100 @@ class RecipeStepper:
                     timeout=5000,
                 )
 
-    def _update_metrics(self, state: MonitorState) -> None:
-        """Redraw live metric cards."""
-        counts = count_step_statuses(state.steps)
+            if self._on_complete is not None:
+                self._on_complete()
 
-        self._metrics_container.clear()
-        with self._metrics_container:
-            metric_card(
-                "Progress",
-                f"{state.steps_completed}/{state.steps_total}",
-                COLORS.cyan,
-            )
-            metric_card("Pass", str(counts.get(StepStatus.PASS, 0)), COLORS.green)
-            metric_card("Fail", str(counts.get(StepStatus.FAIL, 0)), COLORS.red)
-            metric_card("Warn", str(counts.get(StepStatus.WARN, 0)), COLORS.yellow)
-            running = counts.get(StepStatus.RUNNING, 0)
-            if running > 0:
-                metric_card("Running", str(running), COLORS.cyan)
+    def _update_metrics(self, state: MonitorState) -> None:
+        """Update live metric cards via shared renderer with caching."""
+        render_metric_cards(
+            state, self._metrics_container, cache=self._metric_cache
+        )
 
     def _update_steps(self, state: MonitorState) -> None:
-        """Redraw the step list with measured values."""
-        self._steps_container.clear()
-        with self._steps_container:
-            for step in state.steps:
+        """Update the step list, only rebuilding when step count changes.
+
+        When the step count is stable, existing step row elements are updated
+        in-place (icon, name, duration, message) which preserves scroll
+        position and avoids visible flicker.
+        """
+        step_count = len(state.steps)
+
+        if step_count != self._last_step_count:
+            # Full rebuild: step count changed (new step appeared)
+            self._last_step_count = step_count
+            self._step_elements.clear()
+            self._steps_container.clear()
+            with self._steps_container:
+                for step in state.steps:
+                    refs = self._build_step_row(step)
+                    self._step_elements.append(refs)
+        else:
+            # Incremental: update existing element text in-place
+            for idx, step in enumerate(state.steps):
+                if idx >= len(self._step_elements):
+                    break
+                refs = self._step_elements[idx]
                 icon_name, icon_color = status_icon(step.status)
-                with ui.column().classes("w-full q-py-xs"):
-                    with ui.row().classes("items-center gap-2"):
-                        ui.icon(icon_name).style(
-                            f"color: {icon_color}; font-size: 1.1rem;"
-                        )
-                        ui.label(step.step_name).style(
-                            f"color: {COLORS.text_primary}; font-size: 13px;"
-                        )
-                        if step.duration_ms > 0:
-                            ui.label(f"{step.duration_ms:.0f}ms").style(
-                                f"color: {COLORS.text_muted}; font-size: 11px;"
-                            )
-                    if step.message:
-                        ui.label(step.message).style(
-                            f"color: {COLORS.text_secondary}; font-size: 12px;"
-                            " padding-left: 28px;"
-                        )
-                    if step.measured_values:
-                        with ui.element("div").style("padding-left: 28px;"):
-                            measured_values_table(step.measured_values)
+                is_subdued = step.criticality in SUBDUED_CRITICALITIES
+                text_color = COLORS.text_muted if is_subdued else COLORS.text_primary
+
+                refs["icon"].props(f'name="{icon_name}"')
+                refs["icon"].style(f"color: {icon_color}; font-size: 1.1rem;")
+                refs["name"].set_text(step.step_name)
+                refs["name"].style(f"color: {text_color}; font-size: 13px;")
+
+                duration_text = (
+                    f"{step.duration_ms:.0f}ms" if step.duration_ms > 0 else ""
+                )
+                refs["duration"].set_text(duration_text)
+                refs["duration"].set_visibility(step.duration_ms > 0)
+
+                refs["message"].set_text(step.message)
+                refs["message"].set_visibility(bool(step.message))
+
+    def _build_step_row(self, step: MonitorStepState) -> dict[str, ui.label | ui.icon]:
+        """Build a single step row and return references to updatable elements."""
+        icon_name, icon_color = status_icon(step.status)
+        border_color = CRITICALITY_BORDER.get(step.criticality)
+        is_subdued = step.criticality in SUBDUED_CRITICALITIES
+        text_color = COLORS.text_muted if is_subdued else COLORS.text_primary
+
+        border_style = (
+            f"border-left: 3px solid {border_color}; padding-left: 8px;"
+            if border_color
+            else ""
+        )
+
+        with ui.column().classes("w-full q-py-xs").style(border_style):
+            with ui.row().classes("items-center gap-2"):
+                icon_el = ui.icon(icon_name).style(
+                    f"color: {icon_color}; font-size: 1.1rem;"
+                )
+                name_el = ui.label(step.step_name).style(
+                    f"color: {text_color}; font-size: 13px;"
+                )
+                _step_badges(step)
+                duration_el = ui.label(
+                    f"{step.duration_ms:.0f}ms" if step.duration_ms > 0 else ""
+                ).style(f"color: {COLORS.text_muted}; font-size: 11px;")
+                duration_el.set_visibility(step.duration_ms > 0)
+
+            message_el = ui.label(step.message).style(
+                f"color: {COLORS.text_secondary}; font-size: 12px;"
+                " padding-left: 28px;"
+            )
+            message_el.set_visibility(bool(step.message))
+
+            if step.measured_values:
+                with ui.element("div").style("padding-left: 28px;"):
+                    measured_values_table(step.measured_values)
+
+        return {
+            "icon": icon_el,
+            "name": name_el,
+            "duration": duration_el,
+            "message": message_el,
+        }
 
     def _render_summary(self, state: MonitorState) -> None:
         """Render the final summary after recipe completion."""
@@ -229,6 +317,17 @@ class RecipeStepper:
                     f"/api/devices/{self._device_id}/recipes/result"
                 ),
             )
+
+            # Run Again button
+            if self._on_rerun is not None:
+                rerun_id = summary.recipe_id
+                rerun_params = dict(summary.parameters)
+
+                ui.button(
+                    "Run Again",
+                    icon="replay",
+                    on_click=lambda: self._on_rerun(rerun_id, rerun_params),
+                ).props("flat").style(f"color: {COLORS.cyan};")
 
     def _request_cancel(self) -> None:
         """Request cancellation via the API."""

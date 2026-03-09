@@ -109,6 +109,7 @@ def run_single_recipe(
     try:
         gen = recipe.run(dev, dev_key, cancel, **kwargs)
         steps_collected: list = []
+        step_counter = 0
 
         while True:
             try:
@@ -126,7 +127,7 @@ def run_single_recipe(
                 if _recipe_cancel.get(device_id, False):
                     cancel["cancelled"] = True
 
-            monitor.update_from_result(result)
+            monitor.update_from_result(result, step_index=step_counter)
             monitor.elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
 
             with _recipe_lock:
@@ -134,6 +135,7 @@ def run_single_recipe(
 
             if result.status != StepStatus.RUNNING:
                 steps_collected.append(result)
+                step_counter += 1
 
     except Exception as exc:
         logger.error("recipe_execution_failed", recipe=recipe_id, error=str(exc))
@@ -249,6 +251,7 @@ class WorkflowExecutor:
                     try:
                         gen = recipe.run(self._dev, self._key, cancel, **params)
                         steps_collected = []
+                        recipe_step_counter = len(monitor.steps)
 
                         while True:
                             try:
@@ -265,13 +268,14 @@ class WorkflowExecutor:
                             if _is_cancelled(run_id):
                                 cancel["cancelled"] = True
 
-                            monitor.update_from_result(result)
+                            monitor.update_from_result(result, step_index=recipe_step_counter)
                             monitor.elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
                             with _lock:
                                 _active_runs[run_id] = monitor.model_copy()
 
                             if result.status != StepStatus.RUNNING:
                                 steps_collected.append(result)
+                                recipe_step_counter += 1
                     except Exception as exc:
                         logger.error(
                             "workflow_step_failed",

@@ -53,6 +53,16 @@ class Recipe(ABC):
         """Category grouping for the recipe."""
 
     @property
+    def requires_link_up(self) -> bool:
+        """Whether this recipe requires the target port link to be active.
+
+        Recipes that perform measurements on live links (signal integrity,
+        performance) should override this to return ``True``.  The API layer
+        can then reject requests when the port link is down, unless forced.
+        """
+        return False
+
+    @property
     def estimated_duration_s(self) -> int:
         """Estimated duration in seconds."""
         return 30

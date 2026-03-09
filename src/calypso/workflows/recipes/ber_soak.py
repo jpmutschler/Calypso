@@ -39,6 +39,16 @@ _LANE_RATE_BPS: dict[str, float] = {
     "64.0": 64.0e9,
 }
 
+# Map PcieConfigReader.get_link_status().current_speed (e.g. "Gen4") to _LANE_RATE_BPS keys
+_SPEED_TO_RATE_KEY: dict[str, str] = {
+    "Gen1": "2.5",
+    "Gen2": "5.0",
+    "Gen3": "8.0",
+    "Gen4": "16.0",
+    "Gen5": "32.0",
+    "Gen6": "64.0",
+}
+
 
 class BerSoakRecipe(Recipe):
     """Soak a port with UTP (legacy) or FBER (Gen6 Flit) and measure BER per lane."""
@@ -58,6 +68,10 @@ class BerSoakRecipe(Recipe):
     @property
     def category(self) -> RecipeCategory:
         return RecipeCategory.SIGNAL_INTEGRITY
+
+    @property
+    def requires_link_up(self) -> bool:
+        return True
 
     @property
     def estimated_duration_s(self) -> int:
@@ -334,8 +348,10 @@ class BerSoakRecipe(Recipe):
                 total_errors = sum(lane_counters)
                 lane_details: list[dict[str, object]] = []
 
-                # Compute per-lane BER estimate
-                lane_rate = _LANE_RATE_BPS.get("64.0", 64.0e9)
+                # Compute per-lane BER estimate using actual negotiated speed
+                link = reader.get_link_status()
+                speed_str = _SPEED_TO_RATE_KEY.get(link.current_speed, "")
+                lane_rate = _LANE_RATE_BPS.get(speed_str, 64.0e9)
                 bits_tested = elapsed * lane_rate
 
                 worst_status = StepStatus.PASS

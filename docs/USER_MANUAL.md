@@ -1440,7 +1440,7 @@ Several existing recipes (BER Soak, Multi-Speed BER, Link Health Check, SerDes D
 #### Running a Recipe
 
 1. Select a category tab to browse available recipes
-2. Click **Run** on a recipe card
+2. Click **Run** on a recipe card -- the card being executed is highlighted with a cyan border glow so you can tell at a glance which recipe is active. All other recipe cards are disabled while a recipe is running to prevent accidental double-launches.
 3. If the recipe has configurable parameters (duration, port number, thresholds, etc.), a parameter dialog appears — configure and click **Run**
 4. The **Recipe Stepper** panel opens showing live step-by-step progress
 
@@ -1448,20 +1448,36 @@ Several existing recipes (BER Soak, Multi-Speed BER, Link Health Check, SerDes D
 
 While a recipe is running, the stepper panel provides real-time feedback:
 
-- **Metric cards** at the top of the panel show live counts for Pass, Fail, Warn, and Running steps. These update as each step completes.
+- **Metric cards** at the top of the panel show live counts for Pass, Fail, Warn, and Running steps. These update in-place without flickering, providing smooth real-time monitoring even during long-running recipes.
 - **Progress bar** begins in an indeterminate (animated) state and switches to a determinate percentage bar as steps complete, giving an accurate view of overall progress.
-- **Step list** displays each step with a status icon (pass, fail, warn, skip). Steps that have completed show their measured values inline -- for example, a bandwidth measurement step might display `bw_gbps: 63.02`, while a BER step might show `ber: 1.23e-12`.
+- **Step list** displays each step with a status icon (pass, fail, warn, skip). Steps that have completed show their measured values inline -- for example, a bandwidth measurement step might display `bw_gbps: 63.02`, while a BER step might show `ber: 1.23e-12`. The step list updates in-place rather than rebuilding, so you can scroll through results without the view jumping.
+- **Port and lane context** -- When a recipe reports port or lane information for a step, badges appear alongside the step showing the physical port number and lane. This lets you immediately identify which port or connector a specific result applies to without cross-referencing other pages.
+- **Criticality indicators** -- Steps with CRITICAL severity display a red left border, and steps with HIGH severity display an orange left border. These visual markers help you quickly prioritize which failures to investigate first when reviewing results.
 - **Measured values** use automatic formatting appropriate to the data type:
   - Bandwidth values display in Gbps
   - Bit error rates use scientific notation (e.g., `2.5e-14`)
   - Register values display in hexadecimal (e.g., `0x00040010`)
   - Error counts and other integers display as plain numbers
-- **Color-coded anomalies** highlight values that may need attention: non-zero error counts appear in red, high BER values appear in yellow.
+- **BER coloring** -- Bit error rate values use tiered coloring based on PCIe 6.1 thresholds:
+  - Red for BER above 1e-6 (exceeds the raw BER budget -- indicates a serious link problem)
+  - Yellow for BER above 1e-12 (non-zero errors detected, marginal link quality)
+  - Default color for clean links with no detected errors
+- **Color-coded anomalies** highlight other values that may need attention: non-zero error counts appear in red.
 - A **toast notification** appears when the recipe finishes, so you can navigate away and still know when results are ready.
 
 #### Cancel
 
 Click the **Cancel** button directly within the monitor card to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint, clean up hardware state (stop measurements, disable injection, restore link speed), and return partial results. Partial results are displayed in the stepper and can be downloaded as a report.
+
+#### Run Again
+
+After a recipe completes (or is cancelled), a **Run Again** button appears in the monitor panel. Clicking it re-launches the same recipe with the same parameters you used previously. This is particularly useful during iterative hardware debugging -- you can adjust a cable or connector, click Run Again, and immediately verify whether the change improved results without navigating back through the recipe card and parameter dialog.
+
+#### Link-Up Guard
+
+Signal integrity and performance recipes that require an active PCIe link -- such as BER Soak, PAM4 Eye Sweep, Bandwidth Baseline, and others -- declare this requirement in their metadata. If you attempt to run one of these recipes on a port whose link is down, the system displays a warning before starting. This prevents wasted time running measurements that cannot produce valid results on an inactive link.
+
+If you need to bypass this check (for example, to test error handling behavior on a down link), pass the `force` parameter set to true in the recipe parameter dialog or via the API.
 
 #### Reports and Export
 
@@ -1519,17 +1535,17 @@ Supported operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`, `not`.
 #### Running a Workflow
 
 1. Build your workflow steps or load a saved workflow from the sidebar
-2. Click **Run Workflow**
+2. Click **Run Workflow** -- next to the button, an **estimated duration** is displayed showing the total expected run time for the workflow. This estimate accounts for each step's duration parameter and multiplies by the loop count for any step configured with looping, so you know upfront how long the workflow will take.
 3. The **Workflow Monitor** panel appears below the step editor
 
 #### Live Workflow Monitoring
 
 The Workflow Monitor provides the same real-time feedback as the recipe stepper, plus workflow-specific features:
 
-- **Metric cards** show aggregate Pass, Fail, Warn, and Running counts across all steps in the workflow.
+- **Metric cards** show aggregate Pass, Fail, Warn, and Running counts across all steps in the workflow. Like the recipe stepper, these update in-place without flickering.
 - **Progress bar** tracks overall workflow completion as a percentage of total steps (accounting for loop iterations).
 - **Per-step expansion panels** show each workflow step as a collapsible section. The currently running step auto-expands so you can watch its progress without clicking.
-- **Measured values** appear inside each step's expansion panel as the step runs. Values use the same automatic formatting and color coding described in the recipe monitoring section above -- bandwidth in Gbps, BER in scientific notation, error counts highlighted in red, and so on.
+- **Measured values** appear inside each step's expansion panel as the step runs. Values use the same automatic formatting and color coding described in the recipe monitoring section above -- bandwidth in Gbps, BER in scientific notation, BER tiered coloring per PCIe 6.1 thresholds, port/lane badges, criticality borders, error counts highlighted in red, and so on.
 - **Elapsed time** and current step name are displayed in the monitor header.
 - A **toast notification** appears when the workflow finishes, whether it completed normally, was cancelled, or stopped due to a step failure (depending on On Fail configuration).
 - Click **Cancel** to stop the workflow at the next safe checkpoint. Completed steps retain their results.
@@ -1537,6 +1553,8 @@ The Workflow Monitor provides the same real-time feedback as the recipe stepper,
 #### Saved Workflows
 
 The right sidebar panel lists all saved workflows. Click a workflow to load it into the editor. Workflows are stored as JSON files in `~/.calypso/workflows/`.
+
+To delete a saved workflow, click its delete button in the sidebar. A confirmation dialog appears asking you to confirm the deletion, preventing accidental removal of workflow definitions.
 
 #### Reports and Export
 

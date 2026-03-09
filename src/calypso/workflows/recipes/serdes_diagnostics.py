@@ -43,6 +43,10 @@ class SerDesDiagnosticsRecipe(Recipe):
         return RecipeCategory.SIGNAL_INTEGRITY
 
     @property
+    def requires_link_up(self) -> bool:
+        return True
+
+    @property
     def estimated_duration_s(self) -> int:
         return 15
 
