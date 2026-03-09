@@ -436,3 +436,173 @@ def render_serdes_diagnostics(summary: RecipeSummary) -> str:
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
     return f"{header}{criteria}{metrics}{diag_cards}{lane_table}{eq_section}{fber_section}{extras}"
+
+
+# ---------------------------------------------------------------------------
+# Flit Error Log Drain
+# ---------------------------------------------------------------------------
+
+
+def render_flit_error_log_drain(summary: RecipeSummary) -> str:
+    """Specialized renderer for flit_error_log_drain results."""
+    header = section_header(
+        "Flit Error Log Drain",
+        f"Duration: {summary.duration_ms:.0f}ms | "
+        "FEC error distribution from the Flit Error Log FIFO",
+    )
+
+    criteria = criteria_box(
+        [
+            "PASS: Zero Flit Error Log entries",
+            "WARN: Correctable FEC errors only",
+            "FAIL: FEC uncorrectable errors detected",
+        ]
+    )
+
+    # Status cards
+    status_step = find_step_with_key(summary.steps, "counter_enabled")
+    status_section = ""
+    if status_step is not None:
+        mv = status_step.measured_values
+        counter_on = "Yes" if mv.get("counter_enabled") else "No"
+        counter_val = str(safe_int(mv.get("counter_value", 0)))
+        fber_on = "Yes" if mv.get("fber_enabled") else "No"
+        status_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Counter Enabled", counter_on, CYAN)
+            + metric_card("Counter Value", counter_val, CYAN)
+            + metric_card("FBER Enabled", fber_on, CYAN)
+            + "</div>"
+        )
+
+    # Drain results
+    drain_step = find_step_with_key(summary.steps, "entries_read")
+    drain_section = ""
+    if drain_step is not None:
+        mv = drain_step.measured_values
+        entries_read = str(safe_int(mv.get("entries_read", 0)))
+        drain_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Entries Read", entries_read, CYAN)
+            + "</div>"
+        )
+
+    # Analysis results
+    analysis_step = find_step_with_key(summary.steps, "fec_uncorrectable")
+    analysis_section = ""
+    if analysis_step is not None:
+        mv = analysis_step.measured_values
+        uncorr = safe_int(mv.get("fec_uncorrectable", 0))
+        corr = safe_int(mv.get("fec_correctable", 0))
+        unrecog = safe_int(mv.get("unrecognized_flits", 0))
+        clusters = safe_int(mv.get("consecutive_error_clusters", 0))
+        syndromes = safe_int(mv.get("unique_syndromes", 0))
+        total = safe_int(mv.get("total_entries", 0))
+
+        uncorr_color = RED if uncorr > 0 else GREEN
+        corr_color = YELLOW if corr > 0 else GREEN
+        analysis_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Total Entries", str(total), CYAN)
+            + metric_card("FEC Uncorrectable", str(uncorr), uncorr_color)
+            + metric_card("FEC Correctable", str(corr), corr_color)
+            + metric_card("Unrecognized Flits", str(unrecog), YELLOW if unrecog > 0 else GREEN)
+            + metric_card("Consecutive Clusters", str(clusters), YELLOW if clusters > 0 else GREEN)
+            + metric_card("Unique Syndromes", str(syndromes), TEXT_SECONDARY)
+            + "</div>"
+        )
+
+    _rendered = frozenset(
+        {
+            "cap_offset",
+            "counter_enabled",
+            "counter_value",
+            "fber_enabled",
+            "entries_read",
+            "total_entries",
+            "fec_uncorrectable",
+            "fec_correctable",
+            "unrecognized_flits",
+            "consecutive_error_clusters",
+            "unique_syndromes",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
+    metrics = summary_metrics(summary)
+    return f"{header}{criteria}{metrics}{status_section}{drain_section}{analysis_section}{extras}"
+
+
+# ---------------------------------------------------------------------------
+# FEC Counter Analysis
+# ---------------------------------------------------------------------------
+
+
+def render_fec_analysis(summary: RecipeSummary) -> str:
+    """Specialized renderer for fec_analysis results."""
+    header = section_header(
+        "FEC Counter Analysis",
+        f"Duration: {summary.duration_ms:.0f}ms | FEC correction rate measurement at Gen6 64GT/s",
+    )
+
+    criteria = criteria_box(
+        [
+            "PASS: FEC correction rate within acceptable limits",
+            "WARN: Elevated FEC correction rate (channel nearing limit)",
+            "FAIL: FEC correction rate exceeds threshold",
+        ]
+    )
+
+    # Rate analysis cards
+    rate_step = find_step_with_key(summary.steps, "fec_correction_rate")
+    rate_section = ""
+    if rate_step is not None:
+        mv = rate_step.measured_values
+        fec_total = safe_int(mv.get("fec_correctable_total", 0))
+        fec_rate = float(str(mv.get("fec_correction_rate", 0)))
+        margin = float(str(mv.get("fec_margin_ratio", 0)))
+        soak_s = float(str(mv.get("soak_duration_s", 0)))
+
+        fec_color = RED if fec_total > 10000 else YELLOW if fec_total > 100 else GREEN
+        margin_color = RED if margin < 10 else YELLOW if margin < 100 else GREEN
+        rate_section = (
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("FEC Corrections", str(fec_total), fec_color)
+            + metric_card("Rate (/s)", f"{fec_rate:.1f}", fec_color)
+            + metric_card("Margin Ratio", f"{margin:.1f}x", margin_color)
+            + metric_card("Soak Duration", f"{soak_s:.0f}s", TEXT_SECONDARY)
+            + "</div>"
+        )
+
+        # Time series as bar chart if available
+        time_series = mv.get("time_series")
+        if isinstance(time_series, list) and time_series:
+            ts_data = [
+                (f"{float(str(s.get('t', 0))):.0f}s", float(str(s.get("count", 0))))
+                for s in time_series
+                if isinstance(s, dict)
+            ]
+            if ts_data:
+                rate_section += section_header("FEC Counter Over Time", "") + bar_chart(
+                    ts_data, bar_color=CYAN, height_px=16
+                )
+
+    _rendered = frozenset(
+        {
+            "baseline_count",
+            "counter_enabled",
+            "actual_soak_s",
+            "samples_collected",
+            "final_count",
+            "fec_correctable_total",
+            "fec_uncorrectable_total",
+            "fec_correction_rate",
+            "fec_correction_ber",
+            "soak_duration_s",
+            "bits_tested",
+            "fec_margin_ratio",
+            "time_series",
+        }
+    )
+    extras = render_extra_measured_values(summary, _rendered)
+    metrics = summary_metrics(summary)
+    return f"{header}{criteria}{metrics}{rate_section}{extras}"

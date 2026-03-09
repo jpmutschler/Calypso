@@ -18,15 +18,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import get_ber_thresholds
 
 logger = get_logger(__name__)
-
-# Rate-based FBER thresholds (BER)
-# These approximate the old count-based thresholds at ~30s/64GT soak:
-#   _FBER_WARN_THRESHOLD = 100   (~5.2e-11 BER at 30s/64GT)
-#   _FBER_FAIL_THRESHOLD = 10000 (~5.2e-9 BER at 30s/64GT)
-_FBER_BER_WARN = 1e-10
-_FBER_BER_FAIL = 1e-8
 
 # Default lane bit rate for Gen6 64GT/s (used when link speed unavailable)
 _DEFAULT_LANE_RATE_BPS = 64.0e9
@@ -370,6 +364,7 @@ class FberMeasurementRecipe(Recipe):
 
         lane_details: list[dict[str, object]] = []
         worst_status = StepStatus.PASS
+        thresholds = get_ber_thresholds(link_speed, is_flit_ber=True)
 
         for idx, count in enumerate(lane_counters):
             estimated_ber = count / bits_tested if bits_tested > 0 else 0.0
@@ -379,10 +374,10 @@ class FberMeasurementRecipe(Recipe):
                 "estimated_ber": estimated_ber,
             }
 
-            if estimated_ber >= _FBER_BER_FAIL:
+            if estimated_ber >= thresholds.fail_threshold:
                 lane_info["status"] = "fail"
                 worst_status = StepStatus.FAIL
-            elif estimated_ber >= _FBER_BER_WARN:
+            elif estimated_ber >= thresholds.warn_threshold:
                 lane_info["status"] = "warn"
                 if worst_status != StepStatus.FAIL:
                     worst_status = StepStatus.WARN

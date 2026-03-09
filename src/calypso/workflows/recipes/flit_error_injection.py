@@ -257,6 +257,54 @@ class FlitErrorInjectionRecipe(Recipe):
         if result.status == StepStatus.ERROR:
             return self._make_summary(steps, start_time, params, device_id)
 
+        # --- Step 3b: Verify injection readback ---
+        step = "Verify injection readback"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            status_readback = reader.get_flit_error_injection_status()
+            dur = _elapsed_ms(t0)
+            if status_readback is None or not (status_readback.raw_flit_ctl1 & 0x1):
+                result = self._make_result(
+                    step,
+                    StepStatus.FAIL,
+                    message=(
+                        "Readback: injection enable bit NOT set — register write may be ineffective"
+                    ),
+                    criticality=StepCriticality.CRITICAL,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                readback_num_errors = (status_readback.raw_flit_ctl1 >> 16) & 0x1F
+                result = self._make_result(
+                    step,
+                    StepStatus.PASS,
+                    message="Readback confirmed: injection enabled",
+                    criticality=StepCriticality.MEDIUM,
+                    measured_values={
+                        "injection_enabled": True,
+                        "readback_num_errors": readback_num_errors,
+                    },
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = _elapsed_ms(t0)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Readback check failed: {exc}",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        if result.status == StepStatus.FAIL:
+            return self._make_summary(steps, start_time, params, device_id)
+
         try:
             # --- Step 4: Wait for injection ---
             step = "Wait for injection"

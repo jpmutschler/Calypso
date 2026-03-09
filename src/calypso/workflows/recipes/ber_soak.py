@@ -20,11 +20,9 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+from calypso.workflows.thresholds import get_ber_thresholds
 
 logger = get_logger(__name__)
-
-_BER_PASS_THRESHOLD = 1e-12
-_BER_WARN_THRESHOLD = 1e-9
 
 # Default 16-byte UTP pattern (alternating 0xAA/0x55)
 _DEFAULT_PATTERN = bytes([0xAA, 0x55] * 8)
@@ -354,6 +352,7 @@ class BerSoakRecipe(Recipe):
                 lane_rate = _LANE_RATE_BPS.get(speed_str, 64.0e9)
                 bits_tested = elapsed * lane_rate
 
+                thresholds = get_ber_thresholds(link.current_speed, is_flit_ber=False)
                 worst_status = StepStatus.PASS
                 for idx, count in enumerate(lane_counters):
                     ber = count / bits_tested if bits_tested > 0 else 0.0
@@ -362,10 +361,10 @@ class BerSoakRecipe(Recipe):
                         "error_count": count,
                         "estimated_ber": ber,
                     }
-                    if ber > _BER_WARN_THRESHOLD:
+                    if ber > thresholds.warn_threshold:
                         lane_info["status"] = "fail"
                         worst_status = StepStatus.FAIL
-                    elif ber > _BER_PASS_THRESHOLD:
+                    elif ber > thresholds.pass_threshold:
                         lane_info["status"] = "warn"
                         if worst_status != StepStatus.FAIL:
                             worst_status = StepStatus.WARN

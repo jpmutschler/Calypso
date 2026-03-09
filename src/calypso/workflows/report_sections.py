@@ -31,13 +31,16 @@ from calypso.workflows.report_sections_gen6 import (
 )
 from calypso.workflows.report_sections_gen6_ext import (
     render_eq_phase_audit,
+    render_fec_analysis,
     render_flit_error_injection,
+    render_flit_error_log_drain,
     render_serdes_diagnostics,
 )
 from calypso.workflows.report_sections_error_debug import (
     render_error_aggregation_sweep,
     render_link_health_check,
     render_ltssm_monitor,
+    render_ptrace_capture,
     render_speed_downshift_test,
 )
 from calypso.workflows.report_sections_recipes import (
@@ -147,4 +150,7 @@ _RENDERERS: dict[str, Callable[[RecipeSummary], str]] = {
     "link_health_check": render_link_health_check,
     "ltssm_monitor": render_ltssm_monitor,
     "speed_downshift_test": render_speed_downshift_test,
+    "ptrace_capture": render_ptrace_capture,
+    "flit_error_log_drain": render_flit_error_log_drain,
+    "fec_analysis": render_fec_analysis,
 }

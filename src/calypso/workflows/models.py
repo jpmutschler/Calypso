@@ -117,10 +117,19 @@ class RecipeSummary(BaseModel):
             return 0.0
         return round(self.total_pass / len(self.steps) * 100, 1)
 
+    @property
+    def applicable_pass_rate(self) -> float:
+        """Pass rate excluding skipped steps."""
+        applicable = self.total_steps - self.total_skip
+        if applicable <= 0:
+            return 0.0
+        return round(self.total_pass / applicable * 100, 1)
+
     def to_export_dict(self) -> dict:
         """Return a serializable dict for JSON/CSV export."""
         return {
             **self.model_dump(),
             "total_steps": self.total_steps,
             "pass_rate": self.pass_rate,
+            "applicable_pass_rate": self.applicable_pass_rate,
         }

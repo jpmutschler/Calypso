@@ -516,6 +516,84 @@ class LinkTrainingDebugRecipe(Recipe):
                 device_id,
             )
 
+        # --- Step 7b: Verify Flit mode negotiation (Gen6 only) ---
+        step = "Verify Flit negotiation"
+        yield self._make_running(step)
+        t0 = time.monotonic()
+        try:
+            is_gen6 = self._is_gen6_flit(dev, dev_key)
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            if not is_gen6:
+                result = self._make_result(
+                    step,
+                    StepStatus.SKIP,
+                    message="Link not at 64GT/s — Flit negotiation check skipped",
+                    criticality=StepCriticality.INFO,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+            else:
+                # Read EQ 64GT status for Flit mode flags
+                try:
+                    phy = PhyMonitor(dev, dev_key, port_number)
+                    eq_64gt = phy.get_eq_status_64gt()
+                except Exception:
+                    eq_64gt = None
+
+                flit_supported = eq_64gt.flit_mode_supported if eq_64gt else None
+                eq_complete = eq_64gt.complete if eq_64gt else None
+
+                flit_values: dict[str, object] = {
+                    "flit_mode_supported": flit_supported,
+                    "eq_64gt_complete": eq_complete,
+                }
+
+                if flit_supported is True and eq_complete is True:
+                    flit_status = StepStatus.PASS
+                    flit_msg = "Flit mode negotiated and active at 64GT/s"
+                elif flit_supported is False:
+                    flit_status = StepStatus.WARN
+                    flit_msg = "64GT/s active but Flit mode not supported by endpoint"
+                elif eq_complete is False:
+                    flit_status = StepStatus.FAIL
+                    flit_msg = "64GT/s EQ not complete — Flit mode negotiation may be incomplete"
+                else:
+                    flit_status = StepStatus.WARN
+                    flit_msg = "Flit mode status could not be fully determined"
+
+                result = self._make_result(
+                    step,
+                    flit_status,
+                    message=flit_msg,
+                    criticality=StepCriticality.HIGH,
+                    measured_values=flit_values,
+                    duration_ms=dur,
+                    port_number=port_number,
+                )
+        except Exception as exc:
+            dur = round((time.monotonic() - t0) * 1000, 2)
+            result = self._make_result(
+                step,
+                StepStatus.WARN,
+                message=f"Flit negotiation check failed: {exc}",
+                criticality=StepCriticality.MEDIUM,
+                duration_ms=dur,
+                port_number=port_number,
+            )
+        yield result
+        steps.append(result)
+
+        if self._is_cancelled(cancel):
+            skip = self._make_result("Cancelled", StepStatus.SKIP, "Cancelled by user")
+            yield skip
+            steps.append(skip)
+            return self._make_summary(
+                steps,
+                start_time,
+                {"port_number": port_number, "timeout_s": timeout_s},
+                device_id,
+            )
+
         # --- Step 8 (Gen6 only): Check Flit Error Log post-retrain ---
         step = "Check Flit Error Log post-retrain"
         yield self._make_running(step)

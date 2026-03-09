@@ -24,6 +24,7 @@ from calypso.workflows.report_sections_helpers import (
     TEXT_SECONDARY,
     format_ber,
 )
+from calypso.workflows.thresholds import NEUTRAL_METRIC_KEYS
 from calypso.workflows.workflow_report import format_duration, wrap_html
 
 
@@ -51,7 +52,7 @@ _METRIC_KEYS = [
 ]
 
 # Keys that are identifiers/enums rather than comparable numeric metrics
-_SKIP_KEYS = frozenset(
+_IDENTIFIER_KEYS = frozenset(
     {
         "port_number",
         "lane",
@@ -63,6 +64,8 @@ _SKIP_KEYS = frozenset(
         "ltssm_state",
     }
 )
+
+_SKIP_KEYS = _IDENTIFIER_KEYS | NEUTRAL_METRIC_KEYS
 
 
 def _extract_key_metrics(summary: RecipeSummary) -> dict[str, float]:
@@ -497,10 +500,14 @@ def _render_recipe_comparison(
         if base_val is not None and curr_val is not None:
             delta = curr_val - base_val
             if delta != 0:
-                lower = lower_map.get(key, True)
-                color = _delta_color(delta, lower)
+                lower = lower_map.get(key)
                 d_str = _format_delta(key, delta)
-                delta_str = f'<span style="color:{color}; font-weight:600;">{d_str}</span>'
+                if lower is None:
+                    # Auto-discovered metric: show delta without direction color
+                    delta_str = f'<span style="color:{TEXT_SECONDARY};">{d_str}</span>'
+                else:
+                    color = _delta_color(delta, lower)
+                    delta_str = f'<span style="color:{color}; font-weight:600;">{d_str}</span>'
 
         rows.append([label, base_str, curr_str, delta_str])
 

@@ -161,10 +161,7 @@ def decode_aer_bits(raw: int, error_type: str = "uncorrectable") -> list[str]:
     Returns:
         List of error name strings for each set bit.
     """
-    bit_defs = (
-        _AER_UNCORRECTABLE_BITS if error_type == "uncorrectable"
-        else _AER_CORRECTABLE_BITS
-    )
+    bit_defs = _AER_UNCORRECTABLE_BITS if error_type == "uncorrectable" else _AER_CORRECTABLE_BITS
     return [name for bit, name in bit_defs if raw & (1 << bit)]
 
 

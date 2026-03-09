@@ -504,8 +504,8 @@ class TestExportSummaryCsv:
         assert "completed_at" in header
         assert "measured_values_json" in header
 
-    def test_picks_step_with_most_measured_values(self) -> None:
-        """The best_mv logic should pick the step with the most keys, not the last."""
+    def test_merges_all_step_measured_values(self) -> None:
+        """The merged_mv logic should merge all steps, later overwriting earlier."""
         step_few = make_result(name="setup", measured_values={"a": 1})
         step_many = make_result(name="analysis", measured_values={"x": 1, "y": 2, "z": 3})
         step_last = make_result(name="cleanup", measured_values={"done": True})
@@ -515,7 +515,7 @@ class TestExportSummaryCsv:
         rows = self._parse_csv(result)
         mv_json = rows[0]["measured_values_json"]
         parsed = json.loads(mv_json)
-        assert parsed == {"x": 1, "y": 2, "z": 3}
+        assert parsed == {"a": 1, "x": 1, "y": 2, "z": 3, "done": True}
 
     def test_empty_measured_values_renders_empty_string(self) -> None:
         step = make_result(measured_values={})

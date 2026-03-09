@@ -150,7 +150,9 @@ def render_eye_scan(summary: RecipeSummary) -> str:
 
 def render_link_training_debug(summary: RecipeSummary) -> str:
     """Specialized renderer for link_training_debug results."""
-    header = section_header("Endpoint Link Training Debug", f"Duration: {summary.duration_ms:.0f}ms")
+    header = section_header(
+        "Endpoint Link Training Debug", f"Duration: {summary.duration_ms:.0f}ms"
+    )
 
     # LTSSM transition timeline
     transition_step = find_step_with_key(summary.steps, "transitions")
@@ -584,9 +586,7 @@ def render_flit_perf_measurement(summary: RecipeSummary) -> str:
 
 def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
     """Specialized renderer for pam4_eye_sweep results with per-eye breakdown."""
-    header = section_header(
-        "Endpoint PAM4 Eye Sweep", f"Duration: {summary.duration_ms:.0f}ms"
-    )
+    header = section_header("Endpoint PAM4 Eye Sweep", f"Duration: {summary.duration_ms:.0f}ms")
 
     criteria = criteria_box(
         [
@@ -603,7 +603,11 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
 
     # Per-lane per-eye detail table
     eye_columns = [
-        "Lane", "Eye", "Width (UI)", "Height (mV)",
+        "Lane",
+        "Eye",
+        "Status",
+        "Width (UI)",
+        "Height (mV)",
     ]
     eye_rows: list[list[str]] = []
 
@@ -617,13 +621,15 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
         # Summary row (worst-of-3)
         is_balanced = mv.get("is_balanced")
         balanced_str = "Yes" if is_balanced else "No" if is_balanced is not None else ""
-        summary_rows.append([
-            lane_str,
-            step.status.value.upper(),
-            f"{float(mv.get('eye_width_ui', 0)):.4f}",
-            f"{float(mv.get('eye_height_mv', 0)):.2f}",
-            balanced_str,
-        ])
+        summary_rows.append(
+            [
+                lane_str,
+                step.status.value.upper(),
+                f"{float(mv.get('eye_width_ui', 0)):.4f}",
+                f"{float(mv.get('eye_height_mv', 0)):.2f}",
+                balanced_str,
+            ]
+        )
 
         # Per-eye rows (if sub-eye data present)
         has_sub_eyes = "upper_eye_width_ui" in mv
@@ -631,9 +637,17 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             for eye_name, prefix in [("Upper", "upper"), ("Middle", "middle"), ("Lower", "lower")]:
                 w = float(mv.get(f"{prefix}_eye_width_ui", 0))
                 h = float(mv.get(f"{prefix}_eye_height_mv", 0))
-                eye_rows.append([lane_str, eye_name, f"{w:.4f}", f"{h:.2f}"])
+                if w >= _PAM4_PASS_UI:
+                    eye_status = "PASS"
+                elif w >= _PAM4_FAIL_UI:
+                    eye_status = "WARN"
+                else:
+                    eye_status = "FAIL"
+                eye_rows.append([lane_str, eye_name, eye_status, f"{w:.4f}", f"{h:.2f}"])
 
-    summary_table = results_table(summary_columns, summary_rows, status_column=1) if summary_rows else ""
+    summary_table = (
+        results_table(summary_columns, summary_rows, status_column=1) if summary_rows else ""
+    )
 
     # Per-eye detail table
     eye_detail_section = ""
@@ -642,7 +656,7 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             f'<div style="font-size:15px; font-weight:600; color:{TEXT_PRIMARY}; '
             f'margin:20px 0 8px 0;">Per-Eye Breakdown (Upper / Middle / Lower)</div>'
         )
-        eye_detail_section = eye_header + results_table(eye_columns, eye_rows)
+        eye_detail_section = eye_header + results_table(eye_columns, eye_rows, status_column=2)
 
     # Per-lane eye width bar charts (worst-of-3)
     width_chart = ""
@@ -670,7 +684,13 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
         mv = agg_step.measured_values
         worst_lane = mv.get("worst_lane", -1)
         worst_margin = float(str(mv.get("worst_margin_ui", 0)))
-        margin_color = RED if worst_margin < _PAM4_FAIL_UI else YELLOW if worst_margin < _PAM4_PASS_UI else GREEN
+        margin_color = (
+            RED
+            if worst_margin < _PAM4_FAIL_UI
+            else YELLOW
+            if worst_margin < _PAM4_PASS_UI
+            else GREEN
+        )
         margin_section = (
             f'<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
             f"{metric_card('Worst Lane', str(worst_lane), margin_color)}"
@@ -678,16 +698,27 @@ def render_pam4_eye_sweep(summary: RecipeSummary) -> str:
             f"</div>"
         )
 
-    _rendered = frozenset({
-        "eye_width_ui", "eye_height_mv", "is_balanced",
-        "upper_eye_width_ui", "upper_eye_height_mv",
-        "middle_eye_width_ui", "middle_eye_height_mv",
-        "lower_eye_width_ui", "lower_eye_height_mv",
-        "margin_right_ui", "margin_left_ui",
-        "margin_up_mv", "margin_down_mv",
-        "sweep_time_ms",
-        "lane", "worst_lane", "worst_margin_ui",
-    })
+    _rendered = frozenset(
+        {
+            "eye_width_ui",
+            "eye_height_mv",
+            "is_balanced",
+            "upper_eye_width_ui",
+            "upper_eye_height_mv",
+            "middle_eye_width_ui",
+            "middle_eye_height_mv",
+            "lower_eye_width_ui",
+            "lower_eye_height_mv",
+            "margin_right_ui",
+            "margin_left_ui",
+            "margin_up_mv",
+            "margin_down_mv",
+            "sweep_time_ms",
+            "lane",
+            "worst_lane",
+            "worst_margin_ui",
+        }
+    )
     extras = render_extra_measured_values(summary, _rendered)
     metrics = summary_metrics(summary)
     return (

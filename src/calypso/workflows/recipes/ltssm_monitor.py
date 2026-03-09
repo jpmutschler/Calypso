@@ -8,6 +8,7 @@ from typing import Any
 
 from calypso.bindings.types import PLX_DEVICE_KEY, PLX_DEVICE_OBJECT
 from calypso.core.ltssm_trace import LtssmTracer
+from calypso.models.ltssm import ltssm_state_name
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
 from calypso.workflows.models import (
@@ -163,10 +164,15 @@ class LtssmMonitorRecipe(Recipe):
                 recovery_total = snap.recovery_count
 
                 if snap.ltssm_state_name != prev_state:
+                    # Use ltssm_state_name() for full 12-bit sub-state decode
+                    # (e.g. "Recovery.RcvrLock") via the snapshot's raw code.
+                    sub_state = ltssm_state_name(snap.ltssm_state)
                     transitions.append(
                         {
                             "from": prev_state,
                             "to": snap.ltssm_state_name,
+                            "sub_state": sub_state,
+                            "ltssm_code": f"0x{snap.ltssm_state:03X}",
                             "elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
                             "recovery_count": snap.recovery_count,
                         }

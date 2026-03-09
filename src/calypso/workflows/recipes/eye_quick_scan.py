@@ -11,6 +11,7 @@ from calypso.core.lane_margining import LaneMarginingEngine
 from calypso.core.pcie_config import PcieConfigReader
 from calypso.utils.logging import get_logger
 from calypso.workflows.base import Recipe
+from calypso.workflows.thresholds import get_eye_thresholds
 from calypso.workflows.models import (
     RecipeCategory,
     RecipeParameter,
@@ -119,6 +120,9 @@ class EyeQuickScanRecipe(Recipe):
             eye_link_speed = "Unknown"
             eye_link_width = 0
 
+        is_pam4 = self._is_gen6_flit(dev, dev_key)
+        thresholds = get_eye_thresholds(is_pam4=is_pam4)
+
         try:
             for lane_idx in range(num_lanes):
                 if self._is_cancelled(cancel):
@@ -138,10 +142,10 @@ class EyeQuickScanRecipe(Recipe):
                     eye_width = sweep.eye_width_ui
                     eye_height = sweep.eye_height_mv
 
-                    if eye_width >= _TIMING_MARGIN_GOOD_UI:
+                    if eye_width >= thresholds.pass_ui:
                         status = StepStatus.PASS
                         msg = f"Eye OK: width={eye_width:.4f} UI, height={eye_height:.2f} mV"
-                    elif eye_width >= _TIMING_MARGIN_MARGINAL_UI:
+                    elif eye_width >= thresholds.warn_ui:
                         status = StepStatus.WARN
                         msg = f"Marginal eye: width={eye_width:.4f} UI, height={eye_height:.2f} mV"
                     else:

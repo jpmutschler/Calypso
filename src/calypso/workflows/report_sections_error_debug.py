@@ -119,14 +119,16 @@ def render_error_aggregation_sweep(summary: RecipeSummary) -> str:
         uncorr_raw = safe_int(mv.get("aer_uncorrectable", 0))
         corr_raw = safe_int(mv.get("aer_correctable", 0))
         mcu_errs = str(safe_int(mv.get("mcu_errors", 0)))
-        port_rows.append([
-            port_label,
-            recovery,
-            link_down,
-            format_aer_with_decode(uncorr_raw, "uncorrectable"),
-            format_aer_with_decode(corr_raw, "correctable"),
-            mcu_errs,
-        ])
+        port_rows.append(
+            [
+                port_label,
+                recovery,
+                link_down,
+                format_aer_with_decode(uncorr_raw, "uncorrectable"),
+                format_aer_with_decode(corr_raw, "correctable"),
+                mcu_errs,
+            ]
+        )
 
     if port_rows:
         parts.append(section_header("Per-Port Error Breakdown"))
@@ -142,13 +144,25 @@ def render_error_aggregation_sweep(summary: RecipeSummary) -> str:
         parts.append(failure_guidance_box("aer_uncorrectable"))
 
     # Catch-all extras
-    _rendered: frozenset[str] = frozenset({
-        "total_ports", "active_ports", "active_port_numbers",
-        "aer_available", "total_aer_uncorrectable", "total_aer_correctable",
-        "total_mcu_errors", "total_ltssm_recoveries", "mcu_connected",
-        "recovery_count", "link_down_count", "aer_uncorrectable",
-        "aer_correctable", "mcu_errors", "outlier_ports",
-    })
+    _rendered: frozenset[str] = frozenset(
+        {
+            "total_ports",
+            "active_ports",
+            "active_port_numbers",
+            "aer_available",
+            "total_aer_uncorrectable",
+            "total_aer_correctable",
+            "total_mcu_errors",
+            "total_ltssm_recoveries",
+            "mcu_connected",
+            "recovery_count",
+            "link_down_count",
+            "aer_uncorrectable",
+            "aer_correctable",
+            "mcu_errors",
+            "outlier_ports",
+        }
+    )
     parts.append(render_extra_measured_values(summary, _rendered))
 
     return "".join(parts)
@@ -343,20 +357,48 @@ def render_link_health_check(summary: RecipeSummary) -> str:
             parts.append(failure_guidance_box("eq_incomplete"))
 
     # Catch-all extras
-    _rendered: frozenset[str] = frozenset({
-        "current_speed", "current_width", "target_speed", "dll_link_active",
-        "link_training", "max_link_speed", "max_link_width",
-        "width_degraded", "speed_degraded",
-        "uncorrectable_raw", "correctable_raw", "first_error_pointer",
-        "ltssm_state", "ltssm_state_name", "link_speed", "link_speed_name",
-        "recovery_count", "link_down_count", "rx_eval_count",
-        "eq_16gt_complete", "eq_16gt_phase1_ok", "eq_16gt_phase2_ok", "eq_16gt_phase3_ok",
-        "eq_32gt_complete", "eq_32gt_phase1_ok", "eq_32gt_phase2_ok", "eq_32gt_phase3_ok",
-        "eq_64gt_complete", "eq_64gt_phase1_ok", "eq_64gt_phase2_ok", "eq_64gt_phase3_ok",
-        "eq_64gt_flit_mode_supported",
-        "flit_error_log_entries", "fec_uncorrectable_count", "fec_correctable_count",
-        "fber_total_errors", "fber_flit_counter", "fber_lane_counters",
-    })
+    _rendered: frozenset[str] = frozenset(
+        {
+            "current_speed",
+            "current_width",
+            "target_speed",
+            "dll_link_active",
+            "link_training",
+            "max_link_speed",
+            "max_link_width",
+            "width_degraded",
+            "speed_degraded",
+            "uncorrectable_raw",
+            "correctable_raw",
+            "first_error_pointer",
+            "ltssm_state",
+            "ltssm_state_name",
+            "link_speed",
+            "link_speed_name",
+            "recovery_count",
+            "link_down_count",
+            "rx_eval_count",
+            "eq_16gt_complete",
+            "eq_16gt_phase1_ok",
+            "eq_16gt_phase2_ok",
+            "eq_16gt_phase3_ok",
+            "eq_32gt_complete",
+            "eq_32gt_phase1_ok",
+            "eq_32gt_phase2_ok",
+            "eq_32gt_phase3_ok",
+            "eq_64gt_complete",
+            "eq_64gt_phase1_ok",
+            "eq_64gt_phase2_ok",
+            "eq_64gt_phase3_ok",
+            "eq_64gt_flit_mode_supported",
+            "flit_error_log_entries",
+            "fec_uncorrectable_count",
+            "fec_correctable_count",
+            "fber_total_errors",
+            "fber_flit_counter",
+            "fber_lane_counters",
+        }
+    )
     parts.append(render_extra_measured_values(summary, _rendered))
 
     return "".join(parts)
@@ -421,14 +463,16 @@ def render_speed_downshift_test(summary: RecipeSummary) -> str:
         match_status = "pass" if matched else "fail"
         uncorr_raw = safe_int(mv.get("aer_uncorrectable", 0))
         corr_raw = safe_int(mv.get("aer_correctable", 0))
-        speed_rows.append([
-            target,
-            actual_speed,
-            f"x{actual_width}",
-            match_status,
-            format_aer_with_decode(uncorr_raw, "uncorrectable"),
-            format_aer_with_decode(corr_raw, "correctable"),
-        ])
+        speed_rows.append(
+            [
+                target,
+                actual_speed,
+                f"x{actual_width}",
+                match_status,
+                format_aer_with_decode(uncorr_raw, "uncorrectable"),
+                format_aer_with_decode(corr_raw, "correctable"),
+            ]
+        )
 
     if speed_rows:
         parts.append(section_header("Speed Negotiation Results"))
@@ -461,12 +505,21 @@ def render_speed_downshift_test(summary: RecipeSummary) -> str:
         parts.append(failure_guidance_box("aer_uncorrectable"))
 
     # Catch-all extras
-    _rendered: frozenset[str] = frozenset({
-        "baseline_speed", "baseline_width", "original_speed_code",
-        "target_speed", "actual_speed", "actual_width", "speed_matched",
-        "aer_uncorrectable", "aer_correctable",
-        "restored_speed", "restored_width",
-    })
+    _rendered: frozenset[str] = frozenset(
+        {
+            "baseline_speed",
+            "baseline_width",
+            "original_speed_code",
+            "target_speed",
+            "actual_speed",
+            "actual_width",
+            "speed_matched",
+            "aer_uncorrectable",
+            "aer_correctable",
+            "restored_speed",
+            "restored_width",
+        }
+    )
     parts.append(render_extra_measured_values(summary, _rendered))
 
     return "".join(parts)
@@ -524,11 +577,13 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
         )
 
     # Criteria box
-    criteria = criteria_box([
-        "PASS: No transitions or expected transitions only",
-        f"WARN: Recovery count >= {_RECOVERY_WARN_THRESHOLD} during monitoring",
-        "Monitors endpoint LTSSM state/substate at configurable poll interval",
-    ])
+    criteria = criteria_box(
+        [
+            "PASS: No transitions or expected transitions only",
+            f"WARN: Recovery count >= {_RECOVERY_WARN_THRESHOLD} during monitoring",
+            "Monitors endpoint LTSSM state/substate at configurable poll interval",
+        ]
+    )
 
     # Transition timeline table
     transition_table = ""
@@ -540,12 +595,14 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
             for t in transitions:
                 if not isinstance(t, dict):
                     continue
-                rows.append([
-                    f"{float(t.get('elapsed_ms', 0)):.1f}",
-                    str(t.get("from", "")),
-                    str(t.get("to", "")),
-                    str(safe_int(t.get("recovery_count", 0))),
-                ])
+                rows.append(
+                    [
+                        f"{float(t.get('elapsed_ms', 0)):.1f}",
+                        str(t.get("from", "")),
+                        str(t.get("to", "")),
+                        str(safe_int(t.get("recovery_count", 0))),
+                    ]
+                )
             if rows:
                 table_header = (
                     f'<div style="font-size:15px; font-weight:600; color:{TEXT_PRIMARY}; '
@@ -567,14 +624,118 @@ def render_ltssm_monitor(summary: RecipeSummary) -> str:
         guidance = failure_guidance_box("recovery_high")
 
     # Catch-all extras
-    _rendered = frozenset({
-        "initial_state", "initial_recovery_count",
-        "sample_count", "transition_count", "final_state", "recovery_count",
-        "transitions",
-    })
+    _rendered = frozenset(
+        {
+            "initial_state",
+            "initial_recovery_count",
+            "sample_count",
+            "transition_count",
+            "final_state",
+            "recovery_count",
+            "transitions",
+        }
+    )
     extras = render_extra_measured_values(summary, _rendered)
 
-    return (
-        f"{header}{criteria}{metrics}{cards_html}"
-        f"{transition_table}{guidance}{extras}"
+    return f"{header}{criteria}{metrics}{cards_html}{transition_table}{guidance}{extras}"
+
+
+# ---------------------------------------------------------------------------
+# PTrace Capture
+# ---------------------------------------------------------------------------
+
+
+def render_ptrace_capture(summary: RecipeSummary) -> str:
+    """Specialized renderer for ptrace_capture results."""
+    parts: list[str] = []
+
+    parts.append(
+        section_header(
+            "PTrace Capture",
+            f"Duration: {summary.duration_ms:.0f}ms",
+        )
     )
+
+    parts.append(
+        criteria_box(
+            [
+                "Captures packet trace buffer entries from the switch ASIC",
+                "DW occupancy distribution reveals traffic composition",
+                "Non-standard DW values may indicate anomalous packets",
+            ]
+        )
+    )
+
+    parts.append(summary_metrics(summary))
+
+    # Capture configuration cards
+    config_step = find_step_with_key(summary.steps, "capture_mode")
+    if config_step is not None:
+        mv = config_step.measured_values
+        mode = str(mv.get("capture_mode", "unknown"))
+        parts.append(
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Capture Mode", mode, CYAN)
+            + "</div>"
+        )
+
+    # Buffer stats
+    buf_step = find_step_with_key(summary.steps, "total_rows_read")
+    if buf_step is not None:
+        mv = buf_step.measured_values
+        rows = str(safe_int(mv.get("total_rows_read", 0)))
+        triggered = "Yes" if mv.get("triggered") else "No"
+        wrapped = "Yes" if mv.get("tbuf_wrapped") else "No"
+        parts.append(
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Rows Read", rows, CYAN)
+            + metric_card("Triggered", triggered, GREEN if triggered == "Yes" else TEXT_SECONDARY)
+            + metric_card("Buffer Wrapped", wrapped, YELLOW if wrapped == "Yes" else GREEN)
+            + "</div>"
+        )
+
+    # Analysis results
+    analysis_step = find_step_with_key(summary.steps, "entry_count")
+    if analysis_step is not None:
+        mv = analysis_step.measured_values
+        entry_count = str(safe_int(mv.get("entry_count", 0)))
+        direction = str(mv.get("direction", ""))
+        anomalous = safe_int(mv.get("anomalous_rows", 0))
+        anomalous_color = YELLOW if anomalous > 0 else GREEN
+        parts.append(
+            '<div style="display:flex; flex-wrap:wrap; gap:8px; margin:12px 0;">'
+            + metric_card("Trace Entries", entry_count, CYAN)
+            + metric_card("Direction", direction, TEXT_SECONDARY)
+            + metric_card("Anomalous DW Rows", str(anomalous), anomalous_color)
+            + "</div>"
+        )
+
+        # DW occupancy distribution as table
+        dw_dist = mv.get("dw_occupancy_distribution")
+        if isinstance(dw_dist, dict) and dw_dist:
+            dw_header = section_header("DW Occupancy Distribution", "")
+            dw_columns = ["DW Occupancy", "Count"]
+            dw_rows: list[list[str]] = [
+                [str(dw), str(count)]
+                for dw, count in sorted(dw_dist.items(), key=lambda x: int(str(x[0])))
+            ]
+            parts.append(dw_header + results_table(dw_columns, dw_rows))
+
+    _rendered: frozenset[str] = frozenset(
+        {
+            "capture_mode",
+            "total_rows_read",
+            "triggered",
+            "tbuf_wrapped",
+            "entry_count",
+            "direction",
+            "actual_duration_s",
+            "anomalous_rows",
+            "dw_occupancy_distribution",
+            "trigger_row_addr",
+            "wrapped",
+        }
+    )
+    parts.append(render_extra_measured_values(summary, _rendered))
+
+    return "".join(parts)

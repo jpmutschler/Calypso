@@ -20,6 +20,7 @@ def register_all() -> None:
     from calypso.workflows.recipes.error_recovery_test import ErrorRecoveryTestRecipe
     from calypso.workflows.recipes.eye_quick_scan import EyeQuickScanRecipe
     from calypso.workflows.recipes.fber_measurement import FberMeasurementRecipe
+    from calypso.workflows.recipes.fec_analysis import FecAnalysisRecipe
     from calypso.workflows.recipes.flit_error_injection import (
         FlitErrorInjectionRecipe,
     )
@@ -33,6 +34,7 @@ def register_all() -> None:
     from calypso.workflows.recipes.link_training_debug import LinkTrainingDebugRecipe
     from calypso.workflows.recipes.ltssm_monitor import LtssmMonitorRecipe
     from calypso.workflows.recipes.multi_speed_ber import MultiSpeedBerRecipe
+    from calypso.workflows.recipes.ordered_set_audit import OrderedSetAuditRecipe
     from calypso.workflows.recipes.packet_exerciser_test import PacketExerciserTestRecipe
     from calypso.workflows.recipes.pam4_eye_sweep import Pam4EyeSweepRecipe
     from calypso.workflows.recipes.phy_64gt_audit import Phy64gtAuditRecipe
@@ -55,6 +57,7 @@ def register_all() -> None:
         ErrorRecoveryTestRecipe,
         EyeQuickScanRecipe,
         FberMeasurementRecipe,
+        FecAnalysisRecipe,
         FlitErrorInjectionRecipe,
         FlitErrorLogDrainRecipe,
         FlitPerfMeasurementRecipe,
@@ -62,6 +65,7 @@ def register_all() -> None:
         LinkTrainingDebugRecipe,
         LtssmMonitorRecipe,
         MultiSpeedBerRecipe,
+        OrderedSetAuditRecipe,
         PacketExerciserTestRecipe,
         Pam4EyeSweepRecipe,
         Phy64gtAuditRecipe,

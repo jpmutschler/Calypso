@@ -163,9 +163,7 @@ def export_lane_csv(summaries: list[RecipeSummary]) -> str:
                     _sanitize_csv_value(step.status.value),
                     idx,
                 ]
-                lane_values = [
-                    _sanitize_csv_value(lane.get(k, "")) for k in lane_keys
-                ]
+                lane_values = [_sanitize_csv_value(lane.get(k, "")) for k in lane_keys]
                 writer.writerow(fixed_row + lane_values)
 
     return output.getvalue()
@@ -202,13 +200,12 @@ def export_summary_csv(summaries: list[RecipeSummary]) -> str:
     )
 
     for s in summaries:
-        # Use the step with the richest measured_values (most keys) as the
-        # aggregate, since the analysis step may not always be last.
-        best_mv: dict[str, object] = {}
+        # Merge measured_values from all steps so no measurement data is lost.
+        # Later steps overwrite earlier ones on key collision.
+        merged_mv: dict[str, object] = {}
         for step in s.steps:
             mv = step.measured_values or {}
-            if len(mv) > len(best_mv):
-                best_mv = mv
+            merged_mv.update(mv)
 
         writer.writerow(
             [
@@ -227,7 +224,7 @@ def export_summary_csv(summaries: list[RecipeSummary]) -> str:
                 f"{s.duration_ms:.2f}",
                 _sanitize_csv_value(s.started_at),
                 _sanitize_csv_value(s.completed_at),
-                _sanitize_csv_value(_serialize_measured_values(best_mv)),
+                _sanitize_csv_value(_serialize_measured_values(merged_mv)),
             ]
         )
 

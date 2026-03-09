@@ -35,6 +35,10 @@ def _encoding_efficiency(speed_gbps: float) -> float:
     if speed_gbps <= 5.0:
         return 0.80
     if speed_gbps >= 64.0:
+        # Gen6 Flit mode: 240B payload / 256B Flit = 0.9375
+        # Note: Does not account for SKP ordered set insertion (~1 per 370
+        # symbols, PCIe 6.1 §4.2.7) or EIEOS overhead. Actual throughput
+        # is ~2-5% lower.
         return 0.9375
     return 128.0 / 130.0
 
