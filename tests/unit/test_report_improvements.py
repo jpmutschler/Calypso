@@ -23,6 +23,7 @@ from calypso.workflows.report_comparison import (
     _extract_key_metrics,
     generate_comparison_report,
 )
+from calypso.workflows.export import export_lane_csv
 from calypso.workflows.report_sections import render_recipe_section
 from calypso.workflows.report_sections_helpers import (
     decode_aer_bits,
@@ -1377,3 +1378,54 @@ class TestHtmlStructuralValidation:
         html = generate_comparison_report([base], [curr])
         errors = self._validate_html(html)
         assert errors == [], f"HTML validation errors: {errors}"
+
+
+# ===========================================================================
+# W-4: export_lane_csv tests
+# ===========================================================================
+
+
+class TestExportLaneCsv:
+    def test_empty_summaries_returns_empty(self):
+        result = export_lane_csv([])
+        assert result == ""
+
+    def test_no_lane_data_returns_empty(self):
+        summary = make_summary(
+            steps=[make_result(measured_values={"estimated_ber": 1e-12})]
+        )
+        result = export_lane_csv([summary])
+        assert result == ""
+
+    def test_lane_data_produces_rows(self):
+        steps = [
+            make_result(
+                name="BER analysis",
+                measured_values={
+                    "lanes": [
+                        {"lane": 0, "estimated_ber": 1e-14, "error_count": 0},
+                        {"lane": 1, "estimated_ber": 2e-13, "error_count": 3},
+                    ],
+                },
+            ),
+        ]
+        summary = make_summary(recipe_id="ber_soak", steps=steps)
+        result = export_lane_csv([summary])
+        lines = result.strip().split("\n")
+        assert len(lines) == 3  # header + 2 lane rows
+        assert "lane_index" in lines[0]
+        assert "ber_soak" in lines[1]
+
+    def test_csv_injection_sanitized(self):
+        steps = [
+            make_result(
+                name="Test",
+                measured_values={
+                    "lanes": [{"lane": 0, "note": "=SUM(A1:A10)"}],
+                },
+            ),
+        ]
+        summary = make_summary(steps=steps)
+        result = export_lane_csv([summary])
+        # Formula trigger should be prefixed with single quote
+        assert "'=SUM" in result

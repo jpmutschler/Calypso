@@ -107,7 +107,7 @@ def export_csv(summaries: list[RecipeSummary]) -> str:
             for key in scalar_keys:
                 raw = mv.get(key)
                 scalar_values.append("" if raw is None else _sanitize_csv_value(raw))
-            writer.writerow(fixed_row + [mv_json] + scalar_values)
+            writer.writerow(fixed_row + [_sanitize_csv_value(mv_json)] + scalar_values)
 
     return output.getvalue()
 
@@ -227,7 +227,7 @@ def export_summary_csv(summaries: list[RecipeSummary]) -> str:
                 f"{s.duration_ms:.2f}",
                 _sanitize_csv_value(s.started_at),
                 _sanitize_csv_value(s.completed_at),
-                _serialize_measured_values(best_mv),
+                _sanitize_csv_value(_serialize_measured_values(best_mv)),
             ]
         )
 

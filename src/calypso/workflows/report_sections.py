@@ -17,6 +17,7 @@ from calypso.workflows.report_charts import (
 from calypso.workflows.report_sections_helpers import (
     CYAN,
     TEXT_PRIMARY,
+    format_timestamp_ms,
     render_measured_values_table,
     render_step_details,
     summary_metrics,
@@ -62,19 +63,8 @@ def render_recipe_section(summary: RecipeSummary) -> str:
 
 
 def _format_timestamp(ts: str) -> str:
-    """Format an ISO timestamp to HH:MM:SS for display."""
-    if not ts:
-        return ""
-    try:
-        if "T" in ts:
-            time_part = ts.split("T")[1]
-            time_part = time_part.split("+")[0].split("Z")[0]
-            if "." in time_part:
-                time_part = time_part.split(".")[0]
-            return time_part
-    except (IndexError, ValueError):
-        pass
-    return ts
+    """Format an ISO timestamp for display (delegates to shared helper)."""
+    return format_timestamp_ms(ts)
 
 
 # ---------------------------------------------------------------------------
