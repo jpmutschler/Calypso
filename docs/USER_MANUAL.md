@@ -1442,8 +1442,33 @@ Several existing recipes (BER Soak, Multi-Speed BER, Link Health Check, SerDes D
 1. Select a category tab to browse available recipes
 2. Click **Run** on a recipe card
 3. If the recipe has configurable parameters (duration, port number, thresholds, etc.), a parameter dialog appears — configure and click **Run**
-4. The **Recipe Stepper** panel opens showing live step-by-step progress with status icons (pass/fail/warn/skip)
-5. Results include per-step details, pass/fail/warn counts, and duration
+4. The **Recipe Stepper** panel opens showing live step-by-step progress
+
+#### Live Recipe Monitoring
+
+While a recipe is running, the stepper panel provides real-time feedback:
+
+- **Metric cards** at the top of the panel show live counts for Pass, Fail, Warn, and Running steps. These update as each step completes.
+- **Progress bar** begins in an indeterminate (animated) state and switches to a determinate percentage bar as steps complete, giving an accurate view of overall progress.
+- **Step list** displays each step with a status icon (pass, fail, warn, skip). Steps that have completed show their measured values inline -- for example, a bandwidth measurement step might display `bw_gbps: 63.02`, while a BER step might show `ber: 1.23e-12`.
+- **Measured values** use automatic formatting appropriate to the data type:
+  - Bandwidth values display in Gbps
+  - Bit error rates use scientific notation (e.g., `2.5e-14`)
+  - Register values display in hexadecimal (e.g., `0x00040010`)
+  - Error counts and other integers display as plain numbers
+- **Color-coded anomalies** highlight values that may need attention: non-zero error counts appear in red, high BER values appear in yellow.
+- A **toast notification** appears when the recipe finishes, so you can navigate away and still know when results are ready.
+
+#### Cancel
+
+Click the **Cancel** button directly within the monitor card to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint, clean up hardware state (stop measurements, disable injection, restore link speed), and return partial results. Partial results are displayed in the stepper and can be downloaded as a report.
+
+#### Reports and Export
+
+After a recipe completes (or is cancelled with partial results), two download options appear:
+
+- **Download Report** -- Generates a self-contained HTML report that works offline and can be printed. The report includes aggregate pass/fail/warn metrics, per-step results, and recipe-specific detail renderers such as port sweep summary tables, BER per-lane bar charts, and eye scan grids.
+- **JSON** -- Exports the raw results as a JSON file for programmatic analysis, scripting, or archival.
 
 #### Recipe Parameters
 
@@ -1458,10 +1483,6 @@ Each recipe defines its own set of configurable parameters. Common parameters in
 - **check_aer** — Check AER error registers after hardware operations
 
 Parameters are displayed with appropriate input widgets (number fields, dropdowns, toggles) based on their type.
-
-#### Cancel
-
-Click the **Cancel Recipe** button to request cancellation of a running recipe. The recipe will stop at the next safe checkpoint, clean up hardware state (stop measurements, disable injection, restore link speed), and return partial results.
 
 ### 5.21 Workflow Builder
 
@@ -1499,25 +1520,35 @@ Supported operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`, `not`.
 
 1. Build your workflow steps or load a saved workflow from the sidebar
 2. Click **Run Workflow**
-3. The **Workflow Monitor** displays:
-   - Overall progress bar with percentage
-   - Current step name and iteration count
-   - Elapsed time
-   - Per-recipe result summaries as they complete
+3. The **Workflow Monitor** panel appears below the step editor
+
+#### Live Workflow Monitoring
+
+The Workflow Monitor provides the same real-time feedback as the recipe stepper, plus workflow-specific features:
+
+- **Metric cards** show aggregate Pass, Fail, Warn, and Running counts across all steps in the workflow.
+- **Progress bar** tracks overall workflow completion as a percentage of total steps (accounting for loop iterations).
+- **Per-step expansion panels** show each workflow step as a collapsible section. The currently running step auto-expands so you can watch its progress without clicking.
+- **Measured values** appear inside each step's expansion panel as the step runs. Values use the same automatic formatting and color coding described in the recipe monitoring section above -- bandwidth in Gbps, BER in scientific notation, error counts highlighted in red, and so on.
+- **Elapsed time** and current step name are displayed in the monitor header.
+- A **toast notification** appears when the workflow finishes, whether it completed normally, was cancelled, or stopped due to a step failure (depending on On Fail configuration).
+- Click **Cancel** to stop the workflow at the next safe checkpoint. Completed steps retain their results.
 
 #### Saved Workflows
 
 The right sidebar panel lists all saved workflows. Click a workflow to load it into the editor. Workflows are stored as JSON files in `~/.calypso/workflows/`.
 
-#### HTML Reports
+#### Reports and Export
 
-After a workflow completes, download a self-contained HTML report with:
-- Aggregate pass/fail/warn metrics
-- Per-recipe summary table with status badges
-- Detailed step-by-step results for each recipe
-- Specialized visualizations (port sweep tables, BER lane charts, eye scan grids)
+After a workflow completes, two download options appear in the monitor panel:
 
-Reports use the Calypso dark theme and work offline — no external dependencies.
+- **Download Report** -- Generates a self-contained HTML report with the Calypso dark theme. The report includes:
+  - Aggregate pass/fail/warn metrics across all steps
+  - Per-recipe summary table with status badges
+  - Detailed step-by-step results for each recipe in the workflow
+  - Recipe-specific visualizations such as port sweep summary tables, BER per-lane bar charts, and eye scan grids
+  - The report works entirely offline with no external dependencies, and is suitable for printing or sharing.
+- **JSON** -- Exports the complete workflow results as a JSON file for programmatic analysis or archival.
 
 ---
 
@@ -1852,6 +1883,7 @@ All device endpoints are prefixed with `/api/devices`. MCU endpoints are prefixe
 | `GET` | `/api/devices/{id}/recipes/progress` | Poll recipe execution progress |
 | `GET` | `/api/devices/{id}/recipes/result` | Get completed recipe result |
 | `POST` | `/api/devices/{id}/recipes/cancel` | Cancel running recipe |
+| `GET` | `/api/devices/{id}/recipes/report` | Download self-contained HTML recipe report |
 
 ### Workflows
 

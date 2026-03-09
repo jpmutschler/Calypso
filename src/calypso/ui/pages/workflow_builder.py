@@ -176,7 +176,7 @@ def _workflow_builder_content(device_id: str) -> None:
             monitor_container.clear()
             monitor_container.set_visibility(True)
             with monitor_container:
-                monitor = WorkflowMonitor(run_id)
+                monitor = WorkflowMonitor(run_id, device_id=device_id)
                 state["active_monitor"] = monitor
 
         asyncio.ensure_future(_launch())

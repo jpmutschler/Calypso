@@ -268,6 +268,8 @@ calypso recipe run-workflow <workflow_id> <device_index>  # Run a saved workflow
 
 25 recipes across 6 categories: link_health, signal_integrity, performance, configuration, debug, error_testing. Includes Gen6-specific recipes for Flit BER measurement, Flit error injection, PAM4 eye sweep, and Flit performance tracking. Recipes are individual validation test sequences; workflows chain multiple recipes with conditions, loops, and inter-step parameter bindings.
 
+Both the recipe runner and workflow monitor provide live monitoring with real-time metric cards (pass/fail/warn/running counts), per-step measured values (bandwidth, BER, error counts, register values) with smart unit formatting and anomaly color coding, and an inline cancel button. On completion, a "Download Report" button generates a self-contained HTML report and a "JSON" button exports results for programmatic consumption. Shared UI helpers live in `ui/components/monitor_common.py`.
+
 ### Driver Management
 
 ```bash
@@ -301,7 +303,7 @@ API docs available at `http://localhost:8000/docs` (Swagger UI).
 | Topology | `GET /{id}/topology` | Fabric topology with connector mapping, downstream device enumeration |
 | Errors | `GET /{id}/errors/overview`, `POST /{id}/errors/clear-aer`, `POST /{id}/errors/clear-mcu` | Combined AER + MCU + LTSSM error view |
 | Compliance | `POST /{id}/compliance/start`, `GET /{id}/compliance/progress`, `GET /{id}/compliance/result`, `POST /{id}/compliance/cancel`, `GET /{id}/compliance/report` | PCIe compliance testing + HTML reports |
-| Recipes | `GET /{id}/recipes`, `POST /{id}/recipes/run`, `GET /{id}/recipes/progress`, `GET /{id}/recipes/result`, `POST /{id}/recipes/cancel` | Recipe execution + progress |
+| Recipes | `GET /{id}/recipes`, `POST /{id}/recipes/run`, `GET /{id}/recipes/progress`, `GET /{id}/recipes/result`, `POST /{id}/recipes/cancel`, `GET /{id}/recipes/report` | Recipe execution + progress + HTML report download |
 | Workflows | `POST /{id}/workflows/run`, `GET /{id}/workflows/progress/{run_id}`, `GET /{id}/workflows/result/{run_id}`, `POST /{id}/workflows/cancel/{run_id}`, `GET /{id}/workflows/report/{run_id}` | Multi-recipe workflow execution + HTML reports |
 | Saved Workflows | `GET /workflows`, `GET /workflows/{id}`, `POST /workflows`, `DELETE /workflows/{id}` | Workflow definition CRUD |
 | Registers | `GET /{id}/config-space`, `GET /{id}/capabilities`, `GET /{id}/device-control`, `POST /{id}/device-control`, `GET /{id}/link`, `POST /{id}/link/retrain`, `POST /{id}/link/target-speed`, `GET /{id}/aer`, `POST /{id}/aer/clear`, `POST /{id}/config-write` | PCIe config space (port-targeted) |
@@ -345,8 +347,8 @@ The dashboard uses a dark theme with consistent header, sidebar navigation, and 
 | Protocol Trace | `/switch/{id}/ptrace` | Embedded protocol analyzer with capture config, hardware trigger/filter, Flit mode condition matching, 28-bit error triggers, event counters, 600-bit trace buffer with CSV/hex export, auto-poll status |
 | Packet Exerciser | `/switch/{id}/pktexer` | PCIe TLP generation (15 types), 4 hardware threads, DW FIFO + RAM loading, PTrace+Exerciser composite capture, Datapath BIST |
 | Compliance | `/switch/{id}/compliance` | PCIe compliance test runner with 6 suites, progress tracking, HTML reports |
-| Recipes | `/switch/{id}/workflows` | Category tabs (6 categories), recipe cards with parameters, inline recipe runner with live step progress |
-| Workflow Builder | `/switch/{id}/workflow-builder` | Visual workflow composer, step editor with conditions/loops/bindings, save/load workflows, execution monitor, HTML report download |
+| Recipes | `/switch/{id}/workflows` | Category tabs (6 categories), recipe cards with parameters, inline runner with live metric cards, per-step measured values, progress tracking, cancel, HTML report and JSON export |
+| Workflow Builder | `/switch/{id}/workflow-builder` | Visual workflow composer, step editor with conditions/loops/bindings, save/load workflows, live execution monitor with metric cards and measured values, HTML report and JSON export |
 | Workloads | `/switch/{id}/workloads` | NVMe workload config, live progress, results, combined host+switch view |
 
 ### MCU Pages (Serial)

@@ -4,27 +4,28 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from calypso.ui.components.monitor_common import (
+    count_step_statuses,
+    download_action_bar,
+    format_elapsed,
+    measured_values_table,
+    metric_card,
+    progress_text,
+    status_color,
+    status_icon,
+    summary_chip,
+)
 from calypso.ui.theme import COLORS
 from calypso.workflows.models import StepStatus
+from calypso.workflows.monitor_state import MonitorState
 from calypso.workflows.workflow_executor import get_recipe_progress
-
-
-_STATUS_DISPLAY: dict[StepStatus, tuple[str, str]] = {
-    StepStatus.PENDING: ("radio_button_unchecked", COLORS.text_muted),
-    StepStatus.RUNNING: ("sync", COLORS.cyan),
-    StepStatus.PASS: ("check_circle", COLORS.green),
-    StepStatus.FAIL: ("cancel", COLORS.red),
-    StepStatus.WARN: ("warning", COLORS.yellow),
-    StepStatus.SKIP: ("skip_next", COLORS.text_muted),
-    StepStatus.ERROR: ("error", COLORS.red),
-}
 
 
 class RecipeStepper:
     """Displays live progress for a single recipe run.
 
-    Creates UI elements for title, progress bar, and per-step status list,
-    then polls ``get_recipe_progress`` on a timer to keep the display current.
+    Creates UI elements for title, progress bar, per-step status list with
+    measured values, metric cards, and download actions on completion.
 
     Args:
         device_id: The device ID whose recipe run to monitor.
@@ -34,6 +35,7 @@ class RecipeStepper:
         self._device_id = device_id
         self._timer: ui.timer | None = None
         self._finished = False
+        self._notified = False
 
         with (
             ui.card()
@@ -41,19 +43,24 @@ class RecipeStepper:
             .style(f"background: {COLORS.bg_card}; border: 1px solid {COLORS.border};")
         ):
             with ui.column().classes("w-full q-gutter-sm"):
-                self._title = (
-                    ui.label("Running recipe...")
-                    .classes("text-subtitle1")
-                    .style(f"color: {COLORS.text_primary}; font-weight: 600;")
-                )
+                # Header row with title and cancel button
+                with ui.row().classes("w-full items-center justify-between"):
+                    self._title = (
+                        ui.label("Running recipe...")
+                        .classes("text-subtitle1")
+                        .style(f"color: {COLORS.text_primary}; font-weight: 600;")
+                    )
+                    self._cancel_btn = (
+                        ui.button(icon="stop", on_click=self._request_cancel)
+                        .props("flat round size=sm")
+                        .style(f"color: {COLORS.red};")
+                        .tooltip("Cancel recipe")
+                    )
 
                 self._progress = (
-                    ui.linear_progress(
-                        value=0,
-                        show_value=False,
-                    )
+                    ui.linear_progress(value=0, show_value=False)
                     .classes("w-full")
-                    .props(f'color="{COLORS.cyan}"')
+                    .props(f'color="{COLORS.cyan}" indeterminate')
                 )
 
                 self._status_label = ui.label("Preparing...").style(
@@ -63,6 +70,10 @@ class RecipeStepper:
                     f"color: {COLORS.text_muted}; font-size: 12px;"
                 )
 
+                # Live metric cards (shown during execution)
+                self._metrics_container = ui.row().classes("w-full gap-4 q-mt-sm")
+
+                # Step list
                 self._steps_container = ui.column().classes("w-full q-mt-sm")
 
                 # Summary section (shown after completion)
@@ -81,31 +92,19 @@ class RecipeStepper:
             return
 
         self._title.set_text(state.recipe_name or "Running recipe...")
-        self._progress.set_value(state.percent / 100.0)
-        self._status_label.set_text(
-            f"{state.status.upper()} - {state.current_step}"
-            f" ({state.steps_completed}/{state.steps_total})"
-        )
-        self._elapsed_label.set_text(f"Elapsed: {state.elapsed_ms / 1000:.1f}s")
+        self._status_label.set_text(progress_text(state))
+        self._elapsed_label.set_text(f"Elapsed: {format_elapsed(state.elapsed_ms)}")
+
+        # Switch from indeterminate to determinate once we have step data
+        if state.steps_total > 0:
+            self._progress.props(remove="indeterminate")
+            self._progress.set_value(state.percent / 100.0)
+
+        # Update live metrics
+        self._update_metrics(state)
 
         # Rebuild step list
-        self._steps_container.clear()
-        with self._steps_container:
-            for step in state.steps:
-                icon_name, icon_color = _status_icon(step.status)
-                with ui.row().classes("items-center gap-2 q-py-xs"):
-                    ui.icon(icon_name).style(f"color: {icon_color}; font-size: 1.1rem;")
-                    ui.label(step.step_name).style(
-                        f"color: {COLORS.text_primary}; font-size: 13px;"
-                    )
-                    if step.message:
-                        ui.label(step.message).style(
-                            f"color: {COLORS.text_secondary}; font-size: 12px;"
-                        )
-                    if step.duration_ms > 0:
-                        ui.label(f"{step.duration_ms:.0f}ms").style(
-                            f"color: {COLORS.text_muted}; font-size: 11px;"
-                        )
+        self._update_steps(state)
 
         # Check for completion
         if state.status in ("complete", "cancelled", "error"):
@@ -113,9 +112,70 @@ class RecipeStepper:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+            self._cancel_btn.set_visibility(False)
             self._render_summary(state)
 
-    def _render_summary(self, state) -> None:
+            if not self._notified:
+                self._notified = True
+                status_text = (
+                    "completed" if state.status == "complete" else state.status
+                )
+                notify_type = (
+                    "positive" if state.status == "complete" else "negative"
+                )
+                ui.notify(
+                    f"Recipe '{state.recipe_name}' {status_text}",
+                    type=notify_type,
+                    position="top-right",
+                    timeout=5000,
+                )
+
+    def _update_metrics(self, state: MonitorState) -> None:
+        """Redraw live metric cards."""
+        counts = count_step_statuses(state.steps)
+
+        self._metrics_container.clear()
+        with self._metrics_container:
+            metric_card(
+                "Progress",
+                f"{state.steps_completed}/{state.steps_total}",
+                COLORS.cyan,
+            )
+            metric_card("Pass", str(counts.get(StepStatus.PASS, 0)), COLORS.green)
+            metric_card("Fail", str(counts.get(StepStatus.FAIL, 0)), COLORS.red)
+            metric_card("Warn", str(counts.get(StepStatus.WARN, 0)), COLORS.yellow)
+            running = counts.get(StepStatus.RUNNING, 0)
+            if running > 0:
+                metric_card("Running", str(running), COLORS.cyan)
+
+    def _update_steps(self, state: MonitorState) -> None:
+        """Redraw the step list with measured values."""
+        self._steps_container.clear()
+        with self._steps_container:
+            for step in state.steps:
+                icon_name, icon_color = status_icon(step.status)
+                with ui.column().classes("w-full q-py-xs"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon(icon_name).style(
+                            f"color: {icon_color}; font-size: 1.1rem;"
+                        )
+                        ui.label(step.step_name).style(
+                            f"color: {COLORS.text_primary}; font-size: 13px;"
+                        )
+                        if step.duration_ms > 0:
+                            ui.label(f"{step.duration_ms:.0f}ms").style(
+                                f"color: {COLORS.text_muted}; font-size: 11px;"
+                            )
+                    if step.message:
+                        ui.label(step.message).style(
+                            f"color: {COLORS.text_secondary}; font-size: 12px;"
+                            " padding-left: 28px;"
+                        )
+                    if step.measured_values:
+                        with ui.element("div").style("padding-left: 28px;"):
+                            measured_values_table(step.measured_values)
+
+    def _render_summary(self, state: MonitorState) -> None:
         """Render the final summary after recipe completion."""
         self._summary_container.set_visibility(True)
         self._summary_container.clear()
@@ -123,29 +183,59 @@ class RecipeStepper:
         summary = state.summary
         if summary is None:
             with self._summary_container:
-                ui.label("No summary available").style(f"color: {COLORS.text_muted};")
+                ui.label("No summary available").style(
+                    f"color: {COLORS.text_muted};"
+                )
             return
 
-        overall_color = _status_color(summary.status)
+        overall_color = status_color(summary.status)
+
+        # Update progress bar to reflect pass rate
+        if summary.total_steps > 0:
+            pass_rate = summary.total_pass / summary.total_steps
+            bar_color = (
+                COLORS.green
+                if pass_rate >= 0.9
+                else COLORS.yellow if pass_rate >= 0.7 else COLORS.red
+            )
+            self._progress.set_value(1.0)
+            self._progress.props(f'color="{bar_color}"')
 
         with self._summary_container:
             ui.separator().style(f"background-color: {COLORS.border};")
 
             with ui.row().classes("items-center gap-6 q-mt-sm"):
-                _summary_chip(
+                summary_chip(
                     "Result",
                     summary.status.value.upper(),
                     overall_color,
                 )
-                _summary_chip("Pass", str(summary.total_pass), COLORS.green)
-                _summary_chip("Fail", str(summary.total_fail), COLORS.red)
-                _summary_chip("Warn", str(summary.total_warn), COLORS.yellow)
-                _summary_chip("Skip", str(summary.total_skip), COLORS.text_muted)
-                _summary_chip(
+                summary_chip("Pass", str(summary.total_pass), COLORS.green)
+                summary_chip("Fail", str(summary.total_fail), COLORS.red)
+                summary_chip("Warn", str(summary.total_warn), COLORS.yellow)
+                summary_chip("Skip", str(summary.total_skip), COLORS.text_muted)
+                summary_chip(
                     "Duration",
-                    f"{summary.duration_ms / 1000:.1f}s",
+                    format_elapsed(summary.duration_ms),
                     COLORS.text_secondary,
                 )
+
+            # Download / export actions
+            download_action_bar(
+                report_url=(
+                    f"/api/devices/{self._device_id}/recipes/report"
+                ),
+                json_url=(
+                    f"/api/devices/{self._device_id}/recipes/result"
+                ),
+            )
+
+    def _request_cancel(self) -> None:
+        """Request cancellation via the API."""
+        from calypso.workflows.workflow_executor import cancel_recipe
+
+        cancel_recipe(self._device_id)
+        ui.notify("Cancellation requested", position="top-right", timeout=3000)
 
     def cancel(self) -> None:
         """Stop the polling timer."""
@@ -153,26 +243,3 @@ class RecipeStepper:
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
-
-
-def _status_icon(status: StepStatus) -> tuple[str, str]:
-    """Return (icon_name, color) for the given step status."""
-    return _STATUS_DISPLAY.get(status, ("help_outline", COLORS.text_muted))
-
-
-def _status_color(status: StepStatus) -> str:
-    """Return the display color for an overall status."""
-    return {
-        StepStatus.PASS: COLORS.green,
-        StepStatus.FAIL: COLORS.red,
-        StepStatus.WARN: COLORS.yellow,
-        StepStatus.SKIP: COLORS.text_muted,
-        StepStatus.ERROR: COLORS.red,
-    }.get(status, COLORS.text_secondary)
-
-
-def _summary_chip(label: str, value: str, color: str) -> None:
-    """Render a small stat chip for the summary row."""
-    with ui.column().classes("items-center"):
-        ui.label(value).classes("text-subtitle1").style(f"color: {color}; font-weight: bold;")
-        ui.label(label).style(f"color: {COLORS.text_muted}; font-size: 11px;")

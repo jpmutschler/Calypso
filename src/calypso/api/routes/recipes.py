@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -143,6 +144,34 @@ async def cancel_recipe_endpoint(device_id: str) -> dict[str, str]:
     return {"status": "cancelling"}
 
 
+@router.get("/devices/{device_id}/recipes/report")
+async def download_recipe_report(device_id: str) -> HTMLResponse:
+    """Generate and return an HTML report for the last completed recipe."""
+    from calypso.workflows.workflow_executor import get_recipe_result
+    from calypso.workflows.workflow_report import generate_report
+
+    _get_switch(device_id)
+    result = get_recipe_result(device_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No recipe result available")
+
+    html_content = await asyncio.to_thread(
+        generate_report,
+        [result],
+        title=result.recipe_name,
+        device_id=device_id,
+    )
+    return HTMLResponse(
+        content=html_content,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="recipe-report-'
+                f'{re.sub(r"[^a-zA-Z0-9_-]", "_", result.recipe_id)}.html"'
+            ),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Workflow execution endpoints
 # ---------------------------------------------------------------------------
@@ -224,7 +253,10 @@ async def download_workflow_report(device_id: str, run_id: str) -> HTMLResponse:
     return HTMLResponse(
         content=html_content,
         headers={
-            "Content-Disposition": (f'attachment; filename="workflow-report-{run_id}.html"'),
+            "Content-Disposition": (
+                f'attachment; filename="workflow-report-'
+                f'{re.sub(r"[^a-zA-Z0-9_-]", "_", run_id)}.html"'
+            ),
         },
     )
 

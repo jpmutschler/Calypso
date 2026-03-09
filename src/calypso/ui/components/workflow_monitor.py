@@ -4,36 +4,39 @@ from __future__ import annotations
 
 from nicegui import ui
 
+from calypso.ui.components.monitor_common import (
+    count_step_statuses,
+    download_action_bar,
+    format_elapsed,
+    measured_values_table,
+    metric_card,
+    progress_text,
+    status_color,
+    status_icon,
+)
 from calypso.ui.theme import COLORS
 from calypso.workflows.models import StepStatus
+from calypso.workflows.monitor_state import MonitorState
 from calypso.workflows.workflow_executor import get_run_progress, get_run_results
-
-
-_STATUS_COLORS: dict[str, str] = {
-    "pass": COLORS.green,
-    "fail": COLORS.red,
-    "warn": COLORS.yellow,
-    "skip": COLORS.text_muted,
-    "error": COLORS.red,
-    "running": COLORS.cyan,
-    "pending": COLORS.text_muted,
-}
 
 
 class WorkflowMonitor:
     """Displays live progress for a multi-step workflow run.
 
-    Creates an overall progress bar, metric cards, and per-step
-    expansion panels.  Polls ``get_run_progress`` on a timer.
+    Creates an overall progress bar, metric cards, per-step expansion panels
+    with measured values, and download actions on completion.
 
     Args:
         run_id: The workflow run ID to monitor.
+        device_id: The device ID (used for report download URLs).
     """
 
-    def __init__(self, run_id: str) -> None:
+    def __init__(self, run_id: str, device_id: str = "") -> None:
         self._run_id = run_id
+        self._device_id = device_id
         self._timer: ui.timer | None = None
         self._finished = False
+        self._notified = False
 
         with (
             ui.card()
@@ -41,20 +44,25 @@ class WorkflowMonitor:
             .style(f"background: {COLORS.bg_card}; border: 1px solid {COLORS.border};")
         ):
             with ui.column().classes("w-full q-gutter-sm"):
-                self._title = (
-                    ui.label("Running workflow...")
-                    .classes("text-subtitle1")
-                    .style(f"color: {COLORS.text_primary}; font-weight: 600;")
-                )
+                # Header row with title and cancel button
+                with ui.row().classes("w-full items-center justify-between"):
+                    self._title = (
+                        ui.label("Running workflow...")
+                        .classes("text-subtitle1")
+                        .style(f"color: {COLORS.text_primary}; font-weight: 600;")
+                    )
+                    self._cancel_btn = (
+                        ui.button(icon="stop", on_click=self._request_cancel)
+                        .props("flat round size=sm")
+                        .style(f"color: {COLORS.red};")
+                        .tooltip("Cancel workflow")
+                    )
 
                 # Overall progress
                 self._progress = (
-                    ui.linear_progress(
-                        value=0,
-                        show_value=False,
-                    )
+                    ui.linear_progress(value=0, show_value=False)
                     .classes("w-full")
-                    .props(f'color="{COLORS.cyan}"')
+                    .props(f'color="{COLORS.cyan}" indeterminate')
                 )
 
                 self._status_label = ui.label("Preparing...").style(
@@ -68,7 +76,9 @@ class WorkflowMonitor:
                 self._metrics_container = ui.row().classes("w-full gap-4 q-mt-sm")
 
                 # Step panels
-                self._panels_container = ui.column().classes("w-full q-mt-sm q-gutter-sm")
+                self._panels_container = ui.column().classes(
+                    "w-full q-mt-sm q-gutter-sm"
+                )
 
                 # Results summary (shown when complete)
                 self._results_container = ui.column().classes("w-full q-mt-md")
@@ -86,12 +96,13 @@ class WorkflowMonitor:
             return
 
         self._title.set_text(state.recipe_name or "Running workflow...")
-        self._progress.set_value(state.percent / 100.0)
-        self._status_label.set_text(
-            f"{state.status.upper()} - {state.current_step}"
-            f" ({state.steps_completed}/{state.steps_total})"
-        )
-        self._elapsed_label.set_text(f"Elapsed: {state.elapsed_ms / 1000:.1f}s")
+        self._status_label.set_text(progress_text(state))
+        self._elapsed_label.set_text(f"Elapsed: {format_elapsed(state.elapsed_ms)}")
+
+        # Switch from indeterminate to determinate once we have step data
+        if state.steps_total > 0:
+            self._progress.props(remove="indeterminate")
+            self._progress.set_value(state.percent / 100.0)
 
         # Rebuild metrics
         self._update_metrics(state)
@@ -104,30 +115,48 @@ class WorkflowMonitor:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+            self._cancel_btn.set_visibility(False)
             self._render_results()
 
-    def _update_metrics(self, state) -> None:
+            if not self._notified:
+                self._notified = True
+                status_text = (
+                    "completed" if state.status == "complete" else state.status
+                )
+                notify_type = (
+                    "positive" if state.status == "complete" else "negative"
+                )
+                ui.notify(
+                    f"Workflow {status_text}",
+                    type=notify_type,
+                    position="top-right",
+                    timeout=5000,
+                )
+
+    def _update_metrics(self, state: MonitorState) -> None:
         """Redraw the metric cards row."""
+        counts = count_step_statuses(state.steps)
+
         self._metrics_container.clear()
         with self._metrics_container:
-            pass_count = sum(1 for s in state.steps if s.status == StepStatus.PASS)
-            fail_count = sum(1 for s in state.steps if s.status == StepStatus.FAIL)
-            error_count = sum(1 for s in state.steps if s.status == StepStatus.ERROR)
-            running_count = sum(1 for s in state.steps if s.status == StepStatus.RUNNING)
+            metric_card("Completed", str(state.steps_completed), COLORS.cyan)
+            metric_card("Pass", str(counts.get(StepStatus.PASS, 0)), COLORS.green)
+            metric_card("Fail", str(counts.get(StepStatus.FAIL, 0)), COLORS.red)
+            metric_card(
+                "Error", str(counts.get(StepStatus.ERROR, 0)), COLORS.red
+            )
+            running = counts.get(StepStatus.RUNNING, 0)
+            if running > 0:
+                metric_card("Running", str(running), COLORS.cyan)
 
-            _metric_card("Completed", str(state.steps_completed), COLORS.cyan)
-            _metric_card("Pass", str(pass_count), COLORS.green)
-            _metric_card("Fail", str(fail_count), COLORS.red)
-            _metric_card("Error", str(error_count), COLORS.red)
-            _metric_card("Running", str(running_count), COLORS.cyan)
-
-    def _update_panels(self, state) -> None:
-        """Redraw per-step expansion panels."""
+    def _update_panels(self, state: MonitorState) -> None:
+        """Redraw per-step expansion panels with measured values."""
         self._panels_container.clear()
         with self._panels_container:
             for step in state.steps:
-                step_color = _STATUS_COLORS.get(step.status.value, COLORS.text_muted)
-                icon_name = _status_to_icon(step.status)
+                step_clr = status_color(step.status)
+                icon_name, _ = status_icon(step.status)
+                is_running = step.status == StepStatus.RUNNING
 
                 with (
                     ui.expansion(
@@ -135,24 +164,23 @@ class WorkflowMonitor:
                         icon=icon_name,
                     )
                     .classes("w-full")
-                    .style(f"background: {COLORS.bg_primary}; border: 1px solid {COLORS.border};")
-                ):
-                    # Panel header color
-                    ui.label(f"{step.status.value.upper()} - {step.message}").style(
-                        f"color: {step_color}; font-size: 13px;"
+                    .style(
+                        f"background: {COLORS.bg_primary};"
+                        f" border: 1px solid {COLORS.border};"
                     )
+                    .props("default-opened" if is_running else "")
+                ):
+                    ui.label(
+                        f"{step.status.value.upper()} - {step.message}"
+                    ).style(f"color: {step_clr}; font-size: 13px;")
 
                     if step.duration_ms > 0:
-                        ui.label(f"Duration: {step.duration_ms:.0f}ms").style(
-                            f"color: {COLORS.text_muted}; font-size: 12px;"
-                        )
+                        ui.label(
+                            f"Duration: {format_elapsed(step.duration_ms)}"
+                        ).style(f"color: {COLORS.text_muted}; font-size: 12px;")
 
                     if step.measured_values:
-                        with ui.column().classes("q-mt-xs"):
-                            for key, val in step.measured_values.items():
-                                ui.label(f"{key}: {val}").classes("mono").style(
-                                    f"color: {COLORS.text_secondary}; font-size: 12px;"
-                                )
+                        measured_values_table(step.measured_values)
 
     def _render_results(self) -> None:
         """Show final workflow results after completion."""
@@ -170,26 +198,53 @@ class WorkflowMonitor:
             )
 
             for summary in results:
-                overall_color = _STATUS_COLORS.get(summary.status.value, COLORS.text_secondary)
+                overall_color = status_color(summary.status)
                 with (
                     ui.card()
                     .classes("w-full q-pa-sm q-mt-xs")
-                    .style(f"background: {COLORS.bg_primary}; border: 1px solid {COLORS.border};")
+                    .style(
+                        f"background: {COLORS.bg_primary};"
+                        f" border: 1px solid {COLORS.border};"
+                    )
                 ):
                     with ui.row().classes("items-center gap-3 w-full"):
                         ui.label(summary.recipe_name).style(
                             f"color: {COLORS.text_primary}; font-weight: 500;"
                         )
                         ui.badge(summary.status.value.upper()).style(
-                            f"background: {overall_color}20; color: {overall_color};"
+                            f"background: {overall_color}20;"
+                            f" color: {overall_color};"
                         )
                         ui.space()
                         ui.label(
-                            f"P:{summary.total_pass} F:{summary.total_fail} W:{summary.total_warn}"
-                        ).style(f"color: {COLORS.text_secondary}; font-size: 12px;")
-                        ui.label(f"{summary.duration_ms / 1000:.1f}s").style(
+                            f"P:{summary.total_pass} F:{summary.total_fail}"
+                            f" W:{summary.total_warn}"
+                        ).style(
+                            f"color: {COLORS.text_secondary}; font-size: 12px;"
+                        )
+                        ui.label(format_elapsed(summary.duration_ms)).style(
                             f"color: {COLORS.text_muted}; font-size: 12px;"
                         )
+
+            # Download / export actions
+            if self._device_id:
+                download_action_bar(
+                    report_url=(
+                        f"/api/devices/{self._device_id}"
+                        f"/workflows/report/{self._run_id}"
+                    ),
+                    json_url=(
+                        f"/api/devices/{self._device_id}"
+                        f"/workflows/result/{self._run_id}"
+                    ),
+                )
+
+    def _request_cancel(self) -> None:
+        """Request cancellation via the executor."""
+        from calypso.workflows.workflow_executor import cancel_run
+
+        cancel_run(self._run_id)
+        ui.notify("Cancellation requested", position="top-right", timeout=3000)
 
     def cancel(self) -> None:
         """Stop the polling timer."""
@@ -197,30 +252,3 @@ class WorkflowMonitor:
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
-
-
-def _metric_card(label: str, value: str, color: str) -> None:
-    """Render a small metric card."""
-    with (
-        ui.card()
-        .classes("q-pa-sm")
-        .style(
-            f"background: {COLORS.bg_primary}; border: 1px solid {COLORS.border}; min-width: 80px;"
-        )
-    ):
-        with ui.column().classes("items-center"):
-            ui.label(value).classes("text-h6").style(f"color: {color}; font-weight: bold;")
-            ui.label(label).style(f"color: {COLORS.text_muted}; font-size: 11px;")
-
-
-def _status_to_icon(status: StepStatus) -> str:
-    """Map a step status to a Quasar icon name."""
-    return {
-        StepStatus.PENDING: "radio_button_unchecked",
-        StepStatus.RUNNING: "sync",
-        StepStatus.PASS: "check_circle",
-        StepStatus.FAIL: "cancel",
-        StepStatus.WARN: "warning",
-        StepStatus.SKIP: "skip_next",
-        StepStatus.ERROR: "error",
-    }.get(status, "help_outline")
