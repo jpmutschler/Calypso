@@ -31,7 +31,13 @@ from calypso.workflows.report_sections_helpers import (
     safe_int,
     summary_metrics,
 )
-from calypso.workflows.thresholds import FEC_RATE_FAIL, FEC_RATE_WARN, SKP_RATE_MAX, SKP_RATE_MIN
+from calypso.workflows.thresholds import (
+    FEC_MARGIN_RATIO_CAP,
+    FEC_RATE_FAIL,
+    FEC_RATE_WARN,
+    SKP_RATE_MAX,
+    SKP_RATE_MIN,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -677,7 +683,13 @@ def render_fec_analysis(summary: RecipeSummary) -> str:
             + metric_card("FEC Correctable", str(fec_correctable), corr_color)
             + metric_card("FEC Uncorrectable", str(fec_uncorrectable), uncorr_color)
             + metric_card("Rate (/s)", f"{fec_rate:.1f}", corr_color)
-            + metric_card("Margin Ratio", f"{margin:.1f}x", margin_color)
+            + metric_card(
+                "Margin Ratio",
+                f"\u2265{FEC_MARGIN_RATIO_CAP:.0f}x"
+                if margin >= FEC_MARGIN_RATIO_CAP
+                else f"{margin:.1f}x",
+                margin_color,
+            )
             + metric_card("Soak Duration", f"{soak_s:.0f}s", TEXT_SECONDARY)
             + "</div>"
         )
@@ -706,6 +718,8 @@ def render_fec_analysis(summary: RecipeSummary) -> str:
             "fec_uncorrectable_total",
             "fec_correction_rate",
             "fec_uncorrectable_raw",
+            "fec_total_delta",
+            "fifo_entries_read",
             "fec_correction_ber",
             "soak_duration_s",
             "bits_tested",

@@ -548,6 +548,7 @@ class BerSoakRecipe(Recipe):
         utp_lane_rate = _LANE_RATE_BPS.get(utp_speed_key, 64.0e9)
         utp_bits_tested = elapsed * utp_lane_rate
 
+        thresholds = get_ber_thresholds(utp_link_speed, is_flit_ber=False)
         worst_status = StepStatus.PASS
         lane_details: list[dict[str, object]] = []
 
@@ -563,12 +564,19 @@ class BerSoakRecipe(Recipe):
             if not utp.synced:
                 worst_status = StepStatus.FAIL
                 lane_info["status"] = "no_sync"
-            elif utp.error_count == 0:
-                lane_info["status"] = "pass"
-            else:
-                lane_info["status"] = "errors_detected"
+            elif estimated_ber > thresholds.warn_threshold:
+                lane_info["status"] = "fail"
+                worst_status = StepStatus.FAIL
+            elif estimated_ber > thresholds.pass_threshold:
+                lane_info["status"] = "warn"
                 if worst_status != StepStatus.FAIL:
                     worst_status = StepStatus.WARN
+            elif utp.error_count > 0:
+                lane_info["status"] = "marginal"
+                if worst_status == StepStatus.PASS:
+                    worst_status = StepStatus.WARN
+            else:
+                lane_info["status"] = "pass"
 
             lane_details.append(lane_info)
 

@@ -9,6 +9,7 @@ Supported syntax:
     step_1.pass_rate > 90.0
     step_1.total_pass >= 5 and step_2.status == "pass"
     step_1.status != "fail" or step_2.status == "pass"
+    (step_1.status == "pass" or step_2.status == "pass") and step_3.total_fail == 0
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ _TOKEN_RE = re.compile(
     | (?P<op>==|!=|>=|<=|>|<)       # comparison operators
     | (?P<logic>and|or|not)         # logical operators
     | (?P<bool>true|false)          # boolean literals
+    | (?P<paren>[()]) # parentheses
     | (?P<ref>[a-zA-Z_][\w.]*)      # references (step_id.attr)
     | (?P<ws>\s+)                   # whitespace (ignored)
     """,
@@ -56,7 +58,7 @@ def _tokenize(expression: str) -> list[tuple[str, str]]:
     for match in _TOKEN_RE.finditer(expression):
         if match.group("ws"):
             continue
-        for group_name in ("string", "number", "op", "logic", "bool", "ref"):
+        for group_name in ("string", "number", "op", "logic", "bool", "paren", "ref"):
             value = match.group(group_name)
             if value is not None:
                 tokens.append((group_name, value))
@@ -66,9 +68,40 @@ def _tokenize(expression: str) -> list[tuple[str, str]]:
 
 def _evaluate_tokens(tokens: list[tuple[str, str]], ctx: WorkflowExecutionContext) -> bool:
     """Evaluate tokenized expression with short-circuit logic."""
+    # Resolve parenthesized sub-expressions first
+    tokens = _resolve_parens(tokens, ctx)
     # Split on 'or' first (lowest precedence)
     or_groups = _split_tokens(tokens, "or")
     return any(_evaluate_and_group(group, ctx) for group in or_groups)
+
+
+def _resolve_parens(
+    tokens: list[tuple[str, str]], ctx: WorkflowExecutionContext
+) -> list[tuple[str, str]]:
+    """Recursively resolve innermost parenthesized groups to boolean tokens."""
+    while True:
+        # Find the innermost '(' ... ')' pair
+        last_open = -1
+        for i, (kind, value) in enumerate(tokens):
+            if kind == "paren" and value == "(":
+                last_open = i
+            elif kind == "paren" and value == ")" and last_open >= 0:
+                # Evaluate the sub-expression inside the parens
+                inner = tokens[last_open + 1 : i]
+                result = _evaluate_tokens(inner, ctx)
+                # Replace the entire (...) span with a single bool token
+                tokens = (
+                    tokens[:last_open] + [("bool", "true" if result else "false")] + tokens[i + 1 :]
+                )
+                break
+        else:
+            # No more parens found
+            break
+    # Reject any stray/unmatched parentheses
+    for kind, value in tokens:
+        if kind == "paren":
+            raise ValueError(f"Unmatched parenthesis '{value}' in expression")
+    return tokens
 
 
 def _evaluate_and_group(tokens: list[tuple[str, str]], ctx: WorkflowExecutionContext) -> bool:

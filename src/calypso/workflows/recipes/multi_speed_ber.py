@@ -20,6 +20,7 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
+
 logger = get_logger(__name__)
 
 # (label, link_speed_code, expected_speed_substring)

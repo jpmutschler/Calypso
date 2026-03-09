@@ -10,7 +10,7 @@ import html
 
 from calypso.workflows.models import RecipeSummary
 
-from calypso.workflows.thresholds import NRZ_EYE, PAM4_EYE
+from calypso.workflows.thresholds import PAM4_EYE, get_eye_thresholds
 from calypso.workflows.report_charts import (
     bar_chart,
     metric_card,
@@ -43,14 +43,6 @@ from calypso.workflows.report_sections_helpers import (
 def render_eye_scan(summary: RecipeSummary) -> str:
     """Specialized renderer for eye_quick_scan results."""
     header = section_header("Eye Quick Scan", f"Duration: {summary.duration_ms:.0f}ms")
-
-    criteria = criteria_box(
-        [
-            f"PASS: Eye width >= {NRZ_EYE.pass_ui} UI",
-            f"WARN: Eye width >= {NRZ_EYE.warn_ui} UI",
-            f"FAIL: Eye width < {NRZ_EYE.warn_ui} UI",
-        ]
-    )
 
     columns = [
         "Lane",
@@ -86,6 +78,19 @@ def render_eye_scan(summary: RecipeSummary) -> str:
             ]
         )
 
+    # Select PAM4 or NRZ thresholds based on detected link speed
+    is_pam4 = "Gen6" in link_speed if link_speed else False
+    eye_th = get_eye_thresholds(is_pam4=is_pam4)
+    signal_label = "PAM4" if is_pam4 else "NRZ"
+
+    criteria = criteria_box(
+        [
+            f"PASS: Eye width >= {eye_th.pass_ui} UI ({signal_label})",
+            f"WARN: Eye width >= {eye_th.warn_ui} UI",
+            f"FAIL: Eye width < {eye_th.warn_ui} UI",
+        ]
+    )
+
     table = results_table(columns, rows, status_column=1)
 
     # Per-lane eye width/height bar charts for quick visual scanning
@@ -99,8 +104,8 @@ def render_eye_scan(summary: RecipeSummary) -> str:
                 section_header("Eye Width per Lane (UI)", "")
                 + bar_chart(width_data, bar_color=CYAN, height_px=16)
                 + f'<div style="font-size:11px; color:{TEXT_SECONDARY}; '
-                f'margin:4px 0 8px 0;">PASS \u2265 {NRZ_EYE.pass_ui} UI | '
-                f"WARN \u2265 {NRZ_EYE.warn_ui} UI | FAIL &lt; {NRZ_EYE.warn_ui} UI</div>"
+                f'margin:4px 0 8px 0;">PASS \u2265 {eye_th.pass_ui} UI | '
+                f"WARN \u2265 {eye_th.warn_ui} UI | FAIL &lt; {eye_th.warn_ui} UI</div>"
             )
         if height_data:
             height_chart = section_header("Eye Height per Lane (mV)", "") + bar_chart(

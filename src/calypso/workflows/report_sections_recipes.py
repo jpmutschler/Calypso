@@ -30,7 +30,12 @@ from calypso.workflows.report_sections_helpers import (
     safe_int,
     summary_metrics,
 )
-from calypso.workflows.thresholds import POST_FEC_BER, PRE_FEC_BER, UTILIZATION_WARN
+from calypso.workflows.thresholds import (
+    POST_FEC_BER,
+    PRE_FEC_BER,
+    UTILIZATION_WARN,
+    get_ber_thresholds,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -149,19 +154,36 @@ def render_ber(summary: RecipeSummary) -> str:
     """Specialized renderer for BER results (ber_soak, multi_speed_ber)."""
     header = section_header(summary.recipe_name, f"Duration: {summary.duration_ms:.0f}ms")
 
-    gen5_ber = PRE_FEC_BER["Gen5"]
-    criteria = criteria_box(
-        [
-            f"PASS: BER < {gen5_ber.pass_threshold:.0e}",
-            f"WARN: BER < {gen5_ber.warn_threshold:.0e}",
-            f"FAIL: BER >= {gen5_ber.warn_threshold:.0e}",
-            "BER measures raw bit errors via User Test Pattern (UTP)"
-            " comparison or Flit BER (FBER) counters at 64GT/s.",
-        ]
-    )
-
     # Find the analysis step containing 'lanes' key
     lane_step = find_step_with_key(summary.steps, "lanes")
+
+    # Build speed/mode-aware criteria box
+    if lane_step is not None:
+        mv0 = lane_step.measured_values
+        mode0 = mv0.get("mode", "unknown")
+        speed0 = str(mv0.get("link_speed", ""))
+        is_flit = mode0 == "fber"
+        ber_th = get_ber_thresholds(speed0, is_flit_ber=is_flit) if speed0 else PRE_FEC_BER["Gen5"]
+        method = "FBER counters" if is_flit else "UTP comparison"
+        criteria = criteria_box(
+            [
+                f"PASS: BER < {ber_th.pass_threshold:.0e}",
+                f"WARN: BER < {ber_th.warn_threshold:.0e}",
+                f"FAIL: BER >= {ber_th.warn_threshold:.0e}",
+                f"BER measured via {method} at {speed0 or 'unknown speed'}.",
+            ]
+        )
+    else:
+        gen5_ber = PRE_FEC_BER["Gen5"]
+        criteria = criteria_box(
+            [
+                f"PASS: BER < {gen5_ber.pass_threshold:.0e}",
+                f"WARN: BER < {gen5_ber.warn_threshold:.0e}",
+                f"FAIL: BER >= {gen5_ber.warn_threshold:.0e}",
+                "BER measures raw bit errors via User Test Pattern (UTP)"
+                " comparison or Flit BER (FBER) counters at 64GT/s.",
+            ]
+        )
 
     chart = ""
     lane_table = ""

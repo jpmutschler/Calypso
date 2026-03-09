@@ -7,6 +7,7 @@ Produces a self-contained HTML report comparing two sets of recipe results
 from __future__ import annotations
 
 import html as html_mod
+import math
 
 from calypso.workflows.models import RecipeSummary, StepStatus
 from calypso.workflows.report_charts import (
@@ -243,11 +244,23 @@ def _format_metric_value(key: str, value: float) -> str:
     return str(int(value))
 
 
-def _format_delta(key: str, delta: float) -> str:
-    """Format a delta value with sign."""
+def _format_delta(
+    key: str,
+    delta: float,
+    baseline: float | None = None,
+    current: float | None = None,
+) -> str:
+    """Format a delta value with sign and optional magnitude context."""
     sign = "+" if delta > 0 else ""
     if "ber" in key:
-        return f"{sign}{format_ber(delta)}"
+        base_str = f"{sign}{format_ber(delta)}"
+        # Add orders-of-magnitude context for BER keys
+        if baseline is not None and current is not None and baseline > 0 and current > 0:
+            orders = math.log10(current / baseline)
+            if abs(orders) >= 1.0:
+                direction = "worse" if orders > 0 else "better"
+                base_str += f" ({abs(orders):.1f} OoM {direction})"
+        return base_str
     if abs(delta) >= 1e6:
         return f"{sign}{delta:.2e}"
     if isinstance(delta, float) and delta != int(delta):
@@ -506,7 +519,7 @@ def _render_recipe_comparison(
             delta = curr_val - base_val
             if delta != 0:
                 lower = lower_map.get(key)
-                d_str = _format_delta(key, delta)
+                d_str = _format_delta(key, delta, baseline=base_val, current=curr_val)
                 if lower is None:
                     # Auto-discovered metric: show delta without direction color
                     delta_str = f'<span style="color:{TEXT_SECONDARY};">{d_str}</span>'
@@ -566,7 +579,7 @@ def _render_recipe_comparison(
                     if d != 0:
                         lower = lane_lower.get(mk, True)
                         color = _delta_color(d, lower)
-                        d_str = _format_delta(mk, d)
+                        d_str = _format_delta(mk, d, baseline=bv, current=cv)
                         delta_str = f'<span style="color:{color}; font-weight:600;">{d_str}</span>'
                 label = lane_labels.get(mk, mk)
                 lane_rows.append([str(ln), label, bv_str, cv_str, delta_str])

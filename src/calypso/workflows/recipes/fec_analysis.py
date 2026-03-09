@@ -18,7 +18,7 @@ from calypso.workflows.models import (
     StepCriticality,
     StepStatus,
 )
-from calypso.workflows.thresholds import FEC_RATE_FAIL, FEC_RATE_WARN
+from calypso.workflows.thresholds import FEC_MARGIN_RATIO_CAP, FEC_RATE_FAIL, FEC_RATE_WARN
 
 logger = get_logger(__name__)
 
@@ -318,39 +318,33 @@ class FecAnalysisRecipe(Recipe):
         if result.status == StepStatus.ERROR:
             return self._make_summary(steps, start_time, params, device_id)
 
-        # --- Step 4b: Count uncorrectable events ---
+        # --- Step 4b: Count uncorrectable events via Flit Error Log FIFO ---
         step = "Count uncorrectable events"
         yield self._make_running(step)
         t0 = time.monotonic()
         fec_uncorrectable = 0
         try:
-            # Reconfigure counter for FEC uncorrectable only (events_to_count=1)
-            reader.configure_flit_error_counter(enable=True, events_to_count=1)
-            # Brief soak to accumulate uncorrectable count
-            time.sleep(min(2.0, soak_duration_s * 0.1))
-            uncorr_status = reader.get_flit_logging_status()
+            # Read Flit Error Log FIFO entries and classify uncorrectable events.
+            # FIFO depth is limited (typically 64 entries); if the FIFO overflowed
+            # during the soak, the uncorrectable count may undercount.
+            entries = reader.read_all_flit_error_log_entries(max_entries=64)
+            fec_uncorrectable = sum(1 for e in entries if e.fec_uncorrectable)
             dur = _elapsed_ms(t0)
-
-            if uncorr_status is not None:
-                fec_uncorrectable = uncorr_status.error_counter.counter
-                result = self._make_result(
-                    step,
-                    StepStatus.PASS,
-                    message=f"FEC uncorrectable count: {fec_uncorrectable}",
-                    criticality=StepCriticality.MEDIUM,
-                    measured_values={"fec_uncorrectable_raw": fec_uncorrectable},
-                    duration_ms=dur,
-                    port_number=port_number,
-                )
-            else:
-                result = self._make_result(
-                    step,
-                    StepStatus.WARN,
-                    message="Could not read uncorrectable counter; using 0",
-                    criticality=StepCriticality.MEDIUM,
-                    duration_ms=dur,
-                    port_number=port_number,
-                )
+            result = self._make_result(
+                step,
+                StepStatus.PASS,
+                message=(
+                    f"FEC uncorrectable count: {fec_uncorrectable}"
+                    f" (from {len(entries)} FIFO entries)"
+                ),
+                criticality=StepCriticality.MEDIUM,
+                measured_values={
+                    "fec_uncorrectable_raw": fec_uncorrectable,
+                    "fifo_entries_read": len(entries),
+                },
+                duration_ms=dur,
+                port_number=port_number,
+            )
         except Exception as exc:
             dur = _elapsed_ms(t0)
             logger.debug("fec_uncorrectable_read_failed", error=str(exc))
@@ -387,8 +381,12 @@ class FecAnalysisRecipe(Recipe):
         # Corrections per bit (rough FEC correction BER)
         fec_ber = fec_delta / bits_tested if bits_tested > 0 else 0.0
 
-        # Margin ratio: how far from the fail threshold
-        fec_margin_ratio = FEC_RATE_FAIL / fec_rate if fec_rate > 0 else float("inf")
+        # Margin ratio: how far from the fail threshold (capped for JSON safety)
+        fec_margin_ratio = (
+            min(FEC_RATE_FAIL / fec_rate, FEC_MARGIN_RATIO_CAP)
+            if fec_rate > 0
+            else FEC_MARGIN_RATIO_CAP
+        )
 
         if fec_rate >= FEC_RATE_FAIL:
             status = StepStatus.FAIL

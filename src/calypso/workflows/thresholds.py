@@ -102,10 +102,6 @@ def get_eye_thresholds(*, is_pam4: bool = False) -> EyeThresholds:
 
 
 # ---------------------------------------------------------------------------
-# Comparison report: metric direction defaults
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # FEC correction rate thresholds (corrections per second)
 # A high rate suggests the channel is operating near its error correction limit
 # ---------------------------------------------------------------------------
@@ -135,6 +131,9 @@ UTILIZATION_WARN = 0.90
 
 SKP_RATE_MIN = 0.001
 SKP_RATE_MAX = 0.05
+
+# Cap for FEC margin ratio to avoid float("inf") in JSON serialization
+FEC_MARGIN_RATIO_CAP = 9999.0
 
 
 # ---------------------------------------------------------------------------
