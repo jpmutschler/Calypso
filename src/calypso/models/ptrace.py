@@ -241,3 +241,93 @@ class PTraceBufferResult(BaseModel):
     triggered: bool = False
     tbuf_wrapped: bool = False
     total_rows_read: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Decoded trace buffer models (used by ptrace_decoder)
+# ---------------------------------------------------------------------------
+
+
+class TraceFormat(IntEnum):
+    """Trace buffer format version (from IPAL_BUFFER_HEADER.TraceFormat)."""
+
+    TRACE0 = 0  # Original format
+    TRACE1 = 1  # Updated format with link speed, compression, wider interval count
+
+
+class TraceEntryType(IntEnum):
+    """Trace entry type discriminator (footer bits [31:30])."""
+
+    TIMESTAMP = 0  # 00b — timestamp marker
+    TRIGGER = 1  # 01b — trigger event marker
+    DATA = 2  # 10b — captured trace data
+    COMPRESS = 3  # 11b — compressed repeat (TRACE1 only)
+
+
+class PacketToken(IntEnum):
+    """Per-lane metadata token for TLP/DLLP capture modes (IPAL_DATA0_PACKET_TOKEN)."""
+
+    NULL = 0  # Filler / no packet boundary
+    DLLP_START = 1  # This DWORD starts a DLLP
+    TLP_START = 2  # This DWORD starts a TLP
+    TLP_DLLP_END = 3  # This DWORD ends a TLP or DLLP
+
+
+class SymbolToken(IntEnum):
+    """Per-lane metadata token for symbol capture modes (IPAL_DATA0_SYMBOL_TOKEN)."""
+
+    UNDEFINED = 0  # No additional information
+    START_OS_BLOCK = 1  # Start of ordered-set block (sync header 01b, Gen3-5)
+    DATA_BLOCK = 2  # Part of a data block (Gen3-5)
+    RESERVED = 3  # Reserved for future use
+
+
+class DecodedFooter(BaseModel, frozen=True):
+    """Decoded footer DWORD from a trace buffer entry."""
+
+    entry_type: TraceEntryType
+    interval_count: int = 0
+    link_speed: int | None = None  # 3-bit field, TRACE1 only; None for TRACE0
+    compress_count: int | None = None  # 12-bit field, TRACE1 COMPRESS/TRIGGER_DATA only
+    timestamp_or_data: bool | None = None  # Bit 29, TRIGGER entries only
+    raw: int = Field(0, ge=0, le=0xFFFFFFFF)
+
+
+class DecodedMetadata(BaseModel, frozen=True):
+    """Decoded metadata DWORD — 2-bit token per captured lane."""
+
+    raw: int = Field(0, ge=0, le=0xFFFFFFFF)
+    lane_tokens: tuple[int, ...] = Field(
+        default_factory=lambda: (0,) * 16,
+        description="16 two-bit token values, indexed by lane number",
+    )
+
+
+class DecodedTraceEntry(BaseModel, frozen=True):
+    """A fully decoded trace buffer entry."""
+
+    row_index: int
+    entry_type: TraceEntryType
+    footer: DecodedFooter
+    metadata: DecodedMetadata | None = None  # None for TIMESTAMP entries
+    payload_dwords: tuple[int, ...] = Field(default_factory=tuple)  # DW[0:15]
+    payload_hex: str = ""  # DW[0:15] as hex string
+    timestamp: int | None = None  # 64-bit value, TIMESTAMP entries only
+    dword_18: int = 0  # Atlas3 19th DWORD (purpose TBD, stored for forward compat)
+    is_trigger_point: bool = False
+
+
+class DecodedTraceBuffer(BaseModel, frozen=True):
+    """Fully decoded trace buffer with summary statistics."""
+
+    direction: PTraceDirection
+    port_number: int
+    trace_format: TraceFormat
+    entries: tuple[DecodedTraceEntry, ...] = Field(default_factory=tuple)
+    total_entries: int = 0
+    timestamp_count: int = 0
+    data_count: int = 0
+    trigger_count: int = 0
+    compress_count: int = 0
+    trigger_index: int | None = None  # Index into entries list, or None
+    buffer_wrapped: bool = False

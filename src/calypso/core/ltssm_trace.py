@@ -240,6 +240,10 @@ class LtssmTracer:
         Disables the port briefly to trigger a retrain, then polls LTSSM state
         every 20ms, recording each transition with a timestamp.
 
+        Note: The Recovery Diagnostic register reports instantaneous state only
+        (no FIFO).  20ms polling will miss fast intermediate transitions.
+        PTrace-based capture is planned to provide cycle-accurate tracing.
+
         Args:
             device_id: Device identifier for progress tracking.
             timeout_s: Maximum time to watch for transitions.

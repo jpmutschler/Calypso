@@ -164,6 +164,8 @@ _LTSSM_SUB_STATES: dict[int, dict[int, str]] = {
         0x18: "Recovery.EqPh2.UP",
         0x19: "Recovery.EqPh1.UP",
         0x1E: "Recovery.TxCtlSkp",
+        # MyEqPhase is a Broadcom-specific sub-state for local equalization
+        # control (LTSSM_TRIG_RECOVERY_MYEQPHASE).  Not a PCIe spec name.
         0x1F: "Recovery.MyEqPhase",
     },
     LtssmTopState.LOOPBACK: {
@@ -199,25 +201,25 @@ _LTSSM_SUB_STATES: dict[int, dict[int, str]] = {
         0x0F: "Disabled.Rate",
     },
     LtssmTopState.L0S: {
-        0x00: "L0s.Idle",
+        0x00: "L0s.PreIdle",  # Broadcom LP_IDLE_1 (internal pre-state)
         0x01: "L0s.Entry",
-        0x02: "L0s.Active",
+        0x02: "L0s.Idle",  # Broadcom LP_L0SIDLE (actual L0s idle)
         0x03: "L0s.TxFTS",
         0x04: "L0s.TxSkp",
         0x0A: "L0s.TxEIE",
         0x0C: "L0s.TxSDSM",
     },
     LtssmTopState.L1: {
-        0x00: "L1.Idle",
+        0x00: "L1.PreIdle",  # Broadcom LP_IDLE_2 (internal pre-state)
         0x05: "L1.RxEIOS",
-        0x06: "L1.Active",
+        0x06: "L1.Idle",  # Broadcom LP_L1IDLE (actual L1 idle)
     },
     LtssmTopState.L2: {
-        0x00: "L2.Idle",
+        0x00: "L2.PreIdle",  # Broadcom LP_IDLE_3 (internal pre-state)
         0x08: "L2.RxEIOS",
         0x09: "L2.Rate",
         0x0D: "L2.RateOk",
-        0x0F: "L2.Active",
+        0x0F: "L2.Idle",  # Broadcom LP_L2IDLE (actual L2 idle)
     },
 }
 
